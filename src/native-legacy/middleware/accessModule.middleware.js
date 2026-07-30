@@ -17,9 +17,6 @@ class accessModule {
     ];
   }
 
-
-
-  // access reports
   async accessReports(req, res, next) {
     try {
       let { selectedProgramId } = req.query;
@@ -152,111 +149,10 @@ class accessModule {
     }
   }
 
-  async annualTrentReport(req, res, next) {
-    try {
-      if (!req.program?.Program_Year)
-        return res.json({ success: false, message: "No Program_Year found" });
 
-      const getYearFromProgram = (p) => {
-        const explicit = p?.Program_Year ? String(p.Program_Year) : "";
-        const name = p?.Name ? String(p.Name) : "";
-        const match = name.match(/\d{4}/);
-        const nameYear = match ? match[0] : "";
-        if (explicit && nameYear && explicit !== nameYear) return nameYear;
-        return explicit || nameYear || "";
-      };
 
-      let prevYearProgram = null;
-      
-      // First, try to find previous year program using the new Previous_Year_Program field
-      if (req.program?.Previous_Year_Program?.id) {
-        try {
-          prevYearProgram = await Program.findOne({
-            id: req.program.Previous_Year_Program.id
-          }).lean();
-        } catch (error) {
-        }
-      }
-      
-      // If not found using Previous_Year_Program field, try user's accessible previous year program first
-      if (!prevYearProgram) {
-        // Find all organization programs for this user
-        const userOrgPrograms = await OrganizationProgram.find({
-          organizationId: ObjectId(req.user?.organizationId._id),
-        }).populate("programId");
-        
-        const currentYear = getYearFromProgram(req.program);
-        const previousYear = moment(currentYear).add(-1, "years").format("YYYY");
-        
-        // Find the previous year program that the user actually has access to
-        const userPrevYearProgram = userOrgPrograms.find(orgProg => 
-          String(orgProg.programId?.Program_Year || "") === previousYear ||
-          getYearFromProgram(orgProg.programId) === previousYear
-        );
-        
-        if (userPrevYearProgram) {
-          prevYearProgram = userPrevYearProgram.programId;
-          req.lastYear = getYearFromProgram(userPrevYearProgram.programId);
-        }
-      }
-      
-      // If still not found, fall back to existing logic (project-based lookup)
-      if (!prevYearProgram) {
-        let lastYear = moment(getYearFromProgram(req.program))
-          .add(-1, "years")
-          .format("YYYY");
-        req.lastYear = lastYear;
-        let query = {
-          Program_Year: lastYear,
-          projectId: ObjectId(req.program.projectId),
-        };
-        if (req.program.Name.includes("Suppliers"))
-          query = { ...query, Name: { $in: [new RegExp("Allied to the Field"), new RegExp("Suppliers")] } };
-        if (req.program.Name.includes("Providers/Insurers"))
-          query = { ...query, Name: new RegExp("Providers/Insurers") };
-        prevYearProgram = await Program.findOne(query);
-        if (!prevYearProgram) {
-          const nameQuery = {
-            ...query,
-            Program_Year: undefined,
-            Name: new RegExp(lastYear),
-          };
-          delete nameQuery.Program_Year;
-          prevYearProgram = await Program.findOne(nameQuery);
-        }
-      } else {
-        req.lastYear = getYearFromProgram(prevYearProgram);
-      }
-      
-      req.prevYearProgram = prevYearProgram;
+  // access reports
 
-      if (!req.prevYearProgram) {
-        return res.json({
-          success: false,
-          message: "No last year program found with selected id",
-        });
-      }
-
-      req.prevYearOrganizationProgramData = await OrganizationProgram.findOne({
-        organizationId: ObjectId(req.user?.organizationId._id),
-        programId: ObjectId(req.prevYearProgram._id),
-      })
-        .populate("programId")
-        .populate("projectId")
-        .lean();
-
-      if (!req.prevYearOrganizationProgramData) {
-        return res.json({ success: false, message: "No previous year found" });
-      }
-      return next();
-    } catch (error) {
-      console.log(error, "error in annualTrentReport");
-      return res.status(500).json({
-        message: "Something went wrong",
-        error: error,
-      });
-    }
-  }
 
   async adminAccess(req, res, next) {
     try {

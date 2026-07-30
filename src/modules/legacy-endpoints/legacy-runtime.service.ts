@@ -125,14 +125,8 @@ export class LegacyRuntimeService {
     const existing = this.controllers.get(name);
     if (existing) return existing;
     const files: Record<string, string> = {
-      reports: "controllers/clients/reports.controllers.js",
-      employer: "controllers/clients/employerBenchmark.controllers.js",
-      management: "controllers/management.controller.js",
-      dashboard: "controllers/dashboard.controller.js",
-      ecom: "controllers/Ecom.controller.js",
       webhook: "controllers/webhook.controller.js",
       schedule: "controllers/scheduleJobs.controller.js",
-      zoho: "controllers/zohomodule.controller.js",
     };
     const file = files[name];
     if (!file)
@@ -148,9 +142,6 @@ export class LegacyRuntimeService {
     const access = legacyRequire(
       path.join(nativeLegacyRoot, "middleware/accessModule.middleware.js"),
     );
-    const benchmark = legacyRequire(
-      path.join(nativeLegacyRoot, "middleware/benchmark.middleware.js"),
-    );
     const token = legacyRequire(
       path.join(nativeLegacyRoot, "middleware/jwtVerify.middleware.js"),
     );
@@ -163,9 +154,6 @@ export class LegacyRuntimeService {
       uploads: access.uploadDownloadCustomReportAccess.bind(access),
       keyImpact: access.uploadKeyImpactAnalysisAccess.bind(access),
       orders: access.orderLogAccess.bind(access),
-      benchmark: benchmark.generateOrgCats.bind(benchmark),
-      employerData: this.controller("employer").generateBnBData,
-      annualTrend: access.annualTrentReport.bind(access),
     };
     const fn = entries[name];
     this.middleware.set(name, fn);

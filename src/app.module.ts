@@ -8,8 +8,10 @@ import { validateEnv, type Env } from "./config/env.js";
 import { DatabaseModule } from "./database/database.module.js";
 import { AuthModule } from "./modules/auth/auth.module.js";
 import { CommerceModule } from "./modules/commerce/commerce.module.js";
+import { CompatibilityPaymentModule } from "./modules/commerce/compatibility-payment.module.js";
 import { ContentModule } from "./modules/content/content.module.js";
 import { CrmSyncModule } from "./modules/crm-sync/crm-sync.module.js";
+import { CompatibilityZohoModule } from "./modules/crm-sync/compatibility-zoho.module.js";
 import { HealthModule } from "./modules/health/health.module.js";
 import { IntegrationsModule } from "./modules/integrations/integrations.module.js";
 import { WebhooksModule } from "./modules/integrations/webhooks.module.js";
@@ -21,6 +23,8 @@ import { SurveysModule } from "./modules/surveys/surveys.module.js";
 import { TenantsModule } from "./modules/tenants/tenants.module.js";
 import { UsersModule } from "./modules/users/users.module.js";
 import { AccountAccessModule } from "./modules/users/account-access.module.js";
+import { CompatibilityManagementModule } from "./modules/management/compatibility-management.module.js";
+import { CompatibilityAdminModule } from "./modules/management/compatibility-admin.module.js";
 
 @Module({
   imports: [
@@ -77,9 +81,13 @@ import { AccountAccessModule } from "./modules/users/account-access.module.js";
     SurveysModule,
     ReportsModule,
     CompatibilityReportsModule,
+    CompatibilityManagementModule,
+    CompatibilityAdminModule,
     CommerceModule,
+    CompatibilityPaymentModule,
     IntegrationsModule,
     CrmSyncModule,
+    CompatibilityZohoModule,
     ContentModule,
     OpsModule,
     WebhooksModule,

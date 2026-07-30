@@ -8,69 +8,45 @@ export class LegacyEndpointsController {
   constructor(private readonly runtime: LegacyRuntimeService) {}
 
   @All("user")
-  user(@Req() request: AnyRecord, @Res() reply: AnyRecord) { return this.runtime.handle(request, reply); }
+  user(@Req() request: AnyRecord, @Res() reply: AnyRecord) {
+    return this.runtime.handle(request, reply);
+  }
 
   @All("user/:one")
-  userOne(@Req() request: AnyRecord, @Res() reply: AnyRecord) { return this.runtime.handle(request, reply); }
+  userOne(@Req() request: AnyRecord, @Res() reply: AnyRecord) {
+    return this.runtime.handle(request, reply);
+  }
   @All("user/:one/:two")
-  userTwo(@Req() request: AnyRecord, @Res() reply: AnyRecord) { return this.runtime.handle(request, reply); }
+  userTwo(@Req() request: AnyRecord, @Res() reply: AnyRecord) {
+    return this.runtime.handle(request, reply);
+  }
   @All("user/:one/:two/:three")
-  userThree(@Req() request: AnyRecord, @Res() reply: AnyRecord) { return this.runtime.handle(request, reply); }
+  userThree(@Req() request: AnyRecord, @Res() reply: AnyRecord) {
+    return this.runtime.handle(request, reply);
+  }
   @All("user/:one/:two/:three/:four")
-  userFour(@Req() request: AnyRecord, @Res() reply: AnyRecord) { return this.runtime.handle(request, reply); }
-
-  @All("client")
-  client(@Req() request: AnyRecord, @Res() reply: AnyRecord) { return this.runtime.handle(request, reply); }
-  @All("client/:one")
-  clientOne(@Req() request: AnyRecord, @Res() reply: AnyRecord) { return this.runtime.handle(request, reply); }
-  @All("client/:one/:two")
-  clientTwo(@Req() request: AnyRecord, @Res() reply: AnyRecord) { return this.runtime.handle(request, reply); }
-  @All("client/:one/:two/:three")
-  clientThree(@Req() request: AnyRecord, @Res() reply: AnyRecord) { return this.runtime.handle(request, reply); }
-  @All("client/:one/:two/:three/:four")
-  clientFour(@Req() request: AnyRecord, @Res() reply: AnyRecord) { return this.runtime.handle(request, reply); }
-
-  @All("admin")
-  admin(@Req() request: AnyRecord, @Res() reply: AnyRecord) { return this.runtime.handle(request, reply); }
-  @All("admin/:one")
-  adminOne(@Req() request: AnyRecord, @Res() reply: AnyRecord) { return this.runtime.handle(request, reply); }
-  @All("admin/:one/:two")
-  adminTwo(@Req() request: AnyRecord, @Res() reply: AnyRecord) { return this.runtime.handle(request, reply); }
-  @All("admin/:one/:two/:three")
-  adminThree(@Req() request: AnyRecord, @Res() reply: AnyRecord) { return this.runtime.handle(request, reply); }
-  @All("admin/:one/:two/:three/:four")
-  adminFour(@Req() request: AnyRecord, @Res() reply: AnyRecord) { return this.runtime.handle(request, reply); }
-
-  @All("dashboard")
-  dashboard(@Req() request: AnyRecord, @Res() reply: AnyRecord) { return this.runtime.handle(request, reply); }
-  @All("dashboard/:one")
-  dashboardOne(@Req() request: AnyRecord, @Res() reply: AnyRecord) { return this.runtime.handle(request, reply); }
-  @All("dashboard/:one/:two")
-  dashboardTwo(@Req() request: AnyRecord, @Res() reply: AnyRecord) { return this.runtime.handle(request, reply); }
-
-  @All("payment")
-  payment(@Req() request: AnyRecord, @Res() reply: AnyRecord) { return this.runtime.handle(request, reply); }
-  @All("payment/:one")
-  paymentOne(@Req() request: AnyRecord, @Res() reply: AnyRecord) { return this.runtime.handle(request, reply); }
-  @All("payment/:one/:two")
-  paymentTwo(@Req() request: AnyRecord, @Res() reply: AnyRecord) { return this.runtime.handle(request, reply); }
-
-  @All("zoho")
-  zoho(@Req() request: AnyRecord, @Res() reply: AnyRecord) { return this.runtime.handle(request, reply); }
-  @All("zoho/:one")
-  zohoOne(@Req() request: AnyRecord, @Res() reply: AnyRecord) { return this.runtime.handle(request, reply); }
-  @All("zoho/:one/:two")
-  zohoTwo(@Req() request: AnyRecord, @Res() reply: AnyRecord) { return this.runtime.handle(request, reply); }
+  userFour(@Req() request: AnyRecord, @Res() reply: AnyRecord) {
+    return this.runtime.handle(request, reply);
+  }
 
   @All("webhook")
-  webhook(@Req() request: AnyRecord, @Res() reply: AnyRecord) { return this.runtime.handle(request, reply); }
+  webhook(@Req() request: AnyRecord, @Res() reply: AnyRecord) {
+    return this.runtime.handle(request, reply);
+  }
   @All("webhook/:one")
-  webhookOne(@Req() request: AnyRecord, @Res() reply: AnyRecord) { return this.runtime.handle(request, reply); }
+  webhookOne(@Req() request: AnyRecord, @Res() reply: AnyRecord) {
+    return this.runtime.handle(request, reply);
+  }
   @All("webhook/:one/:two")
-  webhookTwo(@Req() request: AnyRecord, @Res() reply: AnyRecord) { return this.runtime.handle(request, reply); }
+  webhookTwo(@Req() request: AnyRecord, @Res() reply: AnyRecord) {
+    return this.runtime.handle(request, reply);
+  }
   @All("webhook/:one/:two/:three")
-  webhookThree(@Req() request: AnyRecord, @Res() reply: AnyRecord) { return this.runtime.handle(request, reply); }
+  webhookThree(@Req() request: AnyRecord, @Res() reply: AnyRecord) {
+    return this.runtime.handle(request, reply);
+  }
   @All("webhook/:one/:two/:three/:four")
-  webhookFour(@Req() request: AnyRecord, @Res() reply: AnyRecord) { return this.runtime.handle(request, reply); }
-
+  webhookFour(@Req() request: AnyRecord, @Res() reply: AnyRecord) {
+    return this.runtime.handle(request, reply);
+  }
 }

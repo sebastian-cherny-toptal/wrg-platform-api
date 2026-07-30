@@ -1403,6 +1403,744 @@ export class CompatibilityReportsService {
     };
   }
 
+  async responseDetailQuestionResult(
+    principal: Principal,
+    query: ReportQuery,
+    questionReference: string,
+    filterReference: string,
+    version = "1",
+  ) {
+    const context = await this.context(principal, query);
+    const isDummy =
+      query.isDummy || this.requiresDemo(principal, context, "RD_Access");
+    if (isDummy) {
+      return {
+        success: true,
+        message: "success",
+        data: [
+          ["", "Operations", "Sales", "Technology"],
+          [
+            "Strongly Agree",
+            { percentile: "72%", respondentCount: 18 },
+            { percentile: "68%", respondentCount: 17 },
+            { percentile: "76%", respondentCount: 19 },
+          ],
+          [
+            "Agree",
+            { percentile: "20%", respondentCount: 5 },
+            { percentile: "24%", respondentCount: 6 },
+            { percentile: "20%", respondentCount: 5 },
+          ],
+          ["Question Total", "92%", "92%", "96%"],
+        ],
+      };
+    }
+    const allQuestions = await this.prisma.question.findMany({
+      where: { surveyId: context.survey.id },
+      orderBy: { position: "asc" },
+      select: {
+        id: true,
+        legacyId: true,
+        externalId: true,
+        dataLabel: true,
+        caption: true,
+        type: true,
+        position: true,
+        metadata: true,
+      },
+    });
+    const question = this.resolveQuestions(allQuestions, [
+      questionReference,
+    ])[0];
+    const filterQuestion = this.resolveQuestions(allQuestions, [
+      filterReference,
+    ])[0];
+    if (!question || !filterQuestion) {
+      throw new NotFoundException("Question not found");
+    }
+    const respondents = await this.organizationRespondents(context);
+    if (respondents.length < privacyThreshold) {
+      return {
+        success: true,
+        message:
+          "The information is not visible due to confidentiality reasons. The number of employee responses is less than 5.",
+        data: [],
+      };
+    }
+    const groups = new Map<string, DetailedRespondent[]>();
+    for (const respondent of respondents) {
+      const filterResponse = respondent.responses.find(
+        ({ questionId }) => questionId === filterQuestion.id,
+      );
+      const caption = filterResponse
+        ? responseCaption(filterResponse.value)
+        : null;
+      if (!caption) continue;
+      const existing = groups.get(caption) ?? [];
+      existing.push(respondent);
+      groups.set(caption, existing);
+    }
+    const headers = [...groups.keys()].sort((left, right) =>
+      left.localeCompare(right),
+    );
+    const answerOptions = this.questionOptions(question, respondents);
+    const data: unknown[][] = [["", ...headers]];
+    for (const option of answerOptions) {
+      const row: unknown[] = [option];
+      for (const header of headers) {
+        const group = groups.get(header) ?? [];
+        const count = group.filter((respondent) => {
+          const answer = respondent.responses.find(
+            ({ questionId }) => questionId === question.id,
+          );
+          return responseCaption(answer?.value ?? null) === option;
+        }).length;
+        if (group.length < privacyThreshold || count < privacyThreshold) {
+          row.push("x");
+          continue;
+        }
+        const percentile = `${Math.round((count * 100) / group.length)}%`;
+        row.push(
+          version === "1" ? { percentile, respondentCount: count } : percentile,
+        );
+      }
+      data.push(row);
+    }
+    const totalRow: unknown[] = ["Question Total"];
+    for (const header of headers) {
+      const group = groups.get(header) ?? [];
+      const answered = group.filter((respondent) =>
+        respondent.responses.some(
+          ({ questionId, value }) =>
+            questionId === question.id && Boolean(responseCaption(value)),
+        ),
+      ).length;
+      if (group.length < privacyThreshold || answered < privacyThreshold) {
+        totalRow.push("x");
+      } else {
+        const average = `${Math.round((answered * 100) / respondents.length)}%`;
+        totalRow.push(
+          version === "1" ? { average, respondentCount: answered } : average,
+        );
+      }
+    }
+    data.push(totalRow);
+    return { success: true, message: "success", data };
+  }
+
+  async demographicResponseCounts(principal: Principal, query: ReportQuery) {
+    const context = await this.context(principal, query);
+    const isDummy =
+      query.isDummy || this.requiresDemo(principal, context, "WFR_Access");
+    if (isDummy) {
+      return {
+        success: true,
+        message: "success",
+        data: [
+          {
+            QuestionId: "sample-demographic-department",
+            category: "Workplace Demographics",
+            categoryLabel: "Department",
+            options: [
+              { Caption: "Operations", Count: 12 },
+              { Caption: "Sales", Count: 9 },
+              { Caption: "Technology", Count: 14 },
+            ],
+          },
+          {
+            QuestionId: "sample-demographic-gender",
+            category: "Personal Demographics",
+            categoryLabel: "Gender",
+            options: [
+              { Caption: "Female", Count: 18 },
+              { Caption: "Male", Count: 15 },
+              { Caption: "Non-Binary", Count: 5 },
+            ],
+          },
+        ],
+      };
+    }
+    const respondents = await this.organizationRespondents(context);
+    const questions = new Map<string, DetailedResponse["question"]>();
+    const counts = new Map<string, Map<string, number>>();
+    for (const respondent of respondents) {
+      for (const response of respondent.responses) {
+        if (!this.isDemographicQuestion(response.question)) continue;
+        const caption = responseCaption(response.value);
+        if (!caption) continue;
+        questions.set(response.questionId, response.question);
+        const options =
+          counts.get(response.questionId) ?? new Map<string, number>();
+        options.set(caption, (options.get(caption) ?? 0) + 1);
+        counts.set(response.questionId, options);
+      }
+    }
+    const data = [...questions.entries()]
+      .sort(([, left], [, right]) => left.position - right.position)
+      .map(([questionId, question]) => {
+        const categoryLabel = this.demographicLabel(question);
+        return {
+          QuestionId: question.legacyId ?? question.externalId ?? question.id,
+          category: this.demographicCategory(categoryLabel),
+          categoryLabel,
+          options: [...(counts.get(questionId) ?? new Map<string, number>())]
+            .sort(([left], [right]) => left.localeCompare(right))
+            .map(([Caption, Count]) => ({ Caption, Count })),
+        };
+      });
+    return { success: true, message: "success", data };
+  }
+
+  async customReports(principal: Principal, query: ReportQuery) {
+    const context = await this.context(principal, query);
+    const assets = await this.prisma.asset.findMany({
+      where: { organizationId: context.organizationId },
+      orderBy: { createdAt: "desc" },
+    });
+    const data = assets
+      .filter((asset) => {
+        const metadata = jsonObject(asset.metadata);
+        return (
+          metadata.kind === "customReport" &&
+          metadata.programId === context.program.id
+        );
+      })
+      .map((asset) => ({
+        _id: asset.legacyId ?? asset.id,
+        key: asset.key,
+        bucket: asset.bucket,
+        fileType: asset.contentType,
+        fileSize: Number(asset.sizeBytes),
+        createdAt: asset.createdAt,
+        ...jsonObject(asset.metadata),
+      }));
+    if (data.length === 0) {
+      throw new NotFoundException("no data found");
+    }
+    return { success: true, message: "success", data };
+  }
+
+  async employerBenchmark(principal: Principal, query: ReportQuery) {
+    const context = await this.employerContext(principal, query);
+    const isDummy =
+      query.isDummy || this.requiresDemo(principal, context, "BBP_Access");
+    const groups = this.groups(context, isDummy);
+    if (isDummy) {
+      return {
+        success: true,
+        message: "true",
+        data: {
+          tableHeaders: this.tableHeaders(groups),
+          tableData: [
+            {
+              title: "Benefits",
+              nestedData: [
+                {
+                  title: "Does your organization offer flexible scheduling?",
+                  type: "%",
+                  nestedData: [
+                    {
+                      title: "Yes",
+                      type: "%",
+                      dataValues: groups.map((group, index) =>
+                        this.dummyPercentage(group, index),
+                      ),
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      };
+    }
+    const questions = await this.employerQuestions(context.survey.id);
+    const responses =
+      questions.length === 0
+        ? []
+        : await this.agreementResponses(context.survey.id, questions);
+    const groupedQuestions = this.questionsByCategory(questions);
+    const tableData = sortedCategories(groupedQuestions.keys()).map(
+      (category) => ({
+        title: category,
+        nestedData: (groupedQuestions.get(category) ?? []).map((question) => {
+          const options = [
+            ...new Set(
+              responses.flatMap((response) => {
+                if (response.questionId !== question.id) return [];
+                const caption = responseCaption(response.value);
+                return caption ? [caption] : [];
+              }),
+            ),
+          ].sort((left, right) => left.localeCompare(right));
+          return {
+            id: question.legacyId ?? question.externalId ?? question.id,
+            title: question.caption,
+            type: "%",
+            nestedData: options.map((option) => ({
+              title: option,
+              type: "%",
+              dataValues: groups.map((group) =>
+                group.hidden
+                  ? "x"
+                  : this.captionPercentage(
+                      responses,
+                      question.id,
+                      group.organizationIds,
+                      option,
+                    ),
+              ),
+            })),
+          };
+        }),
+      }),
+    );
+    return {
+      success: true,
+      message: "true",
+      data: { tableHeaders: this.tableHeaders(groups), tableData },
+    };
+  }
+
+  async employerBenchmarkWorkbook(
+    principal: Principal,
+    query: ReportQuery,
+  ): Promise<Buffer> {
+    const report = await this.employerBenchmark(principal, query);
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet("Benefits & Best Practices");
+    worksheet.columns = [
+      { header: "Section / Question / Response", key: "title", width: 62 },
+      ...report.data.tableHeaders.map((header, index) => ({
+        header: header.title ?? `Group ${index + 1}`,
+        key: `group${index}`,
+        width: 20,
+      })),
+    ];
+    for (const section of report.data.tableData) {
+      worksheet.addRow({ title: section.title });
+      for (const question of section.nestedData) {
+        worksheet.addRow({ title: question.title });
+        for (const answer of question.nestedData) {
+          worksheet.addRow({
+            title: `  ${answer.title}`,
+            ...answer.dataValues.reduce(
+              (row, value, index) => ({
+                ...row,
+                [`group${index}`]: value,
+              }),
+              {},
+            ),
+          });
+        }
+      }
+    }
+    this.styleWorkbook(worksheet);
+    return Buffer.from(await workbook.xlsx.writeBuffer());
+  }
+
+  async winnersList(principal: Principal, query: ReportQuery) {
+    const context = await this.context(principal, query);
+    return this.groups(context, false)
+      .filter((group) => !group.hidden)
+      .map((group) => ({
+        title:
+          group.winner === "Yes"
+            ? `${group.size} Winners`
+            : `${group.size} Non-Winners`,
+        key: group.key,
+      }));
+  }
+
+  async clientUsernames(principal: Principal, projectReference?: string) {
+    this.assertAdmin(principal);
+    const project = projectReference
+      ? await this.prisma.project.findFirst({
+          where: this.referenceWhere(projectReference),
+          select: { id: true },
+        })
+      : null;
+    if (projectReference && !project) {
+      throw new NotFoundException("Project not found");
+    }
+    const users = await this.prisma.user.findMany({
+      where: {
+        roles: { some: { role: { key: "client" } } },
+        ...(project ? { projects: { some: { projectId: project.id } } } : {}),
+      },
+      orderBy: { username: "asc" },
+      select: {
+        username: true,
+        organization: {
+          select: {
+            externalId: true,
+            legacyId: true,
+            id: true,
+            name: true,
+            metadata: true,
+          },
+        },
+      },
+    });
+    return {
+      success: true,
+      message: "success",
+      data: {
+        users: users.flatMap((user) =>
+          user.organization
+            ? [
+                {
+                  username: user.username,
+                  accountid:
+                    user.organization.externalId ??
+                    user.organization.legacyId ??
+                    user.organization.id,
+                  Account_Name:
+                    metadataString(
+                      user.organization.metadata,
+                      "Alias_Company_Name",
+                    ) ?? user.organization.name,
+                },
+              ]
+            : [],
+        ),
+      },
+    };
+  }
+
+  async deleteOrganizationForResync(
+    principal: Principal,
+    accountReference: string,
+    username: string,
+  ) {
+    this.assertAdmin(principal);
+    const organization = await this.prisma.organization.findFirst({
+      where: this.referenceWhere(accountReference),
+      select: { id: true },
+    });
+    if (!organization) throw new NotFoundException("Account id not found");
+    const user = await this.prisma.user.findFirst({
+      where: { organizationId: organization.id, username },
+      select: { id: true },
+    });
+    if (!user) throw new NotFoundException("Username not found");
+    await this.prisma.$transaction(async (transaction) => {
+      await transaction.auditLog.deleteMany({
+        where: { organizationId: organization.id },
+      });
+      await transaction.order.deleteMany({
+        where: { organizationId: organization.id },
+      });
+      await transaction.asset.deleteMany({
+        where: { organizationId: organization.id },
+      });
+      await transaction.respondent.deleteMany({
+        where: { organizationId: organization.id },
+      });
+      await transaction.user.deleteMany({
+        where: { organizationId: organization.id },
+      });
+      await transaction.organizationProgram.deleteMany({
+        where: { organizationId: organization.id },
+      });
+      await transaction.organization.delete({ where: { id: organization.id } });
+    });
+    return { success: true, message: "success", data: {} };
+  }
+
+  async swapOrganizationCategoryValues(principal: Principal) {
+    this.assertAdmin(principal);
+    const enrollments = await this.prisma.organizationProgram.findMany({
+      select: { id: true, metrics: true },
+    });
+    await this.prisma.$transaction(
+      enrollments.map((enrollment) => {
+        const metrics = jsonObject(enrollment.metrics);
+        return this.prisma.organizationProgram.update({
+          where: { id: enrollment.id },
+          data: {
+            metrics: {
+              ...metrics,
+              Current_Year_Category_Rank: metrics.Current_Year_Category ?? null,
+              Current_Year_Category: metrics.Current_Year_Category_Rank ?? null,
+            },
+          },
+        });
+      }),
+    );
+    return {
+      success: true,
+      message: "success",
+      data: { updated: enrollments.length },
+    };
+  }
+
+  async keyImpactAnalysis(principal: Principal, query: ReportQuery) {
+    const context = await this.context(principal, query);
+    const isDummy =
+      query.isDummy || this.requiresDemo(principal, context, "KIA_Access");
+    if (isDummy) {
+      return {
+        success: true,
+        message: "success",
+        data: {
+          data: { signedUrl: null },
+          report: [
+            {
+              label: "Communication",
+              key: "Clear communication from leadership",
+              value: 86,
+            },
+            {
+              label: "Recognition",
+              key: "Employees feel valued",
+              value: 78,
+            },
+            {
+              label: "Development",
+              key: "Opportunities to grow",
+              value: 72,
+            },
+          ],
+        },
+      };
+    }
+    const assets = await this.prisma.asset.findMany({
+      where: { organizationId: context.organizationId },
+      orderBy: { createdAt: "desc" },
+    });
+    const asset = assets.find((candidate) => {
+      const metadata = jsonObject(candidate.metadata);
+      return (
+        metadata.kind === "keyImpactAnalysis" &&
+        (metadata.organizationProgramId === context.enrollmentId ||
+          metadata.programId === context.program.id)
+      );
+    });
+    if (!asset) throw new NotFoundException("No data found");
+    return {
+      success: true,
+      message: "success",
+      data: {
+        _id: asset.legacyId ?? asset.id,
+        key: asset.key,
+        fileName: jsonObject(asset.metadata).fileName,
+        report: jsonObject(asset.metadata).report ?? [],
+        data: {
+          signedUrl: jsonObject(asset.metadata).signedUrl ?? null,
+        },
+      },
+    };
+  }
+
+  async annualResponseRate(principal: Principal, query: ReportQuery) {
+    const { current, previous } = await this.annualContexts(principal, query);
+    const isDummy =
+      query.isDummy || this.requiresDemo(principal, current, "WFR_Access");
+    const currentYear = this.contextYear(current);
+    const previousYear = previous
+      ? this.contextYear(previous)
+      : String(Number(currentYear) - 1);
+    if (isDummy) {
+      return {
+        success: true,
+        message: "survey avg data",
+        data: [{ [currentYear]: "78", [previousYear]: "74" }],
+      };
+    }
+    if (!previous) {
+      return { success: true, message: "survey avg data", data: null };
+    }
+    const [currentPercentage, previousPercentage] = await Promise.all([
+      this.contextAgreement(current),
+      this.contextAgreement(previous),
+    ]);
+    return {
+      success: true,
+      message: "survey avg data",
+      data: [
+        {
+          [currentYear]: String(currentPercentage),
+          [previousYear]: String(previousPercentage),
+        },
+      ],
+    };
+  }
+
+  async annualCategories(principal: Principal, query: ReportQuery) {
+    const { current, previous } = await this.annualContexts(principal, query);
+    const isDummy =
+      query.isDummy || this.requiresDemo(principal, current, "WFR_Access");
+    const currentYear = this.contextYear(current);
+    const previousYear = previous
+      ? this.contextYear(previous)
+      : String(Number(currentYear) - 1);
+    if (!previous && !isDummy) {
+      return { success: true, data: [] };
+    }
+    const [currentData, previousData] = await Promise.all([
+      this.annualCategorySnapshot(current, isDummy),
+      previous
+        ? this.annualCategorySnapshot(previous, isDummy)
+        : this.annualCategorySnapshot(current, true, 2),
+    ]);
+    const categories = new Set([...currentData.keys(), ...previousData.keys()]);
+    return {
+      success: true,
+      data: sortedCategories(categories).map((category) => ({
+        category: { category },
+        [currentYear]: currentData.get(category) ?? {
+          data: this.emptyTrendDistribution(),
+          questionIds: [],
+        },
+        [previousYear]: previousData.get(category) ?? {
+          data: this.emptyTrendDistribution(),
+          questionIds: [],
+        },
+      })),
+    };
+  }
+
+  async annualDetails(
+    principal: Principal,
+    query: ReportQuery,
+    category: string,
+    currentReferences: string[],
+    previousReferences: string[],
+  ) {
+    const { current, previous } = await this.annualContexts(principal, query);
+    const isDummy =
+      query.isDummy || this.requiresDemo(principal, current, "WFR_Access");
+    const currentYear = this.contextYear(current);
+    const previousYear = previous
+      ? this.contextYear(previous)
+      : String(Number(currentYear) - 1);
+    if (!previous && !isDummy) {
+      return { success: true, message: "success", data: [], category };
+    }
+    const currentQuestions = this.selectCategoryQuestions(
+      await this.benchmarkQuestions(current.survey.id),
+      category,
+      currentReferences,
+    );
+    const previousQuestions = previous
+      ? this.selectCategoryQuestions(
+          await this.benchmarkQuestions(previous.survey.id),
+          category,
+          previousReferences,
+        )
+      : [];
+    const previousByLabel = new Map(
+      previousQuestions.map((question) => [question.dataLabel, question]),
+    );
+    const [currentRespondents, previousRespondents] = isDummy
+      ? [[], []]
+      : await Promise.all([
+          this.organizationRespondents(current),
+          previous
+            ? this.organizationRespondents(previous)
+            : Promise.resolve([]),
+        ]);
+    const data = currentQuestions.map((question, index) => {
+      const previousQuestion = previousByLabel.get(question.dataLabel);
+      return {
+        question: question.caption,
+        questionId: question.legacyId ?? question.externalId ?? question.id,
+        [currentYear]: {
+          question: question.caption,
+          questionId: question.legacyId ?? question.externalId ?? question.id,
+          responses: isDummy
+            ? this.sampleTrendDistribution(index)
+            : this.trendDistribution(
+                currentRespondents.flatMap(({ responses }) =>
+                  responses.filter(
+                    ({ questionId }) => questionId === question.id,
+                  ),
+                ),
+              ),
+        },
+        ...(previousQuestion
+          ? {
+              [previousYear]: {
+                question: previousQuestion.caption,
+                questionId:
+                  previousQuestion.legacyId ??
+                  previousQuestion.externalId ??
+                  previousQuestion.id,
+                responses: isDummy
+                  ? this.sampleTrendDistribution(index + 2)
+                  : this.trendDistribution(
+                      previousRespondents.flatMap(({ responses }) =>
+                        responses.filter(
+                          ({ questionId }) =>
+                            questionId === previousQuestion.id,
+                        ),
+                      ),
+                    ),
+              },
+            }
+          : isDummy
+            ? {
+                [previousYear]: {
+                  question: question.caption,
+                  questionId: `sample-previous-${index + 1}`,
+                  responses: this.sampleTrendDistribution(index + 2),
+                },
+              }
+            : {}),
+      };
+    });
+    return { success: true, message: "success", data, category };
+  }
+
+  async annualTrendWorkbook(
+    principal: Principal,
+    query: ReportQuery,
+  ): Promise<Buffer> {
+    const report = await this.annualCategories(principal, query);
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet("Annual Trends Report");
+    const years = [
+      ...new Set(
+        report.data.flatMap((category) =>
+          Object.keys(category).filter((key) => /^\d{4}$/u.test(key)),
+        ),
+      ),
+    ].sort((left, right) => Number(right) - Number(left));
+    worksheet.columns = [
+      { header: "Section", key: "section", width: 50 },
+      ...years.flatMap((year) => [
+        { header: `${year} Agreement`, key: `${year}Agree`, width: 18 },
+        { header: `${year} Neutral`, key: `${year}Neutral`, width: 18 },
+        {
+          header: `${year} Disagreement`,
+          key: `${year}Disagree`,
+          width: 20,
+        },
+      ]),
+    ];
+    for (const category of report.data) {
+      const row: Record<string, string | number> = {
+        section: category.category.category,
+      };
+      for (const year of years) {
+        const snapshot = category[year] as
+          | {
+              data: ReturnType<
+                CompatibilityReportsService["trendDistribution"]
+              >;
+            }
+          | undefined;
+        for (const item of snapshot?.data ?? []) {
+          row[`${year}${item.ResponseCaption}`] = item.percentage;
+        }
+      }
+      worksheet.addRow(row);
+    }
+    this.styleWorkbook(worksheet);
+    return Buffer.from(await workbook.xlsx.writeBuffer());
+  }
+
   async openResponsesWorkbook(
     principal: Principal,
     query: ReportQuery,
@@ -1488,8 +2226,12 @@ export class CompatibilityReportsService {
   ): Promise<ReportContext> {
     const programSelect = {
       id: true,
+      projectId: true,
+      name: true,
+      year: true,
+      startsAt: true,
       metadata: true,
-      project: { select: { name: true } },
+      project: { select: { id: true, name: true } },
     } satisfies Prisma.ProgramSelect;
     const program = query.selectedProgramId
       ? await this.prisma.program.findFirst({
@@ -1560,6 +2302,7 @@ export class CompatibilityReportsService {
     );
     return {
       organizationId,
+      enrollmentId: enrollment.id,
       reportAccess: enrollment.reportAccess,
       enrollmentMetrics: enrollment.metrics,
       program,
@@ -1571,7 +2314,13 @@ export class CompatibilityReportsService {
   private requiresDemo(
     principal: Principal,
     context: ReportContext,
-    accessKey: "WBC_Access" | "EV_Access" | "WFR_Access" | "RD_Access",
+    accessKey:
+      | "WBC_Access"
+      | "EV_Access"
+      | "WFR_Access"
+      | "RD_Access"
+      | "BBP_Access"
+      | "KIA_Access",
   ): boolean {
     if (principal.roles.includes("admin")) return false;
     const access = jsonObject(context.reportAccess);
@@ -1580,6 +2329,8 @@ export class CompatibilityReportsService {
       EV_Access: "employeeVerbatims",
       WFR_Access: "workforceFeedback",
       RD_Access: "responseDetail",
+      BBP_Access: "benefitsBestPractices",
+      KIA_Access: "keyImpactAnalysis",
     } as const;
     const value = access[accessKey] ?? access[aliases[accessKey]];
     return !(
@@ -1840,6 +2591,396 @@ export class CompatibilityReportsService {
         });
       }),
     );
+  }
+
+  private questionOptions(
+    question: BenchmarkQuestion,
+    respondents: DetailedRespondent[],
+  ): string[] {
+    const configured = jsonObject(question.metadata).QuestionResponses;
+    const metadataOptions = Array.isArray(configured)
+      ? configured.flatMap((option) => {
+          if (
+            option !== null &&
+            typeof option === "object" &&
+            !Array.isArray(option)
+          ) {
+            const caption = option.Caption ?? option.caption;
+            return typeof caption === "string" ? [caption] : [];
+          }
+          return typeof option === "string" ? [option] : [];
+        })
+      : [];
+    const observed = respondents.flatMap((respondent) => {
+      const response = respondent.responses.find(
+        ({ questionId }) => questionId === question.id,
+      );
+      const caption = response ? responseCaption(response.value) : null;
+      return caption ? [caption] : [];
+    });
+    return [...new Set([...metadataOptions, ...observed])].sort((left, right) =>
+      left.localeCompare(right),
+    );
+  }
+
+  private isDemographicQuestion(
+    question: DetailedResponse["question"],
+  ): boolean {
+    const typeId = jsonObject(question.metadata).QuestionTypeId;
+    return (
+      question.dataLabel.toLowerCase().includes("demographic") ||
+      typeId === 2 ||
+      typeId === "2" ||
+      typeId === 3 ||
+      typeId === "3"
+    );
+  }
+
+  private demographicLabel(question: DetailedResponse["question"]): string {
+    const configured = metadataString(
+      question.metadata,
+      "categoryLabel",
+      "filterLabel",
+    );
+    if (configured) return configured;
+    return categoryFromDataLabel(question.dataLabel)
+      .replace(/^Demographics?\s*/iu, "")
+      .replace(/\d+$/u, "")
+      .trim();
+  }
+
+  private demographicCategory(label: string): string {
+    const personal = new Set([
+      "Age Generation",
+      "Education",
+      "Ethnic Origin",
+      "Race/Ethnicity",
+      "Gender",
+    ]);
+    return personal.has(label)
+      ? "Personal Demographics"
+      : "Workplace Demographics";
+  }
+
+  private async employerContext(
+    principal: Principal,
+    query: ReportQuery,
+  ): Promise<ReportContext> {
+    const context = await this.context(principal, query);
+    const surveys = await this.prisma.survey.findMany({
+      where: { programId: context.program.id },
+      orderBy: [{ endsAt: "desc" }, { createdAt: "desc" }],
+      select: {
+        id: true,
+        title: true,
+        startsAt: true,
+        endsAt: true,
+        metadata: true,
+      },
+    });
+    const survey =
+      surveys.find((candidate) => {
+        const kind = metadataString(
+          candidate.metadata,
+          "kind",
+          "type",
+          "surveyType",
+        );
+        return (
+          Boolean(kind?.toLowerCase().includes("employer")) ||
+          candidate.title.toLowerCase().includes("employer")
+        );
+      }) ?? surveys[0];
+    if (!survey) throw new NotFoundException("Employer survey not found");
+    return {
+      ...context,
+      survey: {
+        id: survey.id,
+        title: survey.title,
+        startsAt: survey.startsAt,
+        endsAt: survey.endsAt,
+      },
+    };
+  }
+
+  private async employerQuestions(
+    surveyId: string,
+  ): Promise<BenchmarkQuestion[]> {
+    const questions = await this.prisma.question.findMany({
+      where: { surveyId },
+      orderBy: { position: "asc" },
+      select: {
+        id: true,
+        legacyId: true,
+        externalId: true,
+        dataLabel: true,
+        caption: true,
+        type: true,
+        position: true,
+        metadata: true,
+      },
+    });
+    return questions.filter((question) => {
+      const type = question.type.toLowerCase();
+      return (
+        !question.dataLabel.toUpperCase().includes("ORGID") &&
+        !question.dataLabel.toLowerCase().includes("demographic") &&
+        !type.includes("open") &&
+        !type.includes("text")
+      );
+    });
+  }
+
+  private captionPercentage(
+    responses: AgreementResponse[],
+    questionId: string,
+    organizationIds: string[],
+    option: string,
+  ): number {
+    const organizationSet = new Set(organizationIds);
+    const scoped = responses.filter(
+      (response) =>
+        response.questionId === questionId &&
+        Boolean(
+          response.respondent.organizationId &&
+          organizationSet.has(response.respondent.organizationId),
+        ),
+    );
+    const matching = scoped.filter(
+      (response) => responseCaption(response.value) === option,
+    ).length;
+    return scoped.length === 0
+      ? 0
+      : Math.round((matching * 100) / scoped.length);
+  }
+
+  private assertAdmin(principal: Principal): void {
+    if (
+      !principal.roles.includes("admin") &&
+      !principal.permissions.includes("ops.manage")
+    ) {
+      throw new ForbiddenException("Administrator access required");
+    }
+  }
+
+  private referenceWhere(reference: string) {
+    return isUuid(reference)
+      ? { id: reference }
+      : { OR: [{ legacyId: reference }, { externalId: reference }] };
+  }
+
+  private async annualContexts(
+    principal: Principal,
+    query: ReportQuery,
+  ): Promise<{ current: ReportContext; previous: ReportContext | null }> {
+    const current = await this.context(principal, query);
+    const enrollments = await this.prisma.organizationProgram.findMany({
+      where: {
+        organizationId: current.organizationId,
+        projectId: current.program.projectId,
+        programId: { not: current.program.id },
+      },
+      select: {
+        program: {
+          select: {
+            id: true,
+            year: true,
+            startsAt: true,
+            createdAt: true,
+          },
+        },
+      },
+    });
+    const candidates = enrollments
+      .map(({ program }) => program)
+      .filter((program) => {
+        if (current.program.year !== null && program.year !== null) {
+          return program.year < current.program.year;
+        }
+        if (current.program.startsAt && program.startsAt) {
+          return program.startsAt < current.program.startsAt;
+        }
+        return program.createdAt < (current.program.startsAt ?? new Date());
+      })
+      .sort(
+        (left, right) =>
+          (right.year ?? 0) - (left.year ?? 0) ||
+          Number(right.startsAt ?? right.createdAt) -
+            Number(left.startsAt ?? left.createdAt),
+      );
+    const previousProgram = candidates[0];
+    const previous = previousProgram
+      ? await this.context(principal, {
+          ...query,
+          selectedProgramId: previousProgram.id,
+        })
+      : null;
+    return { current, previous };
+  }
+
+  private contextYear(context: ReportContext): string {
+    if (context.program.year !== null) return String(context.program.year);
+    const match = /\d{4}/u.exec(context.program.name);
+    return (
+      match?.[0] ??
+      String(
+        context.survey.endsAt?.getUTCFullYear() ??
+          context.program.startsAt?.getUTCFullYear() ??
+          new Date().getUTCFullYear(),
+      )
+    );
+  }
+
+  private async contextAgreement(context: ReportContext): Promise<number> {
+    const questions = await this.benchmarkQuestions(context.survey.id);
+    const responses = await this.agreementResponses(
+      context.survey.id,
+      questions,
+    );
+    return this.percentage(
+      responses,
+      questions.map(({ id }) => id),
+      [context.organizationId],
+    );
+  }
+
+  private async annualCategorySnapshot(
+    context: ReportContext,
+    isDummy: boolean,
+    dummyOffset = 0,
+  ): Promise<
+    Map<
+      string,
+      {
+        data: ReturnType<CompatibilityReportsService["trendDistribution"]>;
+        questionIds: string[];
+      }
+    >
+  > {
+    const questions = await this.benchmarkQuestions(context.survey.id);
+    const grouped = this.questionsByCategory(questions);
+    const respondents = isDummy
+      ? []
+      : await this.organizationRespondents(context);
+    return new Map(
+      sortedCategories(grouped.keys()).map((category, index) => {
+        const categoryQuestions = grouped.get(category) ?? [];
+        const responses = respondents.flatMap(({ responses: items }) =>
+          items.filter((response) =>
+            categoryQuestions.some(({ id }) => id === response.questionId),
+          ),
+        );
+        return [
+          category,
+          {
+            data: isDummy
+              ? this.sampleTrendDistribution(index + dummyOffset)
+              : this.trendDistribution(responses),
+            questionIds: categoryQuestions.map(
+              (question) =>
+                question.legacyId ?? question.externalId ?? question.id,
+            ),
+          },
+        ];
+      }),
+    );
+  }
+
+  private trendDistribution(responses: DetailedResponse[]) {
+    const counts = { Agree: 0, Neutral: 0, Disagree: 0 };
+    for (const response of responses) {
+      const caption = responseCaption(response.value)?.toLowerCase();
+      if (!caption || caption === "n/a" || caption === "not applicable") {
+        continue;
+      }
+      const score =
+        response.score === null
+          ? /^-?\d+(?:\.\d+)?$/u.test(caption)
+            ? Number(caption)
+            : null
+          : Number(response.score);
+      if (
+        caption === "agree" ||
+        caption === "strongly agree" ||
+        (score !== null && score >= 4)
+      ) {
+        counts.Agree += 1;
+      } else if (
+        caption === "disagree" ||
+        caption === "strongly disagree" ||
+        (score !== null && score <= 2)
+      ) {
+        counts.Disagree += 1;
+      } else {
+        counts.Neutral += 1;
+      }
+    }
+    const total = counts.Agree + counts.Neutral + counts.Disagree;
+    return (["Agree", "Neutral", "Disagree"] as const).map(
+      (ResponseCaption) => {
+        const numberOfResponses = counts[ResponseCaption];
+        const percentage =
+          total === 0 ? 0 : Math.round((numberOfResponses * 100) / total);
+        return {
+          ResponseCaption,
+          numberOfResponses,
+          percent: total === 0 ? 0 : numberOfResponses / total,
+          percentage,
+          colorCode: responseColor(ResponseCaption),
+        };
+      },
+    );
+  }
+
+  private emptyTrendDistribution() {
+    return this.trendDistribution([]);
+  }
+
+  private sampleTrendDistribution(offset: number) {
+    const agree = 76 - (offset % 5);
+    const neutral = 14 + (offset % 3);
+    const disagree = 100 - agree - neutral;
+    return [
+      {
+        ResponseCaption: "Agree" as const,
+        numberOfResponses: agree,
+        percent: agree / 100,
+        percentage: agree,
+        colorCode: responseColor("Agree"),
+      },
+      {
+        ResponseCaption: "Neutral" as const,
+        numberOfResponses: neutral,
+        percent: neutral / 100,
+        percentage: neutral,
+        colorCode: responseColor("Neutral"),
+      },
+      {
+        ResponseCaption: "Disagree" as const,
+        numberOfResponses: disagree,
+        percent: disagree / 100,
+        percentage: disagree,
+        colorCode: responseColor("Disagree"),
+      },
+    ];
+  }
+
+  private selectCategoryQuestions(
+    questions: BenchmarkQuestion[],
+    category: string,
+    references: string[],
+  ): BenchmarkQuestion[] {
+    const categoryQuestions =
+      this.questionsByCategory(questions).get(category.trim()) ?? [];
+    if (references.length === 0) return categoryQuestions;
+    const referenceSet = new Set(references);
+    const selected = categoryQuestions.filter(
+      (question) =>
+        referenceSet.has(question.id) ||
+        Boolean(question.legacyId && referenceSet.has(question.legacyId)) ||
+        Boolean(question.externalId && referenceSet.has(question.externalId)),
+    );
+    return selected.length > 0 ? selected : categoryQuestions;
   }
 
   private resolveQuestions(
@@ -2555,6 +3696,210 @@ export class CompatibilityReportsController {
       principal,
       this.reportQuery(selectedProgramId, organizationId, isDummy),
     );
+  }
+
+  @Post("responseDetailReportQuestionResult")
+  @HttpCode(200)
+  responseDetailQuestionResult(
+    @CurrentUser() principal: Principal,
+    @Query("selectedProgramId")
+    selectedProgramId: string | string[] | undefined,
+    @Query("organizationId") organizationId: string | string[] | undefined,
+    @Query("isDummy") isDummy: string | string[] | undefined,
+    @Query("version") version: string | string[] | undefined,
+    @BodyDto(ResponseDetailQuestionDto) body: ResponseDetailQuestionDto,
+  ) {
+    return this.reports.responseDetailQuestionResult(
+      principal,
+      this.reportQuery(selectedProgramId, organizationId, isDummy),
+      body.QuestionId,
+      body.filterQuestion,
+      scalarQuery("version", version) ?? "1",
+    );
+  }
+
+  @Get("responseCountByDemographicCategory")
+  demographicResponseCounts(
+    @CurrentUser() principal: Principal,
+    @Query("selectedProgramId")
+    selectedProgramId: string | string[] | undefined,
+    @Query("organizationId") organizationId: string | string[] | undefined,
+    @Query("isDummy") isDummy: string | string[] | undefined,
+  ) {
+    return this.reports.demographicResponseCounts(
+      principal,
+      this.reportQuery(selectedProgramId, organizationId, isDummy),
+    );
+  }
+
+  @Get("getCustomReport")
+  customReports(
+    @CurrentUser() principal: Principal,
+    @Query("selectedProgramId")
+    selectedProgramId: string | string[] | undefined,
+    @Query("organizationId") organizationId: string | string[] | undefined,
+    @Query("isDummy") isDummy: string | string[] | undefined,
+  ) {
+    return this.reports.customReports(
+      principal,
+      this.reportQuery(selectedProgramId, organizationId, isDummy),
+    );
+  }
+
+  @Get("employerBenchmarkReportExcel")
+  async employerBenchmarkWorkbook(
+    @CurrentUser() principal: Principal,
+    @Query("selectedProgramId")
+    selectedProgramId: string | string[] | undefined,
+    @Query("organizationId") organizationId: string | string[] | undefined,
+    @Query("isDummy") isDummy: string | string[] | undefined,
+    @Res() reply: FastifyReply,
+  ): Promise<void> {
+    const workbook = await this.reports.employerBenchmarkWorkbook(
+      principal,
+      this.reportQuery(selectedProgramId, organizationId, isDummy),
+    );
+    this.sendWorkbook(reply, workbook, "Benefits_&_Best_Practices.xlsx");
+  }
+
+  @Get("employerBenchmarkReport")
+  employerBenchmark(
+    @CurrentUser() principal: Principal,
+    @Query("selectedProgramId")
+    selectedProgramId: string | string[] | undefined,
+    @Query("organizationId") organizationId: string | string[] | undefined,
+    @Query("isDummy") isDummy: string | string[] | undefined,
+  ) {
+    return this.reports.employerBenchmark(
+      principal,
+      this.reportQuery(selectedProgramId, organizationId, isDummy),
+    );
+  }
+
+  @Get("getWinnersList")
+  winnersList(
+    @CurrentUser() principal: Principal,
+    @Query("selectedProgramId")
+    selectedProgramId: string | string[] | undefined,
+    @Query("organizationId") organizationId: string | string[] | undefined,
+    @Query("isDummy") isDummy: string | string[] | undefined,
+  ) {
+    return this.reports.winnersList(
+      principal,
+      this.reportQuery(selectedProgramId, organizationId, isDummy),
+    );
+  }
+
+  @Get("getAllUsername")
+  clientUsernames(
+    @CurrentUser() principal: Principal,
+    @Query("projectId") projectId: string | string[] | undefined,
+  ) {
+    return this.reports.clientUsernames(
+      principal,
+      scalarQuery("projectId", projectId),
+    );
+  }
+
+  @Get("deletOrganizationDataToReSync")
+  deleteOrganizationForResync(
+    @CurrentUser() principal: Principal,
+    @Query("accountId") accountId: string | string[] | undefined,
+    @Query("username") username: string | string[] | undefined,
+  ) {
+    const accountReference = scalarQuery("accountId", accountId, true);
+    const selectedUsername = scalarQuery("username", username, true);
+    if (!accountReference || !selectedUsername) {
+      throw new BadRequestException("accountId and username are required");
+    }
+    return this.reports.deleteOrganizationForResync(
+      principal,
+      accountReference,
+      selectedUsername,
+    );
+  }
+
+  @Get("replaceValues")
+  swapOrganizationCategoryValues(@CurrentUser() principal: Principal) {
+    return this.reports.swapOrganizationCategoryValues(principal);
+  }
+
+  @Get("getKeyImpactAnalysis")
+  keyImpactAnalysis(
+    @CurrentUser() principal: Principal,
+    @Query("selectedProgramId")
+    selectedProgramId: string | string[] | undefined,
+    @Query("organizationId") organizationId: string | string[] | undefined,
+    @Query("isDummy") isDummy: string | string[] | undefined,
+  ) {
+    return this.reports.keyImpactAnalysis(
+      principal,
+      this.reportQuery(selectedProgramId, organizationId, isDummy),
+    );
+  }
+
+  @Get("surveyResponseRateAnuualTrend")
+  annualResponseRate(
+    @CurrentUser() principal: Principal,
+    @Query("selectedProgramId")
+    selectedProgramId: string | string[] | undefined,
+    @Query("organizationId") organizationId: string | string[] | undefined,
+    @Query("isDummy") isDummy: string | string[] | undefined,
+  ) {
+    return this.reports.annualResponseRate(
+      principal,
+      this.reportQuery(selectedProgramId, organizationId, isDummy),
+    );
+  }
+
+  @Get("employeeAnnualTrendsCategory")
+  annualCategories(
+    @CurrentUser() principal: Principal,
+    @Query("selectedProgramId")
+    selectedProgramId: string | string[] | undefined,
+    @Query("organizationId") organizationId: string | string[] | undefined,
+    @Query("isDummy") isDummy: string | string[] | undefined,
+  ) {
+    return this.reports.annualCategories(
+      principal,
+      this.reportQuery(selectedProgramId, organizationId, isDummy),
+    );
+  }
+
+  @Post("employeeAnnualTrendsDetail")
+  @HttpCode(200)
+  annualDetails(
+    @CurrentUser() principal: Principal,
+    @Query("selectedProgramId")
+    selectedProgramId: string | string[] | undefined,
+    @Query("organizationId") organizationId: string | string[] | undefined,
+    @Query("isDummy") isDummy: string | string[] | undefined,
+    @BodyDto(AnnualTrendDetailDto) body: AnnualTrendDetailDto,
+  ) {
+    return this.reports.annualDetails(
+      principal,
+      this.reportQuery(selectedProgramId, organizationId, isDummy),
+      body.category,
+      body.curruntYear,
+      body.prevYear,
+    );
+  }
+
+  @Post("annualTrensReportDownload")
+  @HttpCode(200)
+  async annualTrendWorkbook(
+    @CurrentUser() principal: Principal,
+    @Query("selectedProgramId")
+    selectedProgramId: string | string[] | undefined,
+    @Query("organizationId") organizationId: string | string[] | undefined,
+    @Query("isDummy") isDummy: string | string[] | undefined,
+    @Res() reply: FastifyReply,
+  ): Promise<void> {
+    const workbook = await this.reports.annualTrendWorkbook(
+      principal,
+      this.reportQuery(selectedProgramId, organizationId, isDummy),
+    );
+    this.sendWorkbook(reply, workbook, "Annual_Trends_Report.xlsx");
   }
 
   private parseQueryFilter(

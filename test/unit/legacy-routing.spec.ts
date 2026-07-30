@@ -8,12 +8,10 @@ import {
 describe("native legacy route registry", () => {
   it("contains the remaining compatibility surface", () => {
     assert.ok(LEGACY_ROUTES.length > 0);
-    assert.ok(
-      findLegacyRoute("POST", "/client/responseDetailReportQuestionResult"),
-    );
     assert.ok(findLegacyRoute("POST", "/webhook/dealsWebhook"));
-    assert.ok(findLegacyRoute("POST", "/payment/checkout"));
-    assert.ok(findLegacyRoute("GET", "/admin/getprojects/123"));
+    assert.equal(findLegacyRoute("POST", "/admin/addrole"), undefined);
+    assert.equal(findLegacyRoute("POST", "/payment/checkout"), undefined);
+    assert.equal(findLegacyRoute("GET", "/admin/getOrganizations"), undefined);
   });
 
   it("keeps route methods and parameterized paths distinct", () => {
@@ -115,6 +113,48 @@ describe("native legacy route registry", () => {
       ["GET", "/client/generateBenchmarkReport"],
       ["GET", "/client/v2/generateBenchmarkReport"],
       ["GET", "/client/responseDetailReportSectionQuestions"],
+      ["POST", "/client/responseDetailReportQuestionResult"],
+      ["GET", "/client/responseCountByDemographicCategory"],
+      ["GET", "/client/getCustomReport"],
+      ["GET", "/client/employerBenchmarkReportExcel"],
+      ["GET", "/client/employerBenchmarkReport"],
+      ["GET", "/client/getWinnersList"],
+      ["GET", "/client/getAllUsername"],
+      ["GET", "/client/deletOrganizationDataToReSync"],
+      ["GET", "/client/replaceValues"],
+      ["GET", "/client/getKeyImpactAnalysis"],
+      ["GET", "/client/surveyResponseRateAnuualTrend"],
+      ["GET", "/client/employeeAnnualTrendsCategory"],
+      ["POST", "/client/employeeAnnualTrendsDetail"],
+      ["POST", "/client/annualTrensReportDownload"],
+      ["GET", "/admin/getroles"],
+      ["GET", "/admin/getprojects"],
+      ["GET", "/admin/getprojects/123"],
+      ["GET", "/admin/getProgramsByProjectId"],
+      ["GET", "/admin/getProgramById/123"],
+      ["GET", "/admin/getpermissions/123"],
+      ["POST", "/admin/addrole"],
+      ["PUT", "/admin/updaterole"],
+      ["POST", "/admin/managerole"],
+      ["PUT", "/admin/managerole"],
+      ["DELETE", "/admin/deleterole"],
+      ["POST", "/admin/uploadCustomReport"],
+      ["POST", "/admin/uploadKeyImpactAnalysis"],
+      ["DELETE", "/admin/keyImpactAnalysis/123"],
+      ["DELETE", "/admin/customReport/123"],
+      ["GET", "/admin/getOrganizations"],
+      ["GET", "/admin/getOrganizations/123"],
+      ["GET", "/admin/order/log"],
+      ["GET", "/admin/system/log"],
+      ["GET", "/admin/loginSession/log"],
+      ["POST", "/admin/resortOrg"],
+      ["GET", "/dashboard/surveyinformation"],
+      ["POST", "/payment/stripePaymentIntent"],
+      ["POST", "/payment/checkout"],
+      ["GET", "/zoho/syncProjects"],
+      ["GET", "/zoho/syncPrograms"],
+      ["GET", "/zoho/syncOrganizations"],
+      ["GET", "/zoho/syncClients"],
     ] as const;
     for (const [method, path] of migratedRoutes) {
       assert.equal(findLegacyRoute(method, path), undefined);

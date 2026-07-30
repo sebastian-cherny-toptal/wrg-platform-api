@@ -139,6 +139,66 @@ const reportsStub = {
     mark("responseDetailSections");
     return success;
   },
+  responseDetailQuestionResult: () => {
+    mark("responseDetailQuestionResult");
+    return success;
+  },
+  demographicResponseCounts: () => {
+    mark("demographicResponseCounts");
+    return success;
+  },
+  customReports: () => {
+    mark("customReports");
+    return success;
+  },
+  employerBenchmarkWorkbook: () => {
+    mark("employerBenchmarkWorkbook");
+    return Promise.resolve(Buffer.from("xlsx"));
+  },
+  employerBenchmark: () => {
+    mark("employerBenchmark");
+    return {
+      success: true,
+      message: "true",
+      data: { tableHeaders: [], tableData: [] },
+    };
+  },
+  winnersList: () => {
+    mark("winnersList");
+    return [];
+  },
+  clientUsernames: () => {
+    mark("clientUsernames");
+    return success;
+  },
+  deleteOrganizationForResync: () => {
+    mark("deleteOrganizationForResync");
+    return success;
+  },
+  swapOrganizationCategoryValues: () => {
+    mark("swapOrganizationCategoryValues");
+    return success;
+  },
+  keyImpactAnalysis: () => {
+    mark("keyImpactAnalysis");
+    return success;
+  },
+  annualResponseRate: () => {
+    mark("annualResponseRate");
+    return success;
+  },
+  annualCategories: () => {
+    mark("annualCategories");
+    return success;
+  },
+  annualDetails: () => {
+    mark("annualDetails");
+    return success;
+  },
+  annualTrendWorkbook: () => {
+    mark("annualTrendWorkbook");
+    return Promise.resolve(Buffer.from("xlsx"));
+  },
 };
 
 @Injectable()
@@ -414,6 +474,109 @@ describe("native compatibility report endpoints", () => {
       await app.close();
     }
   });
+
+  it("serves the next fourteen native client report routes", async () => {
+    const app = await createTestApp();
+    routeCalls.clear();
+    const token = app.get(JwtService).sign({
+      sub: "6c79998f-10bd-45af-bdd1-61e11b50297a",
+      organizationId: "206ab572-1825-4327-81d7-a4c3524a938a",
+      roles: ["admin"],
+      permissions: ["ops.manage", "reports.read"],
+    } satisfies Principal);
+    const headers = { authorization: `Bearer ${token}` };
+    const query = "?selectedProgramId=legacy-program";
+    const requests = [
+      {
+        method: "POST" as const,
+        url: `/client/responseDetailReportQuestionResult${query}&version=1`,
+        payload: {
+          QuestionId: "question-1",
+          filterQuestion: "demographic-1",
+        },
+      },
+      {
+        method: "GET" as const,
+        url: `/client/responseCountByDemographicCategory${query}`,
+      },
+      { method: "GET" as const, url: `/client/getCustomReport${query}` },
+      {
+        method: "GET" as const,
+        url: `/client/employerBenchmarkReportExcel${query}`,
+      },
+      {
+        method: "GET" as const,
+        url: `/client/employerBenchmarkReport${query}`,
+      },
+      { method: "GET" as const, url: `/client/getWinnersList${query}` },
+      { method: "GET" as const, url: "/client/getAllUsername" },
+      {
+        method: "GET" as const,
+        url: "/client/deletOrganizationDataToReSync?accountId=account-1&username=client",
+      },
+      { method: "GET" as const, url: "/client/replaceValues" },
+      {
+        method: "GET" as const,
+        url: `/client/getKeyImpactAnalysis${query}`,
+      },
+      {
+        method: "GET" as const,
+        url: `/client/surveyResponseRateAnuualTrend${query}`,
+      },
+      {
+        method: "GET" as const,
+        url: `/client/employeeAnnualTrendsCategory${query}`,
+      },
+      {
+        method: "POST" as const,
+        url: `/client/employeeAnnualTrendsDetail${query}`,
+        payload: {
+          category: "Your Job",
+          curruntYear: ["question-1"],
+          prevYear: ["previous-question-1"],
+        },
+      },
+      {
+        method: "POST" as const,
+        url: `/client/annualTrensReportDownload${query}`,
+        payload: {},
+      },
+    ];
+
+    try {
+      const responses = await Promise.all(
+        requests.map((request) => app.inject({ ...request, headers })),
+      );
+      assert.equal(responses.length, 14);
+      for (const response of responses) {
+        assert.equal(response.statusCode, 200, response.body);
+      }
+      for (const index of [3, 13]) {
+        assert.match(
+          responses[index]?.headers["content-type"] ?? "",
+          /spreadsheetml/u,
+        );
+      }
+      assert.deepEqual(Object.fromEntries(routeCalls), {
+        responseDetailQuestionResult: 1,
+        demographicResponseCounts: 1,
+        customReports: 1,
+        employerBenchmarkWorkbook: 1,
+        employerBenchmark: 1,
+        winnersList: 1,
+        clientUsernames: 1,
+        deleteOrganizationForResync: 1,
+        swapOrganizationCategoryValues: 1,
+        keyImpactAnalysis: 1,
+        annualResponseRate: 1,
+        annualCategories: 1,
+        annualDetails: 1,
+        annualTrendWorkbook: 1,
+      });
+    } finally {
+      await app.close();
+    }
+  });
 });
 
 describe("native benchmark report calculations", () => {
@@ -672,11 +835,20 @@ describe("native benchmark report calculations", () => {
     const agreement = await service.averageAgreement(principal, query);
     const responseRate = await service.surveyResponseRate(principal, query);
     const statements = await service.topBottomStatements(principal, query);
+    const demographics = await service.demographicResponseCounts(
+      principal,
+      query,
+    );
+    const responseDetail = await service.responseDetailQuestionResult(
+      principal,
+      query,
+      "legacy-question-1",
+      "legacy-demographic",
+    );
 
     const section = breakdown.data[0]?.["Your Job"];
     const agreeDistribution = section?.[0] as
-      | { ResponseCaption: string; percent: number }
-      | undefined;
+      { ResponseCaption: string; percent: number } | undefined;
     assert.equal(agreeDistribution?.ResponseCaption, "Agree");
     assert.equal(agreeDistribution.percent, 60);
     assert.deepEqual(filters.data[0]?.filterOption, [
@@ -686,5 +858,85 @@ describe("native benchmark report calculations", () => {
     assert.equal(agreement.data.percentage, "60");
     assert.equal(responseRate.data.responseRate, 50);
     assert.equal(statements.data.top[0]?.percentage, 60);
+    assert.deepEqual(demographics.data[0]?.options, [
+      { Caption: "Operations", Count: 3 },
+      { Caption: "Sales", Count: 2 },
+    ]);
+    assert.deepEqual(responseDetail.data[0], ["", "Operations", "Sales"]);
+  });
+
+  it("produces native demo employer and annual-trend reports", async () => {
+    const question = {
+      id: "question-1",
+      legacyId: "legacy-question-1",
+      externalId: null,
+      dataLabel: "q_YourJob1",
+      caption: "I have the tools I need.",
+      type: "5",
+      position: 1,
+      metadata: {},
+    };
+    const prisma = {
+      program: {
+        findFirst: () =>
+          Promise.resolve({
+            id: "program-id",
+            projectId: "project-id",
+            name: "Program 2026",
+            year: 2026,
+            startsAt: new Date("2026-01-01"),
+            metadata: {},
+            project: { id: "project-id", name: "Project" },
+          }),
+      },
+      organizationProgram: {
+        findFirst: () =>
+          Promise.resolve({
+            id: "enrollment-id",
+            reportAccess: {},
+            metrics: {},
+          }),
+        findMany: (args: { where?: { programId?: string } }) =>
+          Promise.resolve(args.where?.programId ? [] : []),
+      },
+      survey: {
+        findFirst: () =>
+          Promise.resolve({
+            id: "employee-survey",
+            title: "Employee Survey",
+            startsAt: new Date("2026-01-01"),
+            endsAt: new Date("2026-01-31"),
+          }),
+        findMany: () =>
+          Promise.resolve([
+            {
+              id: "employer-survey",
+              title: "Employer Survey",
+              startsAt: new Date("2026-01-01"),
+              endsAt: new Date("2026-01-31"),
+              metadata: { kind: "employer" },
+            },
+          ]),
+      },
+      question: { findMany: () => Promise.resolve([question]) },
+    } as unknown as PrismaService;
+    const service = new CompatibilityReportsService(prisma);
+    const principal: Principal = {
+      sub: "user-id",
+      organizationId: "organization-id",
+      roles: ["client"],
+      permissions: ["reports.read"],
+    };
+    const query = { selectedProgramId: "legacy-program", isDummy: true };
+
+    const employer = await service.employerBenchmark(principal, query);
+    const annual = await service.annualCategories(principal, query);
+    const annualRate = await service.annualResponseRate(principal, query);
+    const workbook = await service.annualTrendWorkbook(principal, query);
+
+    assert.equal(employer.data.tableData[0]?.title, "Benefits");
+    assert.equal(annual.data[0]?.category.category, "Your Job");
+    assert.deepEqual(annualRate.data, [{ "2026": "78", "2025": "74" }]);
+    assert.equal(workbook.subarray(0, 2).toString("utf8"), "PK");
   });
 });
