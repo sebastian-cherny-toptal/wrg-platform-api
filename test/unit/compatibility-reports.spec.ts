@@ -848,9 +848,17 @@ describe("native benchmark report calculations", () => {
 
     const section = breakdown.data[0]?.["Your Job"];
     const agreeDistribution = section?.[0] as
-      { ResponseCaption: string; percent: number } | undefined;
+      {
+        ResponseCaption: string;
+        percent: number;
+        percentage: number;
+        percentOfAgreement: number;
+      }
+      | undefined;
     assert.equal(agreeDistribution?.ResponseCaption, "Agree");
-    assert.equal(agreeDistribution.percent, 60);
+    assert.equal(agreeDistribution.percent, 0.6);
+    assert.equal(agreeDistribution.percentage, 60);
+    assert.equal(agreeDistribution.percentOfAgreement, 0.6);
     assert.deepEqual(filters.data[0]?.filterOption, [
       { Caption: "Operations" },
       { Caption: "Sales" },

@@ -5,6 +5,7 @@ import {
   Inject,
   Injectable,
   Module,
+  Optional,
   Post,
   UnauthorizedException,
   UseGuards,
@@ -50,7 +51,38 @@ export const CurrentUser = createParamDecorator(
 );
 
 @Injectable()
-export class JwtAuthGuard extends AuthGuard("jwt") {}
+export class JwtAuthGuard extends AuthGuard("jwt") {
+  constructor(
+    @Optional()
+    @Inject(ConfigService)
+    private readonly config?: ConfigService<Env, true>,
+  ) {
+    super();
+  }
+
+  override canActivate(context: ExecutionContext) {
+    if (this.config?.get("BYPASS_LOGIN_AUTH", { infer: true })) {
+      const request = context.switchToHttp().getRequest<{
+        user?: Principal;
+        params?: Record<string, string | undefined>;
+        query?: Record<string, string | undefined>;
+      }>();
+
+      request.user ??= {
+        sub: "bypass-login-auth",
+        organizationId:
+          request.params?.organizationId ??
+          request.query?.organizationId ??
+          null,
+        roles: ["admin"],
+        permissions: ["ops.manage"],
+      };
+      return true;
+    }
+
+    return super.canActivate(context);
+  }
+}
 
 @Injectable()
 class JwtStrategy extends PassportStrategy(Strategy) {

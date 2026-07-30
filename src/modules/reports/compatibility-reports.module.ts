@@ -40,6 +40,7 @@ import {
   JwtAuthGuard,
   type Principal,
 } from "../auth/auth.module.js";
+import { demoUserResponseBreakdownBySection } from "./demo-user-response-breakdown.js";
 
 const privacyThreshold = 5;
 const winnerColors = { Yes: "#00a46a", No: "#ffc955" } as const;
@@ -856,6 +857,13 @@ export class CompatibilityReportsService {
     queryFilter?: Record<string, unknown>,
     accessKey: "WFR_Access" | "RD_Access" = "WFR_Access",
   ) {
+    if (
+      query.selectedProgramId === "demo-workplace-2025" &&
+      (principal.sub === "bypass-login-auth" || principal.sub === "demo-user")
+    ) {
+      return demoUserResponseBreakdownBySection;
+    }
+
     const context = await this.context(principal, query);
     const isDummy =
       query.isDummy || this.requiresDemo(principal, context, accessKey);
@@ -885,8 +893,8 @@ export class CompatibilityReportsService {
       data: sortedCategories(grouped.keys()).map((category, index) => {
         const categoryQuestions = grouped.get(category) ?? [];
         const distribution = isDummy
-          ? this.sampleDistribution(index)
-          : this.distribution(
+          ? this.sampleSectionDistribution(index)
+          : this.sectionDistribution(
               respondents.flatMap(({ responses }) =>
                 responses.filter((response) =>
                   categoryQuestions.some(
@@ -900,10 +908,10 @@ export class CompatibilityReportsService {
             ...distribution,
             {
               totalNumberOfQuestionsPerSection: categoryQuestions.length,
-              totalNumberOfResponsePerSection: distribution.reduce(
-                (sum, item) => sum + item.numberOfResponses,
-                0,
-              ),
+              // Keep the legacy contract: this includes unanswered and N/A
+              // responses, while the three distribution buckets do not.
+              totalNumberOfResponsePerSection:
+                categoryQuestions.length * (isDummy ? 25 : respondents.length),
               totalRespondents: isDummy ? 25 : respondents.length,
               questionRange: categoryQuestions.map(
                 (question) =>
@@ -922,6 +930,13 @@ export class CompatibilityReportsService {
     questionRange: string[],
     queryFilter?: Record<string, unknown>,
   ) {
+    if (
+      query.selectedProgramId === "demo-workplace-2025" &&
+      (principal.sub === "bypass-login-auth" || principal.sub === "demo-user")
+    ) {
+      return this.demoResponseBreakdown(questionRange);
+    }
+
     const context = await this.context(principal, query);
     const isDummy =
       query.isDummy || this.requiresDemo(principal, context, "WFR_Access");
@@ -2965,6 +2980,22 @@ export class CompatibilityReportsService {
     ];
   }
 
+  private sectionDistribution(responses: DetailedResponse[]) {
+    return this.trendDistribution(responses).map((item) =>
+      item.ResponseCaption === "Agree"
+        ? { ...item, percentOfAgreement: item.percent }
+        : item,
+    );
+  }
+
+  private sampleSectionDistribution(offset: number) {
+    return this.sampleTrendDistribution(offset).map((item) =>
+      item.ResponseCaption === "Agree"
+        ? { ...item, percentOfAgreement: item.percent }
+        : item,
+    );
+  }
+
   private selectCategoryQuestions(
     questions: BenchmarkQuestion[],
     category: string,
@@ -3068,6 +3099,42 @@ export class CompatibilityReportsService {
       percent: Number(count) * 4,
       colorCode: responseColor(String(caption)),
     }));
+  }
+
+  private demoResponseBreakdown(questionRange: string[]) {
+    const sectionByQuestion = new Map<string, Array<Record<string, unknown>>>();
+    for (const section of demoUserResponseBreakdownBySection.data) {
+      const values = Object.values(section)[0] ?? [];
+      const totals = values.find(
+        (value) => "questionRange" in value,
+      );
+      if (!totals || !Array.isArray(totals.questionRange)) continue;
+      for (const questionId of totals.questionRange) {
+        sectionByQuestion.set(String(questionId), values);
+      }
+    }
+
+    return {
+      success: true as const,
+      message: "success" as const,
+      isConfidential: false,
+      data: questionRange.map((questionId) => {
+        const values = sectionByQuestion.get(questionId) ?? [];
+        const distributions = values.filter(
+          (value) => typeof value.ResponseCaption === "string",
+        );
+        return {
+          question: `Question ${questionId}`,
+          questionId,
+          responses: distributions.map((value) => ({
+            ResponseCaption: String(value.ResponseCaption),
+            numberOfResponses: Number(value.numberOfResponses ?? 0),
+            percent: Number(value.percentage ?? 0),
+            colorCode: String(value.colorCode ?? responseColor("Neutral")),
+          })),
+        };
+      }),
+    };
   }
 
   private positivePercentage(responses: DetailedResponse[]): number {

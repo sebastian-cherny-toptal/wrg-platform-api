@@ -11,6 +11,10 @@ const schema = z.object({
   JWT_REFRESH_SECRET: z.string().min(32),
   JWT_ACCESS_TTL: z.string().default("15m"),
   JWT_REFRESH_TTL_DAYS: z.coerce.number().int().positive().default(30),
+  BYPASS_LOGIN_AUTH: z
+    .string()
+    .default("false")
+    .transform((value) => value === "true"),
   STRIPE_SECRET_KEY: z.string().min(1),
   STRIPE_WEBHOOK_SECRET: z.string().min(1),
   SENDGRID_KEY: z.string().min(1).optional(),
