@@ -2,6 +2,7 @@ import "dotenv/config";
 import cors from "@fastify/cors";
 import helmet from "@fastify/helmet";
 import multipart from "@fastify/multipart";
+import { LogController } from "fastify";
 import { RequestMethod, ValidationPipe, VersioningType } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { NestFactory } from "@nestjs/core";
@@ -11,11 +12,65 @@ import {
 } from "@nestjs/platform-fastify";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import { Logger } from "nestjs-pino";
+import { randomUUID } from "node:crypto";
+import type { IncomingMessage } from "node:http";
 import type { Env } from "./config/env.js";
 import { AppModule } from "./app.module.js";
+import { requestLogPropsForRequest } from "./common/logging/request-logging.js";
 
 export async function createApp(): Promise<NestFastifyApplication> {
-  const adapter = new FastifyAdapter({ bodyLimit: 2 * 1024 * 1024, trustProxy: true });
+  const adapter = new FastifyAdapter({
+    bodyLimit: 2 * 1024 * 1024,
+    trustProxy: true,
+    logController: new LogController({ disableRequestLogging: true }),
+    logger: {
+      level: process.env.LOG_LEVEL ?? "info",
+      redact: [
+        "req.headers.authorization",
+        "req.headers.cookie",
+        "*.password",
+        "*.passcode",
+        "*.token",
+        "*.secret",
+        "*.apiKey",
+        "*.signature",
+        "*.otp",
+      ],
+    },
+    genReqId: (request: IncomingMessage) => {
+      const incoming = request.headers["x-correlation-id"];
+      return typeof incoming === "string" && incoming.length <= 128
+        ? incoming
+        : randomUUID();
+    },
+  });
+  const fastify = adapter.getInstance();
+  fastify.addHook("onRequest", (request, reply, done) => {
+    reply.header("x-correlation-id", request.id);
+    done();
+  });
+  fastify.addHook("onResponse", (request, reply, done) => {
+    const log = requestLogPropsForRequest(request, reply.raw);
+    const record = {
+      ...log,
+      statusCode: reply.statusCode,
+      durationMs: reply.elapsedTime,
+      outcome: reply.statusCode >= 500
+        ? "server_error"
+        : reply.statusCode >= 400
+          ? "client_error"
+          : "success",
+    };
+
+    if (reply.statusCode >= 500) {
+      request.log.error(record, "http request completed");
+    } else if (reply.statusCode >= 400) {
+      request.log.warn(record, "http request completed");
+    } else {
+      request.log.info(record, "http request completed");
+    }
+    done();
+  });
 
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,

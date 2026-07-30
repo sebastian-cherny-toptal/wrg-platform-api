@@ -4,6 +4,13 @@ import { ConfigModule, ConfigService } from "@nestjs/config";
 import { ThrottlerModule } from "@nestjs/throttler";
 import { LoggerModule } from "nestjs-pino";
 import { randomUUID } from "node:crypto";
+import {
+  requestErrorObject,
+  requestLogProps,
+  requestSuccessObject,
+  serializeRequest,
+  serializeResponse,
+} from "./common/logging/request-logging.js";
 import { validateEnv, type Env } from "./config/env.js";
 import { DatabaseModule } from "./database/database.module.js";
 import { AuthModule } from "./modules/auth/auth.module.js";
@@ -47,12 +54,30 @@ import { CompatibilityAdminModule } from "./modules/management/compatibility-adm
             reply.setHeader("x-correlation-id", id);
             return id;
           },
+          customLogLevel: (_request, response, error) => {
+            if (error || response.statusCode >= 500) return "error";
+            if (response.statusCode >= 400) return "warn";
+            return "info";
+          },
+          customProps: requestLogProps,
+          customSuccessObject: requestSuccessObject,
+          customErrorObject: requestErrorObject,
+          autoLogging: false,
+          serializers: {
+            req: serializeRequest,
+            res: serializeResponse,
+          },
           redact: [
             "req.headers.authorization",
             "req.headers.cookie",
             'res.headers["set-cookie"]',
             "*.password",
+            "*.passcode",
             "*.token",
+            "*.secret",
+            "*.apiKey",
+            "*.signature",
+            "*.otp",
           ],
         },
       }),
