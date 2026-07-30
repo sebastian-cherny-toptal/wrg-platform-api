@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { CompatibilityReportsService } from "../../src/modules/reports/compatibility-reports.module.js";
+import { demoUserDemographicResponse } from "../../src/modules/reports/demo-user-demographic-response.js";
 import { demoUserResponseBreakdownBySection } from "../../src/modules/reports/demo-user-response-breakdown.js";
 
 describe("Demo User report fixtures", () => {
@@ -45,5 +46,34 @@ describe("Demo User report fixtures", () => {
     const firstResponse = firstQuestion.responses[0];
     assert.ok(firstResponse);
     assert.equal(firstResponse.ResponseCaption, "Agree");
+  });
+
+  it("serves the demographic response counts for the Demo User", async () => {
+    const service = new CompatibilityReportsService({} as never);
+    const result = await service.demographicResponseCounts(
+      {
+        sub: "demo-user",
+        organizationId: null,
+        roles: ["client"],
+        permissions: [],
+      },
+      {
+        selectedProgramId: "demo-workplace-2025",
+        isDummy: false,
+      },
+    );
+
+    assert.deepEqual(result, demoUserDemographicResponse);
+    assert.deepEqual(result.data[0], {
+      QuestionId: 214,
+      category: "Personal Demographics",
+      categoryLabel: "Gender",
+      options: [
+        { Caption: "Female", Count: 81 },
+        { Caption: "Male", Count: 118 },
+        { Caption: "Non-Binary", Count: 0 },
+        { Caption: "Prefer not to answer", Count: 0 },
+      ],
+    });
   });
 });

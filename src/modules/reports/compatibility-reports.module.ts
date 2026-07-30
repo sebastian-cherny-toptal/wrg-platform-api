@@ -40,6 +40,7 @@ import {
   JwtAuthGuard,
   type Principal,
 } from "../auth/auth.module.js";
+import { demoUserDemographicResponse } from "./demo-user-demographic-response.js";
 import { demoUserResponseBreakdownBySection } from "./demo-user-response-breakdown.js";
 
 const privacyThreshold = 5;
@@ -1544,6 +1545,13 @@ export class CompatibilityReportsService {
   }
 
   async demographicResponseCounts(principal: Principal, query: ReportQuery) {
+    if (
+      query.selectedProgramId === "demo-workplace-2025" &&
+      (principal.sub === "bypass-login-auth" || principal.sub === "demo-user")
+    ) {
+      return demoUserDemographicResponse;
+    }
+
     const context = await this.context(principal, query);
     const isDummy =
       query.isDummy || this.requiresDemo(principal, context, "WFR_Access");
