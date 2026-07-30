@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "legacy-organization.schema.json",
+  "title": "Sanitized legacy organization",
+  "type": "object",
+  "required": ["_id", "id", "Account_Name"],
+  "properties": {
+    "_id": { "type": "string", "examples": ["507f1f77bcf86cd799439011"] },
+    "id": { "type": "string", "description": "Zoho record ID", "examples": ["zoho-account-001"] },
+    "Account_Name": { "type": "string", "examples": ["Example Organization"] },
+    "stripeCustomerId": { "type": ["string", "null"], "examples": ["cus_test_001"] },
+    "Employees": { "type": ["string", "null"], "examples": ["100"] },
+    "createdAt": { "type": ["string", "null"], "format": "date-time" },
+    "updatedAt": { "type": ["string", "null"], "format": "date-time" }
+  },
+  "additionalProperties": true
+}

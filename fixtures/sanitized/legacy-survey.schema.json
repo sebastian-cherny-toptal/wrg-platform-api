@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "legacy-survey.schema.json",
+  "title": "Sanitized legacy survey",
+  "type": "object",
+  "required": ["Id", "Title"],
+  "properties": {
+    "Id": { "type": "integer", "examples": [12345] },
+    "Title": { "type": "string", "examples": ["Example employee survey"] },
+    "SurveyStatusId": { "type": ["string", "null"] },
+    "StartDate": { "type": ["string", "null"], "format": "date-time" },
+    "EndDate": { "type": ["string", "null"], "format": "date-time" },
+    "PanelistCount": { "type": ["integer", "null"] },
+    "RespondentCount": { "type": ["integer", "null"] }
+  },
+  "additionalProperties": true
+}

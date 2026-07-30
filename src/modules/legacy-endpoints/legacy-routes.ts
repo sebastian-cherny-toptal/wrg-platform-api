@@ -1,0 +1,166 @@
+export type LegacyHttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+
+export type LegacyMiddlewareName =
+  | "token"
+  | "admin"
+  | "adminOrSelf"
+  | "reports"
+  | "projects"
+  | "preview"
+  | "uploads"
+  | "keyImpact"
+  | "orders"
+  | "benchmark"
+  | "workforceData"
+  | "employerData"
+  | "annualTrend";
+
+export interface LegacyRoute {
+  method: LegacyHttpMethod;
+  path: string;
+  controller: string;
+  handler: string;
+  middleware?: readonly LegacyMiddlewareName[];
+}
+
+const token = ["token"] as const;
+const reports = ["token", "reports"] as const;
+const admin = ["token", "admin"] as const;
+const projects = ["token", "projects"] as const;
+
+export const LEGACY_ROUTES: readonly LegacyRoute[] = [
+  { method: "GET", path: "/ping", controller: "inline", handler: "ping" },
+  { method: "GET", path: "/deploy-check", controller: "inline", handler: "deployCheck" },
+  { method: "GET", path: "/health", controller: "inline", handler: "legacyHealth" },
+  { method: "POST", path: "/user/create", controller: "user", handler: "createUser", middleware: ["token", "adminOrSelf"] },
+  { method: "PUT", path: "/user/update/:userId", controller: "user", handler: "updateUser", middleware: ["token", "adminOrSelf"] },
+  { method: "GET", path: "/user/list", controller: "user", handler: "getUsers", middleware: [...admin] },
+  { method: "DELETE", path: "/user/delete/:userId", controller: "user", handler: "deleteUserById", middleware: [...admin] },
+  { method: "POST", path: "/user/login", controller: "auth", handler: "login" },
+  { method: "POST", path: "/user/management/login", controller: "auth", handler: "adminLogin" },
+  { method: "PUT", path: "/user/management/login", controller: "auth", handler: "adminLogin" },
+  { method: "POST", path: "/user/management/register2fa", controller: "auth", handler: "register2fa", middleware: token },
+  { method: "POST", path: "/user/management/validate2fa", controller: "auth", handler: "validate2fa", middleware: token },
+  { method: "POST", path: "/user/admin-reset-password", controller: "auth", handler: "adminResetPassword", middleware: [...admin] },
+  { method: "PUT", path: "/user/admin-reset-password-verify", controller: "auth", handler: "adminResetPasswordVerify" },
+  { method: "POST", path: "/user/forgot-password", controller: "auth", handler: "forgotPassword" },
+  { method: "PUT", path: "/user/forgot-password", controller: "auth", handler: "forgotPassword" },
+  { method: "POST", path: "/user/forgot-username", controller: "auth", handler: "forgotUsername" },
+  { method: "POST", path: "/user/refreshtoken", controller: "auth", handler: "refreshToken" },
+  { method: "POST", path: "/user/admin-generate-temp-password", controller: "auth", handler: "adminGenerateTemporaryPassword", middleware: [...admin] },
+  { method: "GET", path: "/user/get-temporary-password/:userId", controller: "auth", handler: "getTemporaryPassword", middleware: [...admin] },
+  { method: "POST", path: "/user/change-password-after-reset", controller: "auth", handler: "changePasswordAfterReset", middleware: token },
+
+  { method: "GET", path: "/client/employeeComparisonReport", controller: "reports", handler: "employeeComparisonReport", middleware: [...reports] },
+  { method: "GET", path: "/client/v2/employeeComparisonReport", controller: "workforce", handler: "respondWBCJSON", middleware: [...reports, "benchmark", "workforceData"] },
+  { method: "POST", path: "/client/getOpenResponsesAnswersReport", controller: "reports", handler: "getOpenResponsesAnswersReport", middleware: [...reports] },
+  { method: "GET", path: "/client/employeeSectionComparisonReport", controller: "reports", handler: "employeeSectionComparisonReport", middleware: [...reports] },
+  { method: "POST", path: "/client/employeeQuestionsSectionComparisonReport", controller: "reports", handler: "employeeQuestionsSectionComparisonReport", middleware: [...reports] },
+  { method: "POST", path: "/client/v2/employeeQuestionsSectionComparisonReport", controller: "workforce", handler: "respondWBCSectionJSON", middleware: [...reports, "benchmark", "workforceData"] },
+  { method: "POST", path: "/client/employeeSectionComparisonWithMeReport", controller: "reports", handler: "employeeSectionComparisonWithMeReport", middleware: [...reports] },
+  { method: "POST", path: "/client/employeeSectionQuestionsComparisonWithMeReport", controller: "reports", handler: "employeeSectionQuestionsComparisonWithMeReport", middleware: [...reports] },
+  { method: "GET", path: "/client/getOpenResponsesQuestions", controller: "reports", handler: "getOpenResponsesQuestions", middleware: [...reports] },
+  { method: "POST", path: "/client/getOpenResponsesAnswers", controller: "reports", handler: "getOpenResponsesAnswers", middleware: [...reports] },
+  { method: "POST", path: "/client/employeeResponseBreakdown", controller: "reports", handler: "employeeResponseBreakdownSelectedSection", middleware: [...reports] },
+  { method: "POST", path: "/client/employeeResponseBreakdownBySection", controller: "reports", handler: "employeeResponseBreakdownBySection", middleware: [...reports] },
+  { method: "POST", path: "/client/employeeMeanScoreBySection", controller: "reports", handler: "employeeMeanScoreBySection", middleware: [...reports] },
+  { method: "POST", path: "/client/employeeMeanScoreByQuestions", controller: "reports", handler: "employeeMeanScoreBySelectedSection", middleware: [...reports] },
+  { method: "GET", path: "/client/fetchSurveyFilter", controller: "reports", handler: "fetchSurveyFilter", middleware: [...reports] },
+  { method: "GET", path: "/client/employeeAnnualTrends", controller: "reports", handler: "employeeAnnualTrends", middleware: [...reports] },
+  { method: "POST", path: "/client/employeeAnnualTrendsBySection", controller: "reports", handler: "employeeAnnualTrendsBySection", middleware: [...reports] },
+  { method: "GET", path: "/client/surveyResponseRate", controller: "reports", handler: "surveyResponseRate", middleware: [...reports] },
+  { method: "GET", path: "/client/employeeSurveyResponseInformation", controller: "reports", handler: "employeeSurveyResponseInformation", middleware: [...reports] },
+  { method: "GET", path: "/client/averagePercentageOfAgreement", controller: "reports", handler: "averagePercentageOfAgreement", middleware: [...reports] },
+  { method: "GET", path: "/client/dashboardTopBottomStatements", controller: "reports", handler: "dashboardTopBottomStatements", middleware: [...reports] },
+  { method: "GET", path: "/client/generateHeatMap", controller: "heatmap", handler: "generateHeatMapSummary", middleware: [...reports] },
+  { method: "POST", path: "/client/generateHeatMap", controller: "heatmap", handler: "generateHeatMapSummary", middleware: [...reports] },
+  { method: "GET", path: "/client/generateHeatMapDetailed", controller: "heatmap", handler: "generateHeatMapDetailed", middleware: [...reports] },
+  { method: "GET", path: "/client/generateBenchmarkReport", controller: "reports", handler: "downloadBenchmarkReport", middleware: [...reports] },
+  { method: "GET", path: "/client/v2/generateBenchmarkReport", controller: "workforce", handler: "respondWBCExcel", middleware: [...reports, "benchmark", "workforceData"] },
+  { method: "GET", path: "/client/responseDetailReportSectionQuestions", controller: "reports", handler: "responseDetailReportSectionQuestions", middleware: [...reports] },
+  { method: "POST", path: "/client/responseDetailReportQuestionResult", controller: "reports", handler: "responseDetailReportQuestionResult", middleware: [...reports] },
+  { method: "GET", path: "/client/responseCountByDemographicCategory", controller: "reports", handler: "responseCountByDemographicCategory", middleware: [...reports] },
+  { method: "GET", path: "/client/getCustomReport", controller: "reports", handler: "getCustomReport", middleware: [...reports] },
+  { method: "GET", path: "/client/employerBenchmarkReportExcel", controller: "employer", handler: "respondBnBExcel", middleware: [...reports, "benchmark", "employerData"] },
+  { method: "GET", path: "/client/employerBenchmarkReport", controller: "employer", handler: "respondBnBJSON", middleware: [...reports, "benchmark", "employerData"] },
+  { method: "GET", path: "/client/getWinnersList", controller: "reports", handler: "getWinnersList", middleware: [...reports] },
+  { method: "GET", path: "/client/getAllUsername", controller: "reports", handler: "getAllUsername", middleware: [...admin] },
+  { method: "GET", path: "/client/deletOrganizationDataToReSync", controller: "reports", handler: "deletOrganizationDataToReSync", middleware: [...admin] },
+  { method: "GET", path: "/client/replaceValues", controller: "reports", handler: "replaceValues", middleware: [...admin] },
+  { method: "GET", path: "/client/getKeyImpactAnalysis", controller: "reports", handler: "getKeyImpactAnalysis", middleware: [...reports] },
+  { method: "GET", path: "/client/surveyResponseRateAnuualTrend", controller: "reports", handler: "surveyResponseRateAnuualTrend", middleware: [...reports, "annualTrend"] },
+  { method: "GET", path: "/client/employeeAnnualTrendsCategory", controller: "reports", handler: "employeeAnnualTrendsCategory", middleware: [...reports, "annualTrend"] },
+  { method: "POST", path: "/client/employeeAnnualTrendsDetail", controller: "reports", handler: "employeeAnnualTrendsDetail", middleware: [...reports, "annualTrend"] },
+  { method: "POST", path: "/client/annualTrensReportDownload", controller: "reports", handler: "downloadAnnualTrendReport", middleware: [...reports, "annualTrend"] },
+
+  { method: "GET", path: "/admin/getroles", controller: "management", handler: "getRoles", middleware: [...admin] },
+  { method: "GET", path: "/admin/getprojects", controller: "management", handler: "getprojects", middleware: [...projects] },
+  { method: "GET", path: "/admin/getprojects/:id", controller: "management", handler: "getprojects", middleware: [...projects] },
+  { method: "GET", path: "/admin/getProgramsByProjectId", controller: "management", handler: "getprograms", middleware: [...projects] },
+  { method: "GET", path: "/admin/getProgramById/:programId", controller: "management", handler: "getProgramById", middleware: [...projects] },
+  { method: "GET", path: "/admin/getpermissions/:roleId", controller: "management", handler: "getPermissions", middleware: [...projects] },
+  { method: "POST", path: "/admin/addrole", controller: "management", handler: "addOrUpdateRole", middleware: [...admin] },
+  { method: "PUT", path: "/admin/updaterole", controller: "management", handler: "addOrUpdateRole", middleware: [...admin] },
+  { method: "POST", path: "/admin/managerole", controller: "management", handler: "manageRole", middleware: [...admin] },
+  { method: "PUT", path: "/admin/managerole", controller: "management", handler: "manageRole", middleware: [...admin] },
+  { method: "DELETE", path: "/admin/deleterole", controller: "management", handler: "deleteRole", middleware: [...admin] },
+  { method: "POST", path: "/admin/uploadCustomReport", controller: "management", handler: "uploadCustomReport", middleware: ["token", "uploads"] },
+  { method: "POST", path: "/admin/uploadKeyImpactAnalysis", controller: "management", handler: "uploadKeyImpactAnalysis", middleware: ["token", "keyImpact"] },
+  { method: "DELETE", path: "/admin/keyImpactAnalysis/:id", controller: "management", handler: "deleteKeyImpactAnalysis", middleware: ["token", "keyImpact"] },
+  { method: "DELETE", path: "/admin/customReport/:id", controller: "management", handler: "deleteCustomReport", middleware: ["token", "uploads"] },
+  { method: "GET", path: "/admin/getOrganizations", controller: "management", handler: "getOrganizations", middleware: ["token", "preview"] },
+  { method: "GET", path: "/admin/getOrganizations/:id", controller: "management", handler: "getOrganizations", middleware: ["token", "preview"] },
+  { method: "GET", path: "/admin/order/log", controller: "management", handler: "orderLogs", middleware: ["token", "orders"] },
+  { method: "GET", path: "/admin/system/log", controller: "management", handler: "readLogs", middleware: [...admin] },
+  { method: "GET", path: "/admin/loginSession/log", controller: "management", handler: "getLoginSessions", middleware: [...admin] },
+  { method: "POST", path: "/admin/resortOrg", controller: "webhook", handler: "resortOrg", middleware: ["token", "orders"] },
+
+  { method: "GET", path: "/dashboard/surveyinformation", controller: "dashboard", handler: "surveyInformation", middleware: [...admin] },
+  { method: "POST", path: "/payment/stripePaymentIntent", controller: "ecom", handler: "stripePaymentIntent", middleware: token },
+  { method: "POST", path: "/payment/checkout", controller: "ecom", handler: "checkout", middleware: [...reports] },
+  { method: "GET", path: "/zoho/syncProjects", controller: "zoho", handler: "syncProjects", middleware: [...projects] },
+  { method: "GET", path: "/zoho/syncPrograms", controller: "zoho", handler: "syncPrograms", middleware: [...projects] },
+  { method: "GET", path: "/zoho/syncOrganizations", controller: "zoho", handler: "syncOrganizations", middleware: [...projects] },
+  { method: "GET", path: "/zoho/syncClients", controller: "zoho", handler: "syncClients", middleware: [...projects] },
+
+  { method: "GET", path: "/webhook/", controller: "inline", handler: "ok" },
+  { method: "POST", path: "/webhook/surveycreated", controller: "webhook", handler: "surveyCreated" },
+  { method: "POST", path: "/webhook/submittedPage", controller: "webhook", handler: "pageSubmitted" },
+  { method: "POST", path: "/webhook/pageSubmitted", controller: "webhook", handler: "pageSubmitted" },
+  { method: "POST", path: "/webhook/pageComplete", controller: "webhook", handler: "pageComplete" },
+  { method: "POST", path: "/webhook/syncSurveys", controller: "schedule", handler: "syncSurveys" },
+  { method: "POST", path: "/webhook/syncContacts", controller: "schedule", handler: "syncContacts" },
+  { method: "POST", path: "/webhook/dealsWebhook", controller: "webhook", handler: "dealCreated" },
+  { method: "POST", path: "/webhook/sendCrmEmails", controller: "webhook", handler: "sendCrmEmails" },
+  { method: "PUT", path: "/webhook/dealUpdate", controller: "webhook", handler: "dealUpdated" },
+  { method: "POST", path: "/webhook/dealUpdate", controller: "webhook", handler: "dealUpdated" },
+  { method: "POST", path: "/webhook/reSyncDataWithCrm", controller: "webhook", handler: "reSyncDataWithCrm", middleware: projects },
+  { method: "POST", path: "/webhook/v2/reSyncDataWithCrm", controller: "webhook", handler: "reSyncDataWithCrmV2", middleware: projects },
+  { method: "POST", path: "/webhook/syncAllRespondents", controller: "webhook", handler: "syncAllRespondents" },
+  { method: "DELETE", path: "/webhook/deleteDealWithData", controller: "webhook", handler: "deleteDealWithData" },
+  { method: "DELETE", path: "/webhook/syncDealsWithCrm", controller: "webhook", handler: "syncDealsWithCrm" },
+  { method: "POST", path: "/webhook/dealCreatedAll", controller: "webhook", handler: "dealCreatedAll" },
+  { method: "POST", path: "/webhook/syncProgram", controller: "webhook", handler: "syncProgram" },
+  { method: "POST", path: "/webhook/syncProject", controller: "webhook", handler: "syncProject" },
+  { method: "POST", path: "/webhook/syncOrg", controller: "webhook", handler: "syncOrg" },
+  { method: "GET", path: "/webhook/getDealsCount", controller: "webhook", handler: "getDealsCount" },
+  { method: "POST", path: "/webhook/sendEmailToAllUsers", controller: "webhook", handler: "sendEmailToAllUsers" },
+  { method: "POST", path: "/webhook/rankingAnalysisTrigger", controller: "webhook", handler: "rankingAnalysisTrigger" },
+  { method: "POST", path: "/webhook/createProduct", controller: "webhook", handler: "createProduct" },
+  { method: "POST", path: "/webhook/stripe/payment", controller: "webhook", handler: "stripePaymentWebhook" },
+  { method: "POST", path: "/webhook/massResync", controller: "webhook", handler: "massResyncV2" },
+  { method: "POST", path: "/webhook/massResyncByProgram", controller: "webhook", handler: "massResyncByProgramV2", middleware: projects },
+  { method: "POST", path: "/webhook/syncCheckmarketDataWithids", controller: "webhook", handler: "syncCheckmarketDataWithids" },
+  { method: "POST", path: "/webhook/responseRateStage", controller: "webhook", handler: "responseRate" },
+];
+
+export function findLegacyRoute(method: string, pathname: string): LegacyRoute | undefined {
+  const normalized = pathname.length > 1 ? pathname.replace(/\/$/, "") : pathname;
+  return LEGACY_ROUTES.find((route) => {
+    if (route.method !== method.toUpperCase()) return false;
+    const routeParts = route.path.replace(/\/$/, "").split("/").filter(Boolean);
+    const pathParts = normalized.split("/").filter(Boolean);
+    if (routeParts.length !== pathParts.length) return false;
+    return routeParts.every((part, index) => part.startsWith(":") || part === pathParts[index]);
+  });
+}
