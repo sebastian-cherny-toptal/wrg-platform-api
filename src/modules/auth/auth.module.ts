@@ -54,9 +54,7 @@ export class JwtAuthGuard extends AuthGuard("jwt") {}
 
 @Injectable()
 class JwtStrategy extends PassportStrategy(Strategy) {
-  constructor(
-    @Inject(ConfigService) config: ConfigService<Env, true>,
-  ) {
+  constructor(@Inject(ConfigService) config: ConfigService<Env, true>) {
     const secret = config.get("JWT_ACCESS_SECRET", { infer: true });
     if (!secret) {
       throw new Error("JWT_ACCESS_SECRET is required");
@@ -118,13 +116,19 @@ export class AuthService {
         ),
       ],
     };
+    return this.issueTokens(principal);
+  }
+
+  async issueTokens(
+    principal: Principal,
+  ): Promise<{ accessToken: string; refreshToken: string }> {
     const accessToken = await this.jwt.signAsync(principal, {
       secret: this.config.get("JWT_ACCESS_SECRET", { infer: true }),
       expiresIn: this.config.get("JWT_ACCESS_TTL", { infer: true }) as never,
     });
     const sessionId = crypto.randomUUID();
     const refreshToken = await this.jwt.signAsync(
-      { sub: user.id, sid: sessionId },
+      { sub: principal.sub, sid: sessionId },
       {
         secret: this.config.get("JWT_REFRESH_SECRET", { infer: true }),
         expiresIn: `${this.config.get("JWT_REFRESH_TTL_DAYS", { infer: true })}d`,
@@ -134,7 +138,7 @@ export class AuthService {
     await this.prisma.session.create({
       data: {
         id: sessionId,
-        userId: user.id,
+        userId: principal.sub,
         refreshTokenHash: await hash(refreshToken),
         expiresAt: new Date(
           Date.now() +
@@ -146,37 +150,72 @@ export class AuthService {
     return { accessToken, refreshToken };
   }
 
-  async refresh(token: string): Promise<{ accessToken: string }> {
-    const payload = await this.jwt.verifyAsync<{ sub: string; sid: string }>(
-      token,
-      {
-        secret: this.config.get("JWT_REFRESH_SECRET", { infer: true }),
-      },
-    );
+  async rotateRefreshToken(token: string): Promise<{
+    accessToken: string;
+    refreshToken: string;
+    principal: Principal;
+  }> {
+    let payload: { sub: string; sid: string };
+    try {
+      payload = await this.jwt.verifyAsync<{ sub: string; sid: string }>(
+        token,
+        {
+          secret: this.config.get("JWT_REFRESH_SECRET", { infer: true }),
+        },
+      );
+    } catch {
+      throw new UnauthorizedException("Invalid refresh token");
+    }
     const session = await this.prisma.session.findUnique({
       where: { id: payload.sid },
-      include: { user: true },
+      include: {
+        user: {
+          include: {
+            roles: {
+              include: {
+                role: {
+                  include: {
+                    permissions: { include: { permission: true } },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
     });
     if (
       !session ||
       session.revokedAt ||
       session.expiresAt < new Date() ||
+      session.user.status !== "ACTIVE" ||
+      session.userId !== payload.sub ||
       !(await verify(session.refreshTokenHash, token))
     ) {
       throw new UnauthorizedException("Invalid refresh token");
     }
-    const accessToken = await this.jwt.signAsync(
-      {
-        sub: session.userId,
-        organizationId: session.user.organizationId,
-        roles: [],
-        permissions: [],
-      } satisfies Principal,
-      {
-        secret: this.config.get("JWT_ACCESS_SECRET", { infer: true }),
-        expiresIn: this.config.get("JWT_ACCESS_TTL", { infer: true }) as never,
-      },
-    );
+    const principal: Principal = {
+      sub: session.userId,
+      organizationId: session.user.organizationId,
+      roles: session.user.roles.map(({ role }) => role.key),
+      permissions: [
+        ...new Set(
+          session.user.roles.flatMap(({ role }) =>
+            role.permissions.map(({ permission }) => permission.key),
+          ),
+        ),
+      ],
+    };
+    const rotated = await this.issueTokens(principal);
+    await this.prisma.session.update({
+      where: { id: session.id },
+      data: { revokedAt: new Date() },
+    });
+    return { ...rotated, principal };
+  }
+
+  async refresh(token: string): Promise<{ accessToken: string }> {
+    const { accessToken } = await this.rotateRefreshToken(token);
     return { accessToken };
   }
 

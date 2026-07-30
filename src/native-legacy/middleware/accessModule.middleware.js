@@ -406,23 +406,6 @@ class accessModule {
     }
   }
 
-  async adminOrSelf(req, res, next) {
-    try {
-      if (
-        req.user.role !== "admin" &&
-        req.user._id.toString() !== req.params.userId
-      ) {
-        return res
-          .status(404)
-          .json({ success: false, message: "Access Denied!" });
-      }
-
-      return next();
-    } catch (error) {
-      return res.status(401).json({ msg: "Failed adminOrSelf check!", error });
-    }
-  }
-
   // access reports Comparison
   async accessReportComparison(req, res, next) {
     try {

@@ -73,12 +73,4 @@ export class LegacyEndpointsController {
   @All("webhook/:one/:two/:three/:four")
   webhookFour(@Req() request: AnyRecord, @Res() reply: AnyRecord) { return this.runtime.handle(request, reply); }
 
-  @All("ping")
-  ping(@Req() request: AnyRecord, @Res() reply: AnyRecord) { return this.runtime.handle(request, reply); }
-
-  @All("deploy-check")
-  deployCheck(@Req() request: AnyRecord, @Res() reply: AnyRecord) { return this.runtime.handle(request, reply); }
-
-  @All("health")
-  health(@Req() request: AnyRecord, @Res() reply: AnyRecord) { return this.runtime.handle(request, reply); }
 }

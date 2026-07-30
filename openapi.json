@@ -68,6 +68,491 @@
         ]
       }
     },
+    "/user/create": {
+      "post": {
+        "operationId": "UsersController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateUserDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The user was created and invited."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/user/update/{userId}": {
+      "put": {
+        "operationId": "UsersController_update",
+        "parameters": [
+          {
+            "name": "userId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateUserDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The user was updated."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/user/list": {
+      "get": {
+        "operationId": "UsersController_list",
+        "parameters": [
+          {
+            "name": "select",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "expand",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "enum": [
+                "projects"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The non-client users were returned."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/user/delete/{userId}": {
+      "delete": {
+        "operationId": "UsersController_delete",
+        "parameters": [
+          {
+            "name": "userId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The user was disabled and signed out."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/user/login": {
+      "post": {
+        "operationId": "ClientLoginController_login",
+        "parameters": [
+          {
+            "name": "skipLastLogin",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClientLoginDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The client user was authenticated."
+          }
+        },
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/user/management/login": {
+      "post": {
+        "operationId": "AccountAccessController_startManagementLogin",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ManagementLoginStartDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The management credentials were verified."
+          }
+        },
+        "tags": [
+          "auth"
+        ]
+      },
+      "put": {
+        "operationId": "AccountAccessController_completeManagementLogin",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ManagementLoginCompleteDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The management login was completed."
+          }
+        },
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/user/management/register2fa": {
+      "post": {
+        "operationId": "AccountAccessController_registerTwoFactor",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/user/management/validate2fa": {
+      "post": {
+        "operationId": "AccountAccessController_validateTwoFactor",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ValidateTwoFactorDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/user/admin-reset-password": {
+      "post": {
+        "operationId": "AccountAccessController_requestAdminReset",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminResetPasswordDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/user/admin-reset-password-verify": {
+      "put": {
+        "operationId": "AccountAccessController_completeAdminReset",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResetPasswordDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/user/forgot-password": {
+      "post": {
+        "operationId": "AccountAccessController_requestForgotPassword",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ForgotPasswordDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "auth"
+        ]
+      },
+      "put": {
+        "operationId": "AccountAccessController_completeForgotPassword",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompleteForgotPasswordDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/user/forgot-username": {
+      "post": {
+        "operationId": "AccountAccessController_forgotUsername",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ForgotUsernameDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/user/refreshtoken": {
+      "post": {
+        "operationId": "AccountAccessController_refresh",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompatibilityRefreshDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/user/admin-generate-temp-password": {
+      "post": {
+        "operationId": "AccountAccessController_generateTemporaryPassword",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminResetPasswordDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/user/get-temporary-password/{userId}": {
+      "get": {
+        "operationId": "AccountAccessController_getTemporaryPassword",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/user/change-password-after-reset": {
+      "post": {
+        "operationId": "AccountAccessController_changeTemporaryPassword",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangeTemporaryPasswordDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "auth"
+        ]
+      }
+    },
     "/api/v1/organizations/me": {
       "get": {
         "operationId": "TenantsController_me_v1",
@@ -155,6 +640,617 @@
             "schema": {}
           }
         ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "reports"
+        ]
+      }
+    },
+    "/client/employeeComparisonReport": {
+      "get": {
+        "operationId": "CompatibilityReportsController_employeeComparison",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "reports"
+        ]
+      }
+    },
+    "/client/v2/employeeComparisonReport": {
+      "get": {
+        "operationId": "CompatibilityReportsController_workforceComparison",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "reports"
+        ]
+      }
+    },
+    "/client/getOpenResponsesAnswersReport": {
+      "post": {
+        "operationId": "CompatibilityReportsController_openResponsesReport",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OpenResponsesReportDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "An Employee Verbatims XLSX workbook."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "reports"
+        ]
+      }
+    },
+    "/client/employeeSectionComparisonReport": {
+      "get": {
+        "operationId": "CompatibilityReportsController_sectionComparison",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "reports"
+        ]
+      }
+    },
+    "/client/employeeQuestionsSectionComparisonReport": {
+      "post": {
+        "operationId": "CompatibilityReportsController_questionComparison",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CategoryDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "reports"
+        ]
+      }
+    },
+    "/client/v2/employeeQuestionsSectionComparisonReport": {
+      "post": {
+        "operationId": "CompatibilityReportsController_workforceQuestionComparison",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CategoryDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "reports"
+        ]
+      }
+    },
+    "/client/employeeSectionComparisonWithMeReport": {
+      "post": {
+        "operationId": "CompatibilityReportsController_sectionComparisonWithMe",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ComparisonWithMeDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "reports"
+        ]
+      }
+    },
+    "/client/employeeSectionQuestionsComparisonWithMeReport": {
+      "post": {
+        "operationId": "CompatibilityReportsController_questionComparisonWithMe",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CategoryWithMeDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "reports"
+        ]
+      }
+    },
+    "/client/getOpenResponsesQuestions": {
+      "get": {
+        "operationId": "CompatibilityReportsController_openResponseQuestions",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "reports"
+        ]
+      }
+    },
+    "/client/getOpenResponsesAnswers": {
+      "post": {
+        "operationId": "CompatibilityReportsController_openResponseAnswers",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QueryFilterDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "reports"
+        ]
+      }
+    },
+    "/client/employeeResponseBreakdown": {
+      "post": {
+        "operationId": "CompatibilityReportsController_responseBreakdown",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QuestionRangeDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "reports"
+        ]
+      }
+    },
+    "/client/employeeResponseBreakdownBySection": {
+      "post": {
+        "operationId": "CompatibilityReportsController_responseBreakdownBySection",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QueryFilterDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "reports"
+        ]
+      }
+    },
+    "/client/employeeMeanScoreBySection": {
+      "post": {
+        "operationId": "CompatibilityReportsController_meanScoreBySection",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProgramBodyDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "reports"
+        ]
+      }
+    },
+    "/client/employeeMeanScoreByQuestions": {
+      "post": {
+        "operationId": "CompatibilityReportsController_meanScoreByQuestions",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QuestionRangeDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "reports"
+        ]
+      }
+    },
+    "/client/fetchSurveyFilter": {
+      "get": {
+        "operationId": "CompatibilityReportsController_surveyFilters",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "reports"
+        ]
+      }
+    },
+    "/client/employeeAnnualTrends": {
+      "get": {
+        "operationId": "CompatibilityReportsController_annualTrends",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "reports"
+        ]
+      }
+    },
+    "/client/employeeAnnualTrendsBySection": {
+      "post": {
+        "operationId": "CompatibilityReportsController_annualTrendsBySection",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "reports"
+        ]
+      }
+    },
+    "/client/surveyResponseRate": {
+      "get": {
+        "operationId": "CompatibilityReportsController_surveyResponseRate",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "reports"
+        ]
+      }
+    },
+    "/client/employeeSurveyResponseInformation": {
+      "get": {
+        "operationId": "CompatibilityReportsController_surveyInformation",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "reports"
+        ]
+      }
+    },
+    "/client/averagePercentageOfAgreement": {
+      "get": {
+        "operationId": "CompatibilityReportsController_averageAgreement",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "reports"
+        ]
+      }
+    },
+    "/client/dashboardTopBottomStatements": {
+      "get": {
+        "operationId": "CompatibilityReportsController_topBottomStatements",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "reports"
+        ]
+      }
+    },
+    "/client/generateHeatMap": {
+      "get": {
+        "operationId": "CompatibilityReportsController_heatMap",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "reports"
+        ]
+      },
+      "post": {
+        "operationId": "CompatibilityReportsController_heatMapPost",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "reports"
+        ]
+      }
+    },
+    "/client/generateHeatMapDetailed": {
+      "get": {
+        "operationId": "CompatibilityReportsController_detailedHeatMap",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "reports"
+        ]
+      }
+    },
+    "/client/generateBenchmarkReport": {
+      "get": {
+        "operationId": "CompatibilityReportsController_benchmarkReport",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "reports"
+        ]
+      }
+    },
+    "/client/v2/generateBenchmarkReport": {
+      "get": {
+        "operationId": "CompatibilityReportsController_workforceBenchmarkReport",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "reports"
+        ]
+      }
+    },
+    "/client/responseDetailReportSectionQuestions": {
+      "get": {
+        "operationId": "CompatibilityReportsController_responseDetailSections",
+        "parameters": [],
         "responses": {
           "200": {
             "description": ""
@@ -3188,295 +4284,46 @@
     },
     "/ping": {
       "get": {
-        "operationId": "LegacyEndpointsController_ping_get",
+        "operationId": "PingController_ping",
         "parameters": [],
         "responses": {
           "200": {
-            "description": ""
+            "description": "The API process is accepting requests."
           }
         },
         "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "post": {
-        "operationId": "LegacyEndpointsController_ping_post",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "put": {
-        "operationId": "LegacyEndpointsController_ping_put",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "delete": {
-        "operationId": "LegacyEndpointsController_ping_delete",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "patch": {
-        "operationId": "LegacyEndpointsController_ping_patch",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "options": {
-        "operationId": "LegacyEndpointsController_ping_options",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "head": {
-        "operationId": "LegacyEndpointsController_ping_head",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "search": {
-        "operationId": "LegacyEndpointsController_ping_search",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
+          "health"
         ]
       }
     },
     "/deploy-check": {
       "get": {
-        "operationId": "LegacyEndpointsController_deployCheck_get",
+        "operationId": "DeployCheckController_deployCheck",
         "parameters": [],
         "responses": {
           "200": {
-            "description": ""
+            "description": "Confirms that the deployed build is running."
           }
         },
         "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "post": {
-        "operationId": "LegacyEndpointsController_deployCheck_post",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "put": {
-        "operationId": "LegacyEndpointsController_deployCheck_put",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "delete": {
-        "operationId": "LegacyEndpointsController_deployCheck_delete",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "patch": {
-        "operationId": "LegacyEndpointsController_deployCheck_patch",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "options": {
-        "operationId": "LegacyEndpointsController_deployCheck_options",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "head": {
-        "operationId": "LegacyEndpointsController_deployCheck_head",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "search": {
-        "operationId": "LegacyEndpointsController_deployCheck_search",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
+          "health"
         ]
       }
     },
     "/health": {
       "get": {
-        "operationId": "LegacyEndpointsController_health_get",
+        "operationId": "DatabaseHealthController_health",
         "parameters": [],
         "responses": {
           "200": {
-            "description": ""
+            "description": "The database is reachable."
+          },
+          "503": {
+            "description": "The database is unavailable."
           }
         },
         "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "post": {
-        "operationId": "LegacyEndpointsController_health_post",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "put": {
-        "operationId": "LegacyEndpointsController_health_put",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "delete": {
-        "operationId": "LegacyEndpointsController_health_delete",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "patch": {
-        "operationId": "LegacyEndpointsController_health_patch",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "options": {
-        "operationId": "LegacyEndpointsController_health_options",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "head": {
-        "operationId": "LegacyEndpointsController_health_head",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "search": {
-        "operationId": "LegacyEndpointsController_health_search",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
+          "health"
         ]
       }
     },
@@ -3553,6 +4400,329 @@
         },
         "required": [
           "refreshToken"
+        ]
+      },
+      "CreateUserDto": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "example": "person@example.com"
+          },
+          "fullName": {
+            "type": "string",
+            "example": "Example Person"
+          },
+          "password": {
+            "type": "string",
+            "minLength": 8
+          },
+          "username": {
+            "type": "string"
+          },
+          "mobile": {
+            "type": "string"
+          },
+          "mfa": {
+            "type": "string",
+            "enum": [
+              "mobile",
+              "email"
+            ]
+          },
+          "roleId": {
+            "type": "string",
+            "description": "A native role ID or a migrated legacy role ID."
+          },
+          "projects": {
+            "description": "Native project IDs or migrated legacy project IDs.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "email",
+          "fullName"
+        ]
+      },
+      "UpdateUserDto": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "example": "person@example.com"
+          },
+          "fullName": {
+            "type": "string",
+            "example": "Example Person"
+          },
+          "username": {
+            "type": "string"
+          },
+          "mobile": {
+            "type": "string"
+          },
+          "mfa": {
+            "type": "string",
+            "enum": [
+              "mobile",
+              "email"
+            ]
+          },
+          "roleId": {
+            "type": "string",
+            "description": "A native role ID or a migrated legacy role ID."
+          },
+          "projects": {
+            "description": "Native project IDs or migrated legacy project IDs.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "ClientLoginDto": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string"
+          },
+          "userEmail": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "username"
+        ]
+      },
+      "ManagementLoginStartDto": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "password": {
+            "type": "string",
+            "minLength": 8
+          }
+        },
+        "required": [
+          "email",
+          "password"
+        ]
+      },
+      "ManagementLoginCompleteDto": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string"
+          },
+          "enteredOtp": {
+            "type": "string",
+            "minLength": 6,
+            "maxLength": 6
+          }
+        },
+        "required": [
+          "userId"
+        ]
+      },
+      "ValidateTwoFactorDto": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "minLength": 6,
+            "maxLength": 6
+          }
+        },
+        "required": [
+          "token"
+        ]
+      },
+      "AdminResetPasswordDto": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "description": "A native user ID or a migrated legacy user ID."
+          }
+        },
+        "required": [
+          "userId"
+        ]
+      },
+      "ResetPasswordDto": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "password": {
+            "type": "string",
+            "minLength": 8
+          }
+        },
+        "required": [
+          "key",
+          "password"
+        ]
+      },
+      "ForgotPasswordDto": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          }
+        }
+      },
+      "CompleteForgotPasswordDto": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "password": {
+            "type": "string",
+            "minLength": 8
+          },
+          "otp": {
+            "type": "string",
+            "minLength": 6,
+            "maxLength": 6
+          }
+        },
+        "required": [
+          "key",
+          "password",
+          "otp"
+        ]
+      },
+      "ForgotUsernameDto": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "email"
+        ]
+      },
+      "CompatibilityRefreshDto": {
+        "type": "object",
+        "properties": {
+          "refreshToken": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "refreshToken"
+        ]
+      },
+      "ChangeTemporaryPasswordDto": {
+        "type": "object",
+        "properties": {
+          "newPassword": {
+            "type": "string",
+            "minLength": 8
+          }
+        },
+        "required": [
+          "newPassword"
+        ]
+      },
+      "OpenResponsesReportDto": {
+        "type": "object",
+        "properties": {
+          "queryFilter": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Optional legacy report filter."
+          }
+        }
+      },
+      "CategoryDto": {
+        "type": "object",
+        "properties": {
+          "category": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "category"
+        ]
+      },
+      "ComparisonWithMeDto": {
+        "type": "object",
+        "properties": {
+          "selectedCategoryOption": {
+            "type": "string",
+            "default": "AllYes"
+          }
+        }
+      },
+      "CategoryWithMeDto": {
+        "type": "object",
+        "properties": {
+          "category": {
+            "type": "string"
+          },
+          "selectedCategoryOption": {
+            "type": "string",
+            "default": "AllYes"
+          }
+        },
+        "required": [
+          "category"
+        ]
+      },
+      "QueryFilterDto": {
+        "type": "object",
+        "properties": {
+          "queryFilter": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "QuestionRangeDto": {
+        "type": "object",
+        "properties": {
+          "queryFilter": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "questionRange": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "questionRange"
+        ]
+      },
+      "ProgramBodyDto": {
+        "type": "object",
+        "properties": {
+          "queryFilter": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "selectedProgramId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "selectedProgramId"
         ]
       },
       "CheckoutDto": {

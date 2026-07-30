@@ -16,8 +16,11 @@ import { WebhooksModule } from "./modules/integrations/webhooks.module.js";
 import { LegacyEndpointsModule } from "./modules/legacy-endpoints/legacy-endpoints.module.js";
 import { OpsModule } from "./modules/ops/ops.module.js";
 import { ReportsModule } from "./modules/reports/reports.module.js";
+import { CompatibilityReportsModule } from "./modules/reports/compatibility-reports.module.js";
 import { SurveysModule } from "./modules/surveys/surveys.module.js";
 import { TenantsModule } from "./modules/tenants/tenants.module.js";
+import { UsersModule } from "./modules/users/users.module.js";
+import { AccountAccessModule } from "./modules/users/account-access.module.js";
 
 @Module({
   imports: [
@@ -68,9 +71,12 @@ import { TenantsModule } from "./modules/tenants/tenants.module.js";
     BullModule.registerQueue({ name: "integrations" }),
     DatabaseModule,
     AuthModule,
+    UsersModule,
+    AccountAccessModule,
     TenantsModule,
     SurveysModule,
     ReportsModule,
+    CompatibilityReportsModule,
     CommerceModule,
     IntegrationsModule,
     CrmSyncModule,

@@ -5,7 +5,6 @@ const source = await readFile(
   "utf8",
 );
 const requiredPrefixes = [
-  "/user/",
   "/client/",
   "/admin/",
   "/dashboard/",
@@ -17,8 +16,8 @@ const missing = requiredPrefixes.filter((prefix) => !source.includes(`path: \"${
 if (missing.length) {
   throw new Error(`Missing native compatibility route prefixes: ${missing.join(", ")}`);
 }
-const routeCount = (source.match(/\{ method:/g) ?? []).length;
-if (routeCount < 100) {
-  throw new Error(`Expected at least 100 native compatibility routes, found ${routeCount}`);
+const routeCount = (source.match(/\bmethod:\s*"/g) ?? []).length;
+if (routeCount === 0) {
+  throw new Error("Expected at least one remaining native compatibility route.");
 }
 console.log(`Native compatibility route registry contains ${routeCount} routes.`);
