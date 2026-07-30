@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: wrg
+          POSTGRES_PASSWORD: wrg
+          POSTGRES_DB: wrg
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U wrg"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:8-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      NODE_ENV: test
+      LEGACY_COMPAT: "false"
+      DATABASE_URL: postgresql://wrg:wrg@localhost:5432/wrg?schema=public
+      REDIS_URL: redis://localhost:6379
+      JWT_ACCESS_SECRET: ci-access-secret-at-least-32-characters
+      JWT_REFRESH_SECRET: ci-refresh-secret-at-least-32-characters
+      STRIPE_SECRET_KEY: sk_test_mock
+      STRIPE_WEBHOOK_SECRET: whsec_mock
+      ZOHO_BASE_URL: http://localhost/mock/zoho
+      ZOHO_CLIENT_ID: mock
+      ZOHO_CLIENT_SECRET: mock
+      ZOHO_WEBHOOK_SECRET: ci-zoho-webhook-secret
+      CHECKMARKET_BASE_URL: http://localhost/mock/checkmarket
+      CHECKMARKET_API_KEY: mock
+      CHECKMARKET_WEBHOOK_SECRET: ci-checkmarket-webhook-secret
+      INTEGRATIONS_MOCK: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run db:deploy
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
