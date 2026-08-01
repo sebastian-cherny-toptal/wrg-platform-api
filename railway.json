@@ -5,7 +5,7 @@
     "dockerfilePath": "Dockerfile"
   },
   "deploy": {
-    "preDeployCommand": "prisma migrate deploy",
+    "preDeployCommand": "npm run db:deploy:production",
     "healthcheckPath": "/api/v1/health/ready",
     "healthcheckTimeout": 300,
     "restartPolicyType": "ON_FAILURE",

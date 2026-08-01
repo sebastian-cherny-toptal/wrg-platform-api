@@ -21,6 +21,7 @@
     "test:integration": "tsx --test test/integration/**/*.spec.ts",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma generate && prisma migrate deploy",
+    "db:deploy:production": "prisma migrate deploy",
     "db:seed": "tsx prisma/seed.ts",
     "db:reset": "prisma migrate reset --force",
     "openapi:generate": "tsx scripts/generate-openapi.ts",
