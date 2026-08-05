@@ -1491,7 +1491,7 @@ export class CompatibilityReportsService {
     );
     const responsePatterns = Array.isArray(queryFilter?.responsePatterns)
       ? queryFilter.responsePatterns.filter(
-          (item): item is {
+          (item: unknown): item is {
             metric: "agreement" | "disagreement";
             minimum: number;
             maximum: number;
@@ -2074,7 +2074,7 @@ export class CompatibilityReportsService {
     worksheet.columns = [
       { header: "Section / Question / Response", key: "title", width: 62 },
       ...report.data.tableHeaders.map((header, index) => ({
-        header: header.title ?? `Group ${index + 1}`,
+        header: header.title,
         key: `group${index}`,
         width: 20,
       })),
@@ -3543,13 +3543,13 @@ export class CompatibilityReportsService {
       message: "success" as const,
       isConfidential: false,
       data: questionRange.map((questionId) => {
-        const question = demoUserQuestionById.get(String(questionId));
+        const question = demoUserQuestionById.get(questionId);
         const values = question
           ? [question.agreement, question.neutral, question.disagreement]
           : [0, 0, 0];
         return {
           question: question?.question ?? `Question ${questionId}`,
-          questionId: String(questionId),
+          questionId,
           responses: demoTrendDistribution(values as [number, number, number]),
         };
       }),

@@ -1,10 +1,10 @@
-export type DemoQuestion = {
+export interface DemoQuestion {
   id: string;
   question: string;
   agreement: number;
   neutral: number;
   disagreement: number;
-};
+}
 
 type QuestionTuple = [id: number, question: string, agreement: number, neutral: number, disagreement: number];
 
