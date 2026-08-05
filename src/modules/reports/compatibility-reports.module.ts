@@ -41,12 +41,55 @@ import {
   type Principal,
 } from "../auth/auth.module.js";
 import { demoUserDemographicResponse } from "./demo-user-demographic-response.js";
+import {
+  demoUserAnnualCategoryResults,
+  demoUserCorePreviousResults,
+  demoUserDetailedResults,
+  demoUserQuestionById,
+} from "./demo-user-detailed-results.js";
 import { demoUserResponseBreakdownBySection } from "./demo-user-response-breakdown.js";
 
 const privacyThreshold = 5;
+const isDemoUserReport = (principal: Principal, query: ReportQuery) =>
+  query.selectedProgramId === "demo-workplace-2025" &&
+  (principal.sub === "bypass-login-auth" || principal.sub === "demo-user");
+const demoTrendDistribution = (
+  values: readonly [number, number, number],
+) =>
+  (["Agree", "Neutral", "Disagree"] as const).map(
+    (ResponseCaption, index) => {
+      const percentage = values[index] ?? 0;
+      return {
+        ResponseCaption,
+        numberOfResponses: Math.round((percentage * 199) / 100),
+        percent: percentage / 100,
+        percentage,
+        colorCode: responseColor(ResponseCaption),
+      };
+    },
+  );
 const winnerColors = { Yes: "#00a46a", No: "#ffc955" } as const;
 const headerColors = { Yes: "#0f0", No: "#ff0" } as const;
 const winnerTitles = { Yes: "Winners", No: "Non-Winners" } as const;
+const demoBenchmarkCategoryValues: Array<[string, number[]]> = [
+  ["Core Employee Experience", [91, 96, 94, 92, 90, 88]],
+  ["Your Job", [89, 94, 92, 89, 87, 85]],
+  ["Communication and Workplace Culture", [87, 93, 90, 87, 85, 84]],
+  ["Relationship With Your Manager", [93, 96, 94, 93, 92, 91]],
+  ["Training, Technology and Professional Development", [85, 91, 88, 86, 83, 79]],
+  ["Diversity and Inclusion", [92, 94, 91, 92, 91, 91]],
+  ["Leadership of this Organization", [87, 93, 91, 88, 84, 81]],
+  ["Employee Benefits", [86, 92, 89, 87, 84, 82]],
+  ["Work-Life Balance", [85, 91, 88, 86, 83, 81]],
+];
+const demoWinnerCohortKeys = [
+  "AllYes",
+  "SmallYes",
+  "MediumYes",
+  "LargeYes",
+  "MajorYes",
+  "SuperYes",
+] as const;
 const categoryOrder = [
   "Core Employee Experience",
   "Your Job",
@@ -390,6 +433,72 @@ export class CompatibilityReportsService {
       surveyAverage: Array<Record<string, unknown>>;
     };
   }> {
+    if (isDemoUserReport(principal, query)) {
+      const employerSizes = ["All", "Small", "Medium", "Large", "Major", "Super"];
+      const tableHeaders = employerSizes.flatMap((size) =>
+        (["Yes", "No"] as const).map((winner) => ({
+          title: size === "All" ? "All Size Categories" : `${size} Employers`,
+          type: `${size}_${winner}`,
+          color: headerColors[winner],
+        })),
+      );
+      const detailSection = (title: string) =>
+        demoUserDetailedResults.find(
+          (section) =>
+            section.title === title ||
+            (title === "Leadership of this Organization" &&
+              section.title === "Leadership"),
+        );
+      return {
+        success: true,
+        message: "true",
+        data: {
+          tableHeaders,
+          data: demoBenchmarkCategoryValues.map(([title, winnerValues]) => {
+            const section = detailSection(title);
+            const averageAgreement = section?.questions.length
+              ? section.questions.reduce(
+                  (total, question) => total + question.agreement,
+                  0,
+                ) / section.questions.length
+              : 85;
+            return {
+              title,
+              dataValues: winnerValues.flatMap((value) => [value, "x"]),
+              nestedData: (section?.questions ?? []).map((question) => ({
+                id: question.id,
+                title: question.question,
+                dataValues: winnerValues.flatMap((value) => [
+                  Math.max(
+                    1,
+                    Math.min(
+                      99,
+                      Math.round(
+                        value + (question.agreement - averageAgreement) * 0.35,
+                      ),
+                    ),
+                  ),
+                  "x",
+                ]),
+              })),
+              legends: [
+                { color: winnerColors.Yes, title: "Winners" },
+                { color: winnerColors.No, title: "Non-Winners" },
+              ],
+            };
+          }),
+          surveyAverage: [88, 93, 91, 89, 87, 85].map((value, index) => ({
+            title:
+              index === 0
+                ? "All Size Categories"
+                : `${employerSizes[index]} Employers`,
+            subTitle: "Survey Average",
+            Yes: { title: "Winners", value },
+            No: { title: "Non-Winners", value: "x" },
+          })),
+        },
+      };
+    }
     const context = await this.context(principal, query);
     const isDummy =
       query.isDummy || this.requiresDemo(principal, context, "WBC_Access");
@@ -680,6 +789,54 @@ export class CompatibilityReportsService {
     category: string,
     selectedCategoryOption = "AllYes",
   ) {
+    if (isDemoUserReport(principal, query)) {
+      const normalizedCategory = category.trim();
+      const benchmarkCategory =
+        normalizedCategory === "Leadership"
+          ? "Leadership of this Organization"
+          : normalizedCategory;
+      const benchmarkValues = demoBenchmarkCategoryValues.find(
+        ([title]) => title === benchmarkCategory,
+      )?.[1];
+      const section = demoUserDetailedResults.find(
+        ({ title }) => title === normalizedCategory,
+      );
+      const cohortIndex = demoWinnerCohortKeys.findIndex(
+        (key) => key.toLowerCase() === selectedCategoryOption.toLowerCase(),
+      );
+      if (!benchmarkValues || !section) {
+        throw new NotFoundException("Category not found");
+      }
+      if (cohortIndex < 0) {
+        throw new BadRequestException("Invalid benchmark category");
+      }
+      const categoryAverage =
+        section.questions.reduce(
+          (total, question) => total + question.agreement,
+          0,
+        ) / section.questions.length;
+      const cohortAverage = benchmarkValues[cohortIndex] ?? 0;
+      return {
+        success: true,
+        message: "success",
+        data: {
+          questionResponse: section.questions.map((question) => ({
+            question: question.question,
+            currentOrg: question.agreement,
+            otherOrg: Math.max(
+              1,
+              Math.min(
+                99,
+                Math.round(
+                  cohortAverage +
+                    (question.agreement - categoryAverage) * 0.35,
+                ),
+              ),
+            ),
+          })),
+        },
+      };
+    }
     const context = await this.context(principal, query);
     const isDummy =
       query.isDummy || this.requiresDemo(principal, context, "WBC_Access");
@@ -725,6 +882,16 @@ export class CompatibilityReportsService {
   }
 
   async openResponseQuestions(principal: Principal, query: ReportQuery) {
+    if (isDemoUserReport(principal, query)) {
+      return {
+        success: true,
+        message: "success",
+        data: [
+          { caption: "What are the top two or three reasons people like working for this organization? (2000 character limit)", id: "cohen-open-1", _id: "cohen-open-1", questionNumber: 1 },
+          { caption: "What two or three things can this organization add or change to improve employee engagement and success? (2000 character limit)", id: "cohen-open-2", _id: "cohen-open-2", questionNumber: 2 },
+        ],
+      };
+    }
     const context = await this.context(principal, query);
     const isDummy =
       query.isDummy || this.requiresDemo(principal, context, "EV_Access");
@@ -769,6 +936,26 @@ export class CompatibilityReportsService {
     questionReference: string,
     queryFilter?: Record<string, unknown>,
   ) {
+    if (isDemoUserReport(principal, query)) {
+      const first = questionReference === "cohen-open-1";
+      const answers = first
+        ? ["The people, collaborative culture, and meaningful work.", "Supportive colleagues and managers.", "Strong benefits and flexibility.", "The variety of projects and opportunities to learn.", "The organization's stability and reputation."]
+        : ["Improve communication between departments.", "Provide clearer career paths.", "Reduce unnecessary processes.", "Invest in modern tools and training.", "Keep workloads sustainable during busy periods."];
+      return {
+        success: true,
+        message: "success",
+        data: {
+          respondentData: answers.map((answer, index) => this.sampleOpenAnswer(`Demo ${index + 1}`, answer)),
+          dataLen: answers.length,
+          queryQuestion: {
+            Caption: first
+              ? "What are the top two or three reasons people like working for this organization? (2000 character limit)"
+              : "What two or three things can this organization add or change to improve employee engagement and success? (2000 character limit)",
+            Id: questionReference,
+          },
+        },
+      };
+    }
     const context = await this.context(principal, query);
     const isDummy =
       query.isDummy || this.requiresDemo(principal, context, "EV_Access");
@@ -1302,6 +1489,79 @@ export class CompatibilityReportsService {
     const worksheet = workbook.addWorksheet(
       detailed ? "Detailed Results" : "Feedback Results",
     );
+    const responsePatterns = Array.isArray(queryFilter?.responsePatterns)
+      ? queryFilter.responsePatterns.filter(
+          (item): item is {
+            metric: "agreement" | "disagreement";
+            minimum: number;
+            maximum: number;
+          } =>
+            Boolean(
+              item &&
+                typeof item === "object" &&
+                "metric" in item &&
+                (item.metric === "agreement" || item.metric === "disagreement") &&
+                "minimum" in item &&
+                typeof item.minimum === "number" &&
+                "maximum" in item &&
+                typeof item.maximum === "number",
+            ),
+        )
+      : [];
+    if (!detailed && isDemoUserReport(principal, query) && responsePatterns.length) {
+      worksheet.columns = [
+        { header: "Section", key: "section", width: 42 },
+        { header: "Question", key: "question", width: 78 },
+        { header: "Agreement", key: "agreement", width: 16 },
+        { header: "Neutral", key: "neutral", width: 16 },
+        { header: "Disagreement", key: "disagreement", width: 18 },
+      ];
+      for (const item of demoUserDetailedResults) {
+        for (const question of item.questions) {
+          const matches = responsePatterns.some((pattern) => {
+            const value = question[pattern.metric];
+            return value >= pattern.minimum && value <= pattern.maximum;
+          });
+          if (matches) {
+            worksheet.addRow({
+              section: item.title,
+              question: question.question,
+              agreement: question.agreement / 100,
+              neutral: question.neutral / 100,
+              disagreement: question.disagreement / 100,
+            });
+          }
+        }
+      }
+      this.styleWorkbook(worksheet);
+      return Buffer.from(await workbook.xlsx.writeBuffer());
+    }
+    if (detailed && isDemoUserReport(principal, query)) {
+      worksheet.columns = [
+        { header: "Section", key: "section", width: 42 },
+        { header: "Question", key: "question", width: 78 },
+        { header: "Response", key: "response", width: 18 },
+        { header: "Percentage", key: "percentage", width: 16 },
+      ];
+      for (const item of demoUserDetailedResults) {
+        for (const question of item.questions) {
+          for (const [response, percentage] of [
+            ["Agree", question.agreement],
+            ["Neutral", question.neutral],
+            ["Disagree", question.disagreement],
+          ] as const) {
+            worksheet.addRow({
+              section: item.title,
+              question: question.question,
+              response,
+              percentage: percentage / 100,
+            });
+          }
+        }
+      }
+      this.styleWorkbook(worksheet);
+      return Buffer.from(await workbook.xlsx.writeBuffer());
+    }
     worksheet.columns = [
       { header: "Section", key: "section", width: 42 },
       { header: "Response", key: "response", width: 28 },
@@ -1544,6 +1804,46 @@ export class CompatibilityReportsService {
     return { success: true, message: "success", data };
   }
 
+  async responseDetailWorkbook(
+    principal: Principal,
+    query: ReportQuery,
+  ): Promise<Buffer> {
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet("Response Detail");
+    worksheet.columns = [
+      { header: "Category", key: "category", width: 42 },
+      { header: "Question", key: "question", width: 78 },
+      { header: "Response", key: "response", width: 24 },
+      { header: "Gen Z", key: "genZ", width: 14 },
+      { header: "Millennial", key: "millennial", width: 14 },
+      { header: "Gen X", key: "genX", width: 14 },
+      { header: "Baby Boomer", key: "boomer", width: 16 },
+    ];
+    const categories = isDemoUserReport(principal, query)
+      ? demoUserDetailedResults
+      : [];
+    const fallback = categories.length
+      ? categories
+      : [{ title: "Core Employee Experience", questions: [{ question: "I have the tools and resources I need." }] }];
+    const responseRows = [
+      ["Strongly Agree", 45, 47, 44, 46],
+      ["Agree", 31, 30, 32, 31],
+      ["Slightly Agree", 12, 11, 13, 12],
+      ["Slightly Disagree", 6, 6, 5, 6],
+      ["Disagree", 4, 4, 4, 3],
+      ["Strongly Disagree", 2, 2, 2, 2],
+    ] as const;
+    for (const category of fallback) {
+      for (const question of category.questions) {
+        for (const [response, genZ, millennial, genX, boomer] of responseRows) {
+          worksheet.addRow({ category: category.title, question: question.question, response, genZ: genZ / 100, millennial: millennial / 100, genX: genX / 100, boomer: boomer / 100 });
+        }
+      }
+    }
+    this.styleWorkbook(worksheet);
+    return Buffer.from(await workbook.xlsx.writeBuffer());
+  }
+
   async demographicResponseCounts(principal: Principal, query: ReportQuery) {
     if (
       query.selectedProgramId === "demo-workplace-2025" &&
@@ -1615,6 +1915,19 @@ export class CompatibilityReportsService {
   }
 
   async customReports(principal: Principal, query: ReportQuery) {
+    if (isDemoUserReport(principal, query)) {
+      return {
+        success: true,
+        message: "success",
+        data: [{
+          _id: "cohen-response-detail-2025",
+          ReportTitle: "Cohen & Steers - Response Detail Report",
+          ReportDescription: "RDR for Cohen & Steers, using employee survey data from the Best Places Money Management 2025 program.",
+          createAt: "2025-11-05T00:00:00.000Z",
+          reportFormats: [{ _id: "cohen-response-detail-xlsx", fileName: "Cohen_Steers_Response_Detail_2025.xlsx", filename: "Cohen_Steers_Response_Detail_2025.xlsx", fileUrl: "/v1/client/responseDetailReportExcel?selectedProgramId=demo-workplace-2025" }],
+        }],
+      };
+    }
     const context = await this.context(principal, query);
     const assets = await this.prisma.asset.findMany({
       where: { organizationId: context.organizationId },
@@ -1644,6 +1957,32 @@ export class CompatibilityReportsService {
   }
 
   async employerBenchmark(principal: Principal, query: ReportQuery) {
+    if (isDemoUserReport(principal, query)) {
+      const headers = ["All Winners", "Small Winners", "Medium Winners", "Large Winners", "Major Winners", "Super Winners"];
+      const rows: Array<[string, string, number[]]> = [
+        ["Does your organization coordinate “Fun” activities?", "Yes", [100, 100, 100, 100, 100, 100]],
+        ["Does your organization have a structured system for recognizing achievements, attendance, or safety goals?", "Yes", [86, 83, 80, 88, 89, 100]],
+        ["Does your organization formally recognize individual employee milestones?", "Yes", [97, 96, 100, 95, 100, 100]],
+        ["Do you have a strategy to recruit and retain a diverse workforce?", "Yes", [89, 91, 84, 91, 100, 80]],
+        ["Do you have a strategy specifically focused on recruiting and retaining Generation Z employees?", "Yes", [69, 57, 48, 79, 100, 80]],
+        ["Does your organization conduct preemployment screening?", "Yes", [96, 96, 92, 98, 100, 100]],
+        ["Which preemployment tools does your organization use?", "Credit history", [61, 32, 74, 63, 78, 80]],
+        ["Which preemployment tools does your organization use?", "Criminal background", [99, 95, 100, 100, 100, 100]],
+        ["Which preemployment tools does your organization use?", "Education verification", [88, 73, 87, 93, 100, 100]],
+        ["Which preemployment tools does your organization use?", "Professional reference", [84, 77, 91, 85, 89, 60]],
+      ];
+      return {
+        success: true,
+        message: "true",
+        data: {
+          tableHeaders: headers.map((title) => ({ title })),
+          tableData: [{
+            title: "Benefits & Best Practices",
+            nestedData: rows.map(([title, answer, dataValues], index) => ({ id: `cohen-practice-${index + 1}`, title, type: "%", nestedData: [{ title: answer, type: "%", dataValues }] })),
+          }],
+        },
+      };
+    }
     const context = await this.employerContext(principal, query);
     const isDummy =
       query.isDummy || this.requiresDemo(principal, context, "BBP_Access");
@@ -1957,6 +2296,13 @@ export class CompatibilityReportsService {
   }
 
   async annualResponseRate(principal: Principal, query: ReportQuery) {
+    if (isDemoUserReport(principal, query)) {
+      return {
+        success: true,
+        message: "survey avg data",
+        data: [{ "2025": "83", "2024": "84" }],
+      };
+    }
     const { current, previous } = await this.annualContexts(principal, query);
     const isDummy =
       query.isDummy || this.requiresDemo(principal, current, "WFR_Access");
@@ -1991,6 +2337,33 @@ export class CompatibilityReportsService {
   }
 
   async annualCategories(principal: Principal, query: ReportQuery) {
+    if (isDemoUserReport(principal, query)) {
+      return {
+        success: true,
+        data: demoUserAnnualCategoryResults.map(
+          ([category, current, previous]) => ({
+            category: { category },
+            "2025": {
+              data: demoTrendDistribution(current),
+              questionIds:
+                demoUserDetailedResults.find((item) => item.title === category)
+                  ?.questions.map((question) => question.id) ?? [],
+            },
+            ...(previous
+              ? {
+                  "2024": {
+                    data: demoTrendDistribution(previous),
+                    questionIds:
+                      demoUserDetailedResults.find(
+                        (item) => item.title === category,
+                      )?.questions.map((question) => question.id) ?? [],
+                  },
+                }
+              : {}),
+          }),
+        ),
+      };
+    }
     const { current, previous } = await this.annualContexts(principal, query);
     const isDummy =
       query.isDummy || this.requiresDemo(principal, current, "WFR_Access");
@@ -2031,6 +2404,40 @@ export class CompatibilityReportsService {
     currentReferences: string[],
     previousReferences: string[],
   ) {
+    if (isDemoUserReport(principal, query)) {
+      const selected = demoUserDetailedResults.find(
+        (item) => item.title === category,
+      );
+      return {
+        success: true,
+        message: "success",
+        category,
+        data: (selected?.questions ?? []).map((question, index) => ({
+          question: question.question,
+          questionId: question.id,
+          "2025": {
+            question: question.question,
+            questionId: question.id,
+            responses: demoTrendDistribution([
+              question.agreement,
+              question.neutral,
+              question.disagreement,
+            ]),
+          },
+          ...(category === "Core Employee Experience"
+            ? {
+                "2024": {
+                  question: question.question,
+                  questionId: `2024-${question.id}`,
+                  responses: demoTrendDistribution(
+                    demoUserCorePreviousResults[index] ?? [0, 0, 0],
+                  ),
+                },
+              }
+            : {}),
+        })),
+      };
+    }
     const { current, previous } = await this.annualContexts(principal, query);
     const isDummy =
       query.isDummy || this.requiresDemo(principal, current, "WFR_Access");
@@ -2147,7 +2554,7 @@ export class CompatibilityReportsService {
         section: category.category.category,
       };
       for (const year of years) {
-        const snapshot = category[year] as
+        const snapshot = (category as unknown as Record<string, unknown>)[year] as
           | {
               data: ReturnType<
                 CompatibilityReportsService["trendDistribution"]
@@ -2169,6 +2576,27 @@ export class CompatibilityReportsService {
     query: ReportQuery,
     queryFilter?: Record<string, unknown>,
   ): Promise<Buffer> {
+    if (isDemoUserReport(principal, query)) {
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet("Employee Verbatims");
+      worksheet.columns = [
+        { header: "Question", key: "question", width: 78 },
+        { header: "Employee Response", key: "answer", width: 82 },
+      ];
+      const questions = [
+        "What are the top two or three reasons people like working for this organization? (2000 character limit)",
+        "What two or three things can this organization add or change to improve employee engagement and success? (2000 character limit)",
+      ];
+      const answers = [
+        ["The people, collaborative culture, and meaningful work.", "Supportive colleagues and managers.", "Strong benefits and flexibility."],
+        ["Improve communication between departments.", "Provide clearer career paths.", "Invest in modern tools and training."],
+      ];
+      questions.forEach((question, index) => {
+        for (const answer of answers[index] ?? []) worksheet.addRow({ question, answer });
+      });
+      this.styleWorkbook(worksheet);
+      return Buffer.from(await workbook.xlsx.writeBuffer());
+    }
     const context = await this.context(principal, query);
     const isDummy =
       query.isDummy || this.requiresDemo(principal, context, "EV_Access");
@@ -3110,36 +3538,19 @@ export class CompatibilityReportsService {
   }
 
   private demoResponseBreakdown(questionRange: string[]) {
-    const sectionByQuestion = new Map<string, Array<Record<string, unknown>>>();
-    for (const section of demoUserResponseBreakdownBySection.data) {
-      const values = Object.values(section)[0] ?? [];
-      const totals = values.find(
-        (value) => "questionRange" in value,
-      );
-      if (!totals || !Array.isArray(totals.questionRange)) continue;
-      for (const questionId of totals.questionRange) {
-        sectionByQuestion.set(String(questionId), values);
-      }
-    }
-
     return {
       success: true as const,
       message: "success" as const,
       isConfidential: false,
       data: questionRange.map((questionId) => {
-        const values = sectionByQuestion.get(questionId) ?? [];
-        const distributions = values.filter(
-          (value) => typeof value.ResponseCaption === "string",
-        );
+        const question = demoUserQuestionById.get(String(questionId));
+        const values = question
+          ? [question.agreement, question.neutral, question.disagreement]
+          : [0, 0, 0];
         return {
-          question: `Question ${questionId}`,
-          questionId,
-          responses: distributions.map((value) => ({
-            ResponseCaption: String(value.ResponseCaption),
-            numberOfResponses: Number(value.numberOfResponses ?? 0),
-            percent: Number(value.percentage ?? 0),
-            colorCode: String(value.colorCode ?? responseColor("Neutral")),
-          })),
+          question: question?.question ?? `Question ${questionId}`,
+          questionId: String(questionId),
+          responses: demoTrendDistribution(values as [number, number, number]),
         };
       }),
     };
@@ -3791,6 +4202,21 @@ export class CompatibilityReportsController {
       body.filterQuestion,
       scalarQuery("version", version) ?? "1",
     );
+  }
+
+  @Get("responseDetailReportExcel")
+  async responseDetailWorkbook(
+    @CurrentUser() principal: Principal,
+    @Query("selectedProgramId") selectedProgramId: string | string[] | undefined,
+    @Query("organizationId") organizationId: string | string[] | undefined,
+    @Query("isDummy") isDummy: string | string[] | undefined,
+    @Res() reply: FastifyReply,
+  ): Promise<void> {
+    const workbook = await this.reports.responseDetailWorkbook(
+      principal,
+      this.reportQuery(selectedProgramId, organizationId, isDummy),
+    );
+    this.sendWorkbook(reply, workbook, "Response_Detail_Report.xlsx");
   }
 
   @Get("responseCountByDemographicCategory")
