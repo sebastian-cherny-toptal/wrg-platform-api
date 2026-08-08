@@ -4,7 +4,7 @@ This document records observed behavior without reproducing credentials or custo
 
 ## Runtime compatibility
 
-`wrg-platform-api` exposes the FE/integration paths (`/user`, `/client`, `/admin`, `/webhook`, `/payment`, `/zoho`, `/dashboard`, `/health`, `/ping`) through `LegacyEndpointsController` when `LEGACY_COMPAT=true` (default). The controller dispatches through a typed native route registry and preserves the existing Mongo-backed business logic under `src/native-legacy/`. Nest continues to own `/api/v1`, `/docs`, and `/openapi.json`.
+`wrg-platform-api` exposes the FE/integration paths (`/user`, `/client`, `/admin`, `/webhook`, `/payment`, `/zoho`, `/dashboard`, `/health`, `/ping`) through native Nest controllers backed by PostgreSQL. The copied Express/Mongoose runtime has been removed. Nest also owns `/api/v1`, `/docs`, and `/openapi.json`.
 
 ## Source model mapping
 
@@ -17,7 +17,7 @@ This document records observed behavior without reproducing credentials or custo
 
 ## Characterized routes
 
-The legacy service exposes unauthenticated synchronization/webhook routes alongside authenticated payment and reporting routes. The Nest `/api/v1` surface separates externally verified webhook routes from administrator-only sync controls and tenant-guarded reports/commerce. Until feature parity is finished in Nest, those legacy routes remain mounted for production traffic.
+The old service exposed unauthenticated synchronization routes alongside provider callbacks. Native compatibility keeps provider callback paths available, records them idempotently, and queues provider work. Manual synchronization paths now require an administrator or operations JWT. The canonical `/api/v1/webhooks/*` routes require provider signatures.
 
 Observed commerce behavior creates Stripe PaymentIntents and invoice orders, then writes report-access fields back to Zoho. Nest records immutable order items and defers CRM projection updates to idempotent BullMQ jobs.
 
@@ -29,4 +29,4 @@ Observed commerce behavior creates Stripe PaymentIntents and invoice orders, the
 4. Webhook provider/event IDs and sync idempotency keys are unique.
 5. ETL source access uses Mongo read preference and defaults to dry-run.
 6. Reconciliation compares counts before any cutover; additional field-level checks should be added per migration wave.
-7. While `LEGACY_COMPAT=true`, Mongo remains the system of record for FE-facing routes; Postgres is authoritative for `/api/v1`.
+7. PostgreSQL is authoritative for both frontend-compatible routes and `/api/v1`; Mongo is read only by explicit ETL/reconciliation commands.

@@ -132,7 +132,6 @@ export async function createApp(): Promise<NestFastifyApplication> {
 }
 
 async function bootstrap(): Promise<void> {
-  process.env.APP_ENV ??= process.env.NODE_ENV === "production" ? "prod" : "dev";
   const app = await createApp();
   const config = app.get<ConfigService<Env, true>>(ConfigService);
   const port = Number(config.get("PORT", { infer: true }));

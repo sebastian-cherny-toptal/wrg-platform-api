@@ -22,7 +22,7 @@ import { CompatibilityZohoModule } from "./modules/crm-sync/compatibility-zoho.m
 import { HealthModule } from "./modules/health/health.module.js";
 import { IntegrationsModule } from "./modules/integrations/integrations.module.js";
 import { WebhooksModule } from "./modules/integrations/webhooks.module.js";
-import { LegacyEndpointsModule } from "./modules/legacy-endpoints/legacy-endpoints.module.js";
+import { CompatibilityWebhooksModule } from "./modules/integrations/compatibility-webhooks.module.js";
 import { OpsModule } from "./modules/ops/ops.module.js";
 import { ReportsModule } from "./modules/reports/reports.module.js";
 import { CompatibilityReportsModule } from "./modules/reports/compatibility-reports.module.js";
@@ -116,7 +116,7 @@ import { CompatibilityAdminModule } from "./modules/management/compatibility-adm
     ContentModule,
     OpsModule,
     WebhooksModule,
-    LegacyEndpointsModule,
+    CompatibilityWebhooksModule,
     HealthModule,
   ],
 })

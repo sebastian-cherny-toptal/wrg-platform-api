@@ -106,6 +106,29 @@ describe("Demo User report fixtures", () => {
     });
   });
 
+  it("builds response-pattern preview percentages from report data", async () => {
+    const service = new CompatibilityReportsService({} as never);
+    const result = await service.feedbackPreview(
+      {
+        sub: "demo-user",
+        organizationId: null,
+        roles: ["client"],
+        permissions: [],
+      },
+      {
+        selectedProgramId: "demo-workplace-2025",
+        isDummy: false,
+      },
+      { positive: [80, 100] },
+    );
+
+    assert.equal(result.success, true);
+    assert.equal(result.isFallback, false);
+    assert.equal(result.data.heatmapPreview.length, 82);
+    assert.equal(result.data.percentage.positivePercentage, 64.63);
+    assert.equal(result.data.percentage.greenPercentage, 64.63);
+  });
+
   it("serves benchmark cards with question-level detail rows", async () => {
     const service = new CompatibilityReportsService({} as never);
     const result = await service.workforceComparison(

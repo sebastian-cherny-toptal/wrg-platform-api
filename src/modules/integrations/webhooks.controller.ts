@@ -15,7 +15,7 @@ import type { RawBodyRequest } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { ApiTags } from "@nestjs/swagger";
 import type { Prisma } from "@prisma/client";
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import type { FastifyRequest } from "fastify";
 import Stripe from "stripe";
 import type { Env } from "../../config/env.js";
@@ -41,6 +41,19 @@ export function verifySharedSignature(
     actualBuffer.length === expectedBuffer.length &&
     timingSafeEqual(actualBuffer, expectedBuffer)
   );
+}
+
+function payloadDigest(body: Record<string, unknown>): string {
+  return createHash("sha256")
+    .update(JSON.stringify(body))
+    .digest("hex")
+    .slice(0, 24);
+}
+
+function optionalExternalId(value: unknown): string | null {
+  return value === undefined || value === null || String(value) === ""
+    ? null
+    : String(value);
 }
 
 abstract class SharedSignatureGuard implements CanActivate {
@@ -78,32 +91,32 @@ export class CheckMarketSignatureGuard extends SharedSignatureGuard {
   protected readonly secretKey = "CHECKMARKET_WEBHOOK_SECRET" as const;
 }
 
-@ApiTags("webhooks")
-@Controller("webhooks")
-export class WebhooksController {
-  private readonly stripe: Stripe;
+@Injectable()
+export class WebhookIngestionService {
+  private readonly stripeClient: Stripe;
 
   constructor(
     @Inject(ConfigService) config: ConfigService<Env, true>,
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(SyncQueue) private readonly syncQueue: SyncQueue,
   ) {
-    this.stripe = new Stripe(config.get("STRIPE_SECRET_KEY", { infer: true }));
+    this.stripeClient = new Stripe(
+      config.get("STRIPE_SECRET_KEY", { infer: true }),
+    );
     this.stripeSecret = config.get("STRIPE_WEBHOOK_SECRET", { infer: true });
   }
 
   private readonly stripeSecret: string;
 
-  @Post("stripe")
-  async stripeWebhook(
-    @Req() request: RawBodyRequest<FastifyRequest>,
-    @Headers("stripe-signature") signature: string | undefined,
+  async processStripe(
+    request: RawBodyRequest<FastifyRequest>,
+    signature: string | undefined,
   ): Promise<{ received: true }> {
     if (!signature || !request.rawBody)
       throw new BadRequestException("Missing Stripe signature");
     let event: Stripe.Event;
     try {
-      event = this.stripe.webhooks.constructEvent(
+      event = this.stripeClient.webhooks.constructEvent(
         request.rawBody,
         signature,
         this.stripeSecret,
@@ -140,55 +153,246 @@ export class WebhooksController {
     return { received: true };
   }
 
-  @Post("zoho")
-  @UseGuards(ZohoSignatureGuard)
-  async zoho(@Body() body: Record<string, unknown>): Promise<{ queued: true }> {
-    const externalId = String(body.id ?? body.event_id ?? crypto.randomUUID());
+  async zoho(
+    body: Record<string, unknown>,
+    eventType = String(body.type ?? "record.changed"),
+    signatureValid = true,
+  ): Promise<{ queued: true }> {
+    const recordId = body.id ?? body.dealid ?? "record";
+    const externalId = String(
+      body.event_id ??
+        body.eventId ??
+        `${eventType}:${String(recordId)}:${payloadDigest(body)}`,
+    );
     await this.prisma.webhookEvent.upsert({
       where: { provider_externalId: { provider: "zoho", externalId } },
       update: {},
       create: {
         provider: "zoho",
         externalId,
-        eventType: String(body.type ?? "record.changed"),
+        eventType,
         payload: body as Prisma.InputJsonValue,
-        signatureValid: true,
+        signatureValid,
       },
     });
     await this.syncQueue.enqueue(
       { provider: "zoho", kind: String(body.module ?? "Deals"), externalId },
-      `zoho:${externalId}`,
+      `zoho:${eventType}:${externalId}`,
     );
     return { queued: true };
   }
 
-  @Post("checkmarket")
-  @UseGuards(CheckMarketSignatureGuard)
   async checkMarket(
-    @Body() body: Record<string, unknown>,
+    body: Record<string, unknown>,
+    eventType = String(body.type ?? "respondent.changed"),
+    signatureValid = true,
   ): Promise<{ queued: true }> {
+    const data =
+      body.Data && typeof body.Data === "object" && !Array.isArray(body.Data)
+        ? (body.Data as Record<string, unknown>)
+        : {};
+    const respondent =
+      data.Respondent &&
+      typeof data.Respondent === "object" &&
+      !Array.isArray(data.Respondent)
+        ? (data.Respondent as Record<string, unknown>)
+        : {};
+    const survey =
+      data.Survey &&
+      typeof data.Survey === "object" &&
+      !Array.isArray(data.Survey)
+        ? (data.Survey as Record<string, unknown>)
+        : {};
+    const surveyId = body.SurveyId ?? data.SurveyId ?? survey.Id;
+    const recordId =
+      body.RespondentId ??
+      respondent.RespondentId ??
+      data.WebhookId ??
+      surveyId ??
+      "event";
     const externalId = String(
-      body.eventId ?? body.RespondentId ?? crypto.randomUUID(),
+      body.eventId ??
+        body.event_id ??
+        `${eventType}:${String(recordId)}:${payloadDigest(body)}`,
     );
-    await this.prisma.webhookEvent.upsert({
+    const stored = await this.prisma.webhookEvent.upsert({
       where: { provider_externalId: { provider: "checkmarket", externalId } },
       update: {},
       create: {
         provider: "checkmarket",
         externalId,
-        eventType: String(body.type ?? "respondent.changed"),
+        eventType,
         payload: body as Prisma.InputJsonValue,
-        signatureValid: true,
+        signatureValid,
       },
     });
-    await this.syncQueue.enqueue(
-      {
-        provider: "checkmarket",
-        kind: "survey",
-        externalId: String(body.SurveyId ?? ""),
-      },
-      `checkmarket:${externalId}`,
+    if (data.ActivationRequired && data.WebhookId) {
+      await this.syncQueue.enqueue(
+        {
+          provider: "checkmarket",
+          kind: "activate",
+          externalId: String(data.WebhookId),
+        },
+        `checkmarket:activate:${String(data.WebhookId)}`,
+      );
+      return { queued: true };
+    }
+    const processed = await this.applyCheckMarketRespondent(
+      eventType,
+      surveyId,
+      respondent,
     );
+    if (processed) {
+      await this.prisma.webhookEvent.update({
+        where: { id: stored.id },
+        data: { processedAt: new Date() },
+      });
+    }
+    if (surveyId !== undefined && surveyId !== null && String(surveyId)) {
+      await this.syncQueue.enqueue(
+        {
+          provider: "checkmarket",
+          kind: "survey",
+          externalId: String(surveyId),
+        },
+        `checkmarket:${eventType}:${externalId}`,
+      );
+    }
     return { queued: true };
+  }
+
+  private async applyCheckMarketRespondent(
+    eventType: string,
+    surveyReference: unknown,
+    payload: Record<string, unknown>,
+  ): Promise<boolean> {
+    const externalId = payload.RespondentId;
+    if (
+      surveyReference === undefined ||
+      surveyReference === null ||
+      externalId === undefined ||
+      externalId === null
+    ) {
+      return false;
+    }
+    const survey = await this.prisma.survey.findFirst({
+      where: {
+        OR: [
+          { externalId: String(surveyReference) },
+          { legacyId: String(surveyReference) },
+        ],
+      },
+      select: { id: true },
+    });
+    if (!survey) return false;
+    const organizationReference = payload.OrgId;
+    const organization =
+      organizationReference === undefined || organizationReference === null
+        ? null
+        : await this.prisma.organization.findFirst({
+            where: {
+              OR: [
+                { externalId: String(organizationReference) },
+                { legacyId: String(organizationReference) },
+              ],
+            },
+            select: { id: true },
+          });
+    const completed = eventType.includes("complete");
+    const respondent = await this.prisma.respondent.upsert({
+      where: {
+        surveyId_externalId: {
+          surveyId: survey.id,
+          externalId: String(externalId),
+        },
+      },
+      update: {
+        status: String(payload.RespondentStatusId ?? (completed ? 1 : 0)),
+        metadata: payload as Prisma.InputJsonValue,
+        ...(organization ? { organizationId: organization.id } : {}),
+        ...(completed ? { completedAt: new Date() } : {}),
+      },
+      create: {
+        surveyId: survey.id,
+        externalId: String(externalId),
+        organizationId: organization?.id ?? null,
+        status: String(payload.RespondentStatusId ?? (completed ? 1 : 0)),
+        completedAt: completed ? new Date() : null,
+        metadata: payload as Prisma.InputJsonValue,
+      },
+      select: { id: true },
+    });
+    const responses = Array.isArray(payload.Responses) ? payload.Responses : [];
+    for (const entry of responses) {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+      const response = entry as Record<string, unknown>;
+      const questionReference = response.QuestionId;
+      const dataLabel = response.DataLabel;
+      const question = await this.prisma.question.findFirst({
+        where: {
+          surveyId: survey.id,
+          OR: [
+            ...(questionReference === undefined || questionReference === null
+              ? []
+              : [
+                  { externalId: String(questionReference) },
+                  { legacyId: String(questionReference) },
+                ]),
+            ...(typeof dataLabel === "string" && dataLabel
+              ? [{ dataLabel }]
+              : []),
+          ],
+        },
+        select: { id: true },
+      });
+      if (!question) continue;
+      await this.prisma.response.upsert({
+        where: {
+          respondentId_questionId: {
+            respondentId: respondent.id,
+            questionId: question.id,
+          },
+        },
+        update: { value: response as Prisma.InputJsonValue },
+        create: {
+          respondentId: respondent.id,
+          questionId: question.id,
+          externalId: optionalExternalId(response.Id),
+          value: response as Prisma.InputJsonValue,
+        },
+      });
+    }
+    return true;
+  }
+}
+
+@ApiTags("webhooks")
+@Controller("webhooks")
+export class WebhooksController {
+  constructor(
+    @Inject(WebhookIngestionService)
+    private readonly ingestion: WebhookIngestionService,
+  ) {}
+
+  @Post("stripe")
+  stripeWebhook(
+    @Req() request: RawBodyRequest<FastifyRequest>,
+    @Headers("stripe-signature") signature: string | undefined,
+  ): Promise<{ received: true }> {
+    return this.ingestion.processStripe(request, signature);
+  }
+
+  @Post("zoho")
+  @UseGuards(ZohoSignatureGuard)
+  zoho(@Body() body: Record<string, unknown>): Promise<{ queued: true }> {
+    return this.ingestion.zoho(body);
+  }
+
+  @Post("checkmarket")
+  @UseGuards(CheckMarketSignatureGuard)
+  checkMarket(
+    @Body() body: Record<string, unknown>,
+  ): Promise<{ queued: true }> {
+    return this.ingestion.checkMarket(body);
   }
 }

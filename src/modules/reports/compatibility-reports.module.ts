@@ -209,6 +209,25 @@ interface ReportQuery {
   isDummy: boolean;
 }
 
+interface ResponsePatternRanges {
+  positive?: [number, number];
+  neutral?: [number, number];
+  negative?: [number, number];
+}
+
+interface ResponsePatternQueryInput {
+  patternMode: string | string[] | undefined;
+  includePositive: string | string[] | undefined;
+  includeNeutral: string | string[] | undefined;
+  includeNegative: string | string[] | undefined;
+  positiveMin: string | string[] | undefined;
+  positiveMax: string | string[] | undefined;
+  neutralMin: string | string[] | undefined;
+  neutralMax: string | string[] | undefined;
+  negativeMin: string | string[] | undefined;
+  negativeMax: string | string[] | undefined;
+}
+
 interface ReportContext {
   organizationId: string;
   enrollmentId: string;
@@ -1572,12 +1591,6 @@ export class CompatibilityReportsService {
     detailed: boolean,
     queryFilter?: Record<string, unknown>,
   ): Promise<Buffer> {
-    const breakdown = await this.responseBreakdownBySection(
-      principal,
-      query,
-      queryFilter,
-      detailed ? "RD_Access" : "WFR_Access",
-    );
     const responsePatterns = Array.isArray(queryFilter?.responsePatterns)
       ? queryFilter.responsePatterns.filter(
           (item: unknown): item is {
@@ -1597,20 +1610,66 @@ export class CompatibilityReportsService {
             ),
         )
       : [];
-    const sourceSections: FeedbackWorkbookSection[] = isDemoUserReport(
-      principal,
-      query,
-    )
-      ? demoUserDetailedResults.map((section) => ({
-          title: section.title,
-          questions: section.questions.map((question) => ({
-            text: question.question,
-            agreement: question.agreement,
-            neutral: question.neutral,
-            disagreement: question.disagreement,
-          })),
-        }))
-      : this.feedbackSectionsFromBreakdown(breakdown);
+    const demoUser = isDemoUserReport(principal, query);
+    let sourceSections: FeedbackWorkbookSection[];
+    let demographics: ReportWorkbookDemographic[];
+    let metadata: ReportWorkbookMetadata;
+    let totalResponses: number;
+
+    if (demoUser) {
+      sourceSections = this.demoFeedbackSections();
+      demographics = this.sampleWorkbookDemographics();
+      metadata = await this.reportWorkbookMetadata(principal, query);
+      totalResponses = 199;
+    } else {
+      try {
+        const context = await this.context(principal, query);
+        const isDummy =
+          query.isDummy ||
+          this.requiresDemo(
+            principal,
+            context,
+            detailed ? "RD_Access" : "WFR_Access",
+          );
+        const respondentFilter = Object.fromEntries(
+          Object.entries(queryFilter ?? {}).filter(
+            ([key]) => key !== "responsePatterns",
+          ),
+        );
+        const questions = await this.benchmarkQuestions(context.survey.id);
+        const respondents = isDummy
+          ? []
+          : await this.organizationRespondents(context, respondentFilter);
+        const confidential =
+          !isDummy &&
+          Object.keys(respondentFilter).length > 0 &&
+          respondents.length < privacyThreshold;
+        sourceSections = confidential
+          ? []
+          : this.feedbackSections(questions, respondents, isDummy);
+        demographics = isDummy
+          ? this.sampleWorkbookDemographics()
+          : this.workbookDemographicsFromRespondents(respondents);
+        metadata = await this.reportWorkbookMetadata(principal, query, context);
+        totalResponses = isDummy ? 38 : respondents.length;
+      } catch (error) {
+        if (
+          error instanceof BadRequestException ||
+          error instanceof ForbiddenException ||
+          error instanceof NotFoundException
+        ) {
+          throw error;
+        }
+        sourceSections = this.demoFeedbackSections();
+        demographics = this.sampleWorkbookDemographics();
+        metadata = {
+          organizationName: "Demonstration Organization",
+          programName: "Workplace Survey",
+          surveyDates: "Sample data",
+        };
+        totalResponses = 38;
+      }
+    }
     const sections = responsePatterns.length
       ? sourceSections.flatMap((section) => {
           const questions = section.questions.filter((question) =>
@@ -1622,24 +1681,217 @@ export class CompatibilityReportsService {
           return questions.length ? [{ ...section, questions }] : [];
         })
       : sourceSections;
-    const demographics = await this.reportWorkbookDemographics(
-      principal,
-      query,
-    );
-    const totalResponses = isDemoUserReport(principal, query)
-      ? 199
-      : Math.max(
-          0,
-          ...demographics.map((item) =>
-            item.options.reduce((total, option) => total + option.count, 0),
-          ),
-        );
     return createWorkforceFeedbackWorkbook({
-      metadata: await this.reportWorkbookMetadata(principal, query),
+      metadata,
       demographics,
       sections,
       totalResponses,
     });
+  }
+
+  async feedbackPreview(
+    principal: Principal,
+    query: ReportQuery,
+    ranges: ResponsePatternRanges,
+  ) {
+    let sections: FeedbackWorkbookSection[];
+    let isConfidential = false;
+    let isFallback = false;
+
+    if (isDemoUserReport(principal, query)) {
+      sections = this.demoFeedbackSections();
+    } else {
+      try {
+        const context = await this.context(principal, query);
+        const isDummy =
+          query.isDummy || this.requiresDemo(principal, context, "WFR_Access");
+        const questions = await this.benchmarkQuestions(context.survey.id);
+        const respondents = isDummy
+          ? []
+          : await this.organizationRespondents(context);
+        isConfidential = !isDummy && respondents.length < privacyThreshold;
+        sections = isConfidential
+          ? []
+          : this.feedbackSections(questions, respondents, isDummy);
+      } catch (error) {
+        if (
+          error instanceof BadRequestException ||
+          error instanceof ForbiddenException ||
+          error instanceof NotFoundException
+        ) {
+          throw error;
+        }
+        sections = this.demoFeedbackSections();
+        isFallback = true;
+      }
+    }
+
+    const cells: Array<{
+      row: number;
+      col: number;
+      color: "positive" | "neutral" | "negative" | "gray";
+      value: number;
+    }> = [];
+    let total = 0;
+    let positive = 0;
+    let neutral = 0;
+    let negative = 0;
+    let row = 5;
+
+    for (const question of sections.flatMap((section) => section.questions)) {
+      if (ranges.positive || ranges.neutral) {
+        total += 1;
+        let color: "positive" | "neutral" | "gray" = "gray";
+        if (
+          ranges.positive &&
+          question.agreement >= ranges.positive[0] &&
+          question.agreement <= ranges.positive[1]
+        ) {
+          color = "positive";
+          positive += 1;
+        } else if (
+          ranges.neutral &&
+          question.agreement >= ranges.neutral[0] &&
+          question.agreement <= ranges.neutral[1]
+        ) {
+          color = "neutral";
+          neutral += 1;
+        }
+        cells.push({ row, col: 4, color, value: question.agreement });
+      }
+      if (ranges.negative) {
+        total += 1;
+        const matches =
+          question.disagreement >= ranges.negative[0] &&
+          question.disagreement <= ranges.negative[1];
+        if (matches) negative += 1;
+        cells.push({
+          row,
+          col: 5,
+          color: matches ? "negative" : "gray",
+          value: question.disagreement,
+        });
+      }
+      row += 1;
+    }
+
+    const percentage = (count: number) =>
+      total === 0 ? 0 : Math.round((count * 10_000) / total) / 100;
+    const positivePercentage = percentage(positive);
+    const neutralPercentage = percentage(neutral);
+    const negativePercentage = percentage(negative);
+
+    return {
+      success: true as const,
+      message: "success" as const,
+      isConfidential,
+      isFallback,
+      data: {
+        heatmapPreview: cells,
+        percentage: {
+          positivePercentage,
+          neutralPercentage,
+          negativePercentage,
+          greenPercentage: positivePercentage,
+          bluePercentage: neutralPercentage,
+          redPercentage: negativePercentage,
+        },
+      },
+    };
+  }
+
+  private demoFeedbackSections(): FeedbackWorkbookSection[] {
+    return demoUserDetailedResults.map((section) => ({
+      title: section.title,
+      questions: section.questions.map((question) => ({
+        text: question.question,
+        agreement: question.agreement,
+        neutral: question.neutral,
+        disagreement: question.disagreement,
+      })),
+    }));
+  }
+
+  private feedbackSections(
+    questions: BenchmarkQuestion[],
+    respondents: DetailedRespondent[],
+    isDummy: boolean,
+  ): FeedbackWorkbookSection[] {
+    const grouped = this.questionsByCategory(questions);
+    let sampleIndex = 0;
+    return sortedCategories(grouped.keys()).map((title) => ({
+      title,
+      questions: (grouped.get(title) ?? []).map((question) => {
+        const distribution = isDummy
+          ? this.sampleDistribution(sampleIndex++)
+          : this.distribution(
+              respondents.flatMap(({ responses }) =>
+                responses.filter(
+                  (response) => response.questionId === question.id,
+                ),
+              ),
+            );
+        const percentage = (caption: "Agree" | "Neutral" | "Disagree") =>
+          Math.round(
+            (distribution.find((item) => item.ResponseCaption === caption)
+              ?.percent ?? 0) * 100,
+          );
+        return {
+          text: question.caption,
+          agreement: percentage("Agree"),
+          neutral: percentage("Neutral"),
+          disagreement: percentage("Disagree"),
+        };
+      }),
+    }));
+  }
+
+  private sampleWorkbookDemographics(): ReportWorkbookDemographic[] {
+    return [
+      {
+        title: "Department",
+        options: [
+          { label: "Operations", count: 12 },
+          { label: "Sales", count: 9 },
+          { label: "Technology", count: 14 },
+        ],
+      },
+      {
+        title: "Gender",
+        options: [
+          { label: "Female", count: 18 },
+          { label: "Male", count: 15 },
+          { label: "Non-Binary", count: 5 },
+        ],
+      },
+    ];
+  }
+
+  private workbookDemographicsFromRespondents(
+    respondents: DetailedRespondent[],
+  ): ReportWorkbookDemographic[] {
+    const questions = new Map<string, DetailedResponse["question"]>();
+    const counts = new Map<string, Map<string, number>>();
+    for (const respondent of respondents) {
+      for (const response of respondent.responses) {
+        if (!this.isDemographicQuestion(response.question)) continue;
+        const caption = responseCaption(response.value);
+        if (!caption) continue;
+        questions.set(response.questionId, response.question);
+        const options =
+          counts.get(response.questionId) ?? new Map<string, number>();
+        options.set(caption, (options.get(caption) ?? 0) + 1);
+        counts.set(response.questionId, options);
+      }
+    }
+    return [...questions.entries()]
+      .sort(([, left], [, right]) => left.position - right.position)
+      .map(([questionId, question]) => ({
+        title: this.demographicLabel(question),
+        options: [...(counts.get(questionId) ?? new Map<string, number>())]
+          .sort(([left], [right]) => left.localeCompare(right))
+          .map(([label, count]) => ({ label, count })),
+      }));
   }
 
   async benchmarkWorkbook(
@@ -4119,13 +4371,81 @@ export class CompatibilityReportsController {
     @Query("organizationId") organizationId: string | string[] | undefined,
     @Query("isDummy") isDummy: string | string[] | undefined,
     @Query("queryFilter") queryFilter: string | string[] | undefined,
+    @Query("patternMode") patternMode: string | string[] | undefined,
+    @Query("includePositive") includePositive: string | string[] | undefined,
+    @Query("includeNeutral") includeNeutral: string | string[] | undefined,
+    @Query("includeNegative") includeNegative: string | string[] | undefined,
+    @Query("positiveMin") positiveMin: string | string[] | undefined,
+    @Query("positiveMax") positiveMax: string | string[] | undefined,
+    @Query("neutralMin") neutralMin: string | string[] | undefined,
+    @Query("neutralMax") neutralMax: string | string[] | undefined,
+    @Query("negativeMin") negativeMin: string | string[] | undefined,
+    @Query("negativeMax") negativeMax: string | string[] | undefined,
+    @Query("isPreview") isPreview: string | string[] | undefined,
     @Res() reply: FastifyReply,
   ): Promise<void> {
+    const reportQuery = this.reportQuery(
+      selectedProgramId,
+      organizationId,
+      isDummy,
+    );
+    const ranges = this.parseResponsePatternRanges({
+      patternMode,
+      includePositive,
+      includeNeutral,
+      includeNegative,
+      positiveMin,
+      positiveMax,
+      neutralMin,
+      neutralMax,
+      negativeMin,
+      negativeMax,
+    });
+    const preview = this.parseBooleanQuery("isPreview", isPreview);
+    if (preview) {
+      if (!ranges) {
+        throw new BadRequestException(
+          "At least one response pattern range is required for a preview",
+        );
+      }
+      reply.send(
+        await this.reports.feedbackPreview(principal, reportQuery, ranges),
+      );
+      return;
+    }
+    const parsedFilter = this.parseQueryFilter(queryFilter);
+    const responsePatterns = ranges
+      ? [
+          ...(ranges.positive
+            ? [{
+                metric: "agreement" as const,
+                minimum: ranges.positive[0],
+                maximum: ranges.positive[1],
+              }]
+            : []),
+          ...(ranges.neutral
+            ? [{
+                metric: "agreement" as const,
+                minimum: ranges.neutral[0],
+                maximum: ranges.neutral[1],
+              }]
+            : []),
+          ...(ranges.negative
+            ? [{
+                metric: "disagreement" as const,
+                minimum: ranges.negative[0],
+                maximum: ranges.negative[1],
+              }]
+            : []),
+        ]
+      : undefined;
     const workbook = await this.reports.feedbackWorkbook(
       principal,
-      this.reportQuery(selectedProgramId, organizationId, isDummy),
+      reportQuery,
       false,
-      this.parseQueryFilter(queryFilter),
+      responsePatterns
+        ? { ...parsedFilter, responsePatterns }
+        : parsedFilter,
     );
     this.sendWorkbook(reply, workbook, "Employee_Feedback_Heatmap.xlsx");
   }
@@ -4138,12 +4458,14 @@ export class CompatibilityReportsController {
     selectedProgramId: string | string[] | undefined,
     @Query("organizationId") organizationId: string | string[] | undefined,
     @Query("isDummy") isDummy: string | string[] | undefined,
+    @Query("queryFilter") queryFilter: string | string[] | undefined,
     @Res() reply: FastifyReply,
   ): Promise<void> {
     const workbook = await this.reports.feedbackWorkbook(
       principal,
       this.reportQuery(selectedProgramId, organizationId, isDummy),
       false,
+      this.parseQueryFilter(queryFilter),
     );
     this.sendWorkbook(reply, workbook, "Employee_Feedback_Heatmap.xlsx");
   }
@@ -4450,6 +4772,94 @@ export class CompatibilityReportsController {
     } catch {
       throw new BadRequestException("queryFilter must be a JSON object");
     }
+  }
+
+  private parseBooleanQuery(
+    name: string,
+    value: string | string[] | undefined,
+  ): boolean {
+    const raw = scalarQuery(name, value);
+    if (raw === undefined) return false;
+    if (raw !== "true" && raw !== "false") {
+      throw new BadRequestException(`${name} must be true or false`);
+    }
+    return raw === "true";
+  }
+
+  private parseResponsePatternRanges(
+    input: ResponsePatternQueryInput,
+  ): ResponsePatternRanges | undefined {
+    const mode = scalarQuery("patternMode", input.patternMode);
+    const hasRangeValue = [
+      input.positiveMin,
+      input.positiveMax,
+      input.neutralMin,
+      input.neutralMax,
+      input.negativeMin,
+      input.negativeMax,
+    ].some((value) => value !== undefined);
+    if (!mode && !hasRangeValue) return undefined;
+    if (mode && mode !== "range") {
+      throw new BadRequestException("patternMode must be range");
+    }
+
+    const parseRange = (
+      name: "positive" | "neutral" | "negative",
+      includedValue: string | string[] | undefined,
+      minimumValue: string | string[] | undefined,
+      maximumValue: string | string[] | undefined,
+    ): [number, number] | undefined => {
+      const included = this.parseBooleanQuery(
+        `include${name[0]?.toUpperCase()}${name.slice(1)}`,
+        includedValue,
+      );
+      const rawMinimum = scalarQuery(`${name}Min`, minimumValue);
+      const rawMaximum = scalarQuery(`${name}Max`, maximumValue);
+      if (!included && rawMinimum === undefined && rawMaximum === undefined) {
+        return undefined;
+      }
+      const minimum = Number(rawMinimum);
+      const maximum = Number(rawMaximum);
+      if (
+        rawMinimum === undefined ||
+        rawMaximum === undefined ||
+        !Number.isFinite(minimum) ||
+        !Number.isFinite(maximum) ||
+        minimum < 0 ||
+        maximum > 100 ||
+        minimum > maximum
+      ) {
+        throw new BadRequestException(
+          `${name}Min and ${name}Max must define a valid 0-100 range`,
+        );
+      }
+      return [minimum, maximum];
+    };
+
+    const positive = parseRange(
+      "positive",
+      input.includePositive,
+      input.positiveMin,
+      input.positiveMax,
+    );
+    const neutral = parseRange(
+      "neutral",
+      input.includeNeutral,
+      input.neutralMin,
+      input.neutralMax,
+    );
+    const negative = parseRange(
+      "negative",
+      input.includeNegative,
+      input.negativeMin,
+      input.negativeMax,
+    );
+    if (!positive && !neutral && !negative) return undefined;
+    return {
+      ...(positive ? { positive } : {}),
+      ...(neutral ? { neutral } : {}),
+      ...(negative ? { negative } : {}),
+    };
   }
 
   private sendWorkbook(

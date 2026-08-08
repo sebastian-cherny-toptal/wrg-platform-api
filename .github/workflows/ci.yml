@@ -38,7 +38,6 @@ jobs:
           --health-retries 10
     env:
       NODE_ENV: test
-      LEGACY_COMPAT: "false"
       DATABASE_URL: postgresql://wrg:wrg@localhost:5432/wrg?schema=public
       REDIS_URL: redis://localhost:6379
       JWT_ACCESS_SECRET: ci-access-secret-at-least-32-characters

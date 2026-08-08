@@ -125,6 +125,58 @@ export class CheckMarketAdapter {
       return (await response.body.json()) as CheckMarketSurvey;
     });
   }
+
+  async listSurveys(): Promise<CheckMarketSurvey[]> {
+    if (this.config.get("INTEGRATIONS_MOCK", { infer: true })) {
+      return [{ Id: 1, Title: "Mock survey 1", SurveyStatusId: "1" }];
+    }
+    return withRetry(async () => {
+      const response = await request(
+        `${this.config.get("CHECKMARKET_BASE_URL", { infer: true })}/surveys`,
+        {
+          headers: {
+            authorization: `Bearer ${this.config.get("CHECKMARKET_API_KEY", { infer: true })}`,
+          },
+        },
+      );
+      if (response.statusCode >= 500 || response.statusCode === 429) {
+        throw new Error(`CheckMarket transient error ${response.statusCode}`);
+      }
+      if (response.statusCode >= 400) {
+        throw new Error(`CheckMarket request failed ${response.statusCode}`);
+      }
+      const payload = (await response.body.json()) as
+        | CheckMarketSurvey[]
+        | { data?: CheckMarketSurvey[]; Data?: CheckMarketSurvey[] };
+      return Array.isArray(payload)
+        ? payload
+        : (payload.data ?? payload.Data ?? []);
+    });
+  }
+
+  async activateWebhook(id: string): Promise<{ activated: true }> {
+    if (this.config.get("INTEGRATIONS_MOCK", { infer: true })) {
+      return { activated: true };
+    }
+    return withRetry(async () => {
+      const response = await request(
+        `${this.config.get("CHECKMARKET_BASE_URL", { infer: true })}/hooks/${encodeURIComponent(id)}/activate`,
+        {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${this.config.get("CHECKMARKET_API_KEY", { infer: true })}`,
+          },
+        },
+      );
+      if (response.statusCode >= 500 || response.statusCode === 429) {
+        throw new Error(`CheckMarket transient error ${response.statusCode}`);
+      }
+      if (response.statusCode >= 400) {
+        throw new Error(`CheckMarket request failed ${response.statusCode}`);
+      }
+      return { activated: true };
+    });
+  }
 }
 
 @Module({

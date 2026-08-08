@@ -36,19 +36,6 @@ const schema = z.object({
     .string()
     .default("false")
     .transform((value) => value === "true"),
-  /** Serve wrg-platform-be Express routes for FE drop-in replacement. Default on. */
-  LEGACY_COMPAT: z
-    .string()
-    .default("true")
-    .transform((value) => value !== "false"),
-  LEGACY_SECRETS_FROM_ENV: z
-    .string()
-    .default("false")
-    .transform((value) => value === "true"),
-  LEGACY_SECRETS_FILE: z.string().optional(),
-  LEGACY_SECRETS_JSON: z.string().optional(),
-  MONGO_URI: z.string().optional(),
-  APP_ENV: z.string().optional(),
 });
 
 export type Env = z.infer<typeof schema>;

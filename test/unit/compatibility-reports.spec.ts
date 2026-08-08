@@ -26,6 +26,8 @@ import {
 
 const testJwtSecret = "test-secret-that-is-at-least-32-characters";
 const routeCalls = new Map<string, number>();
+const feedbackWorkbookFilters: Array<Record<string, unknown> | undefined> = [];
+const feedbackPreviewRanges: Array<Record<string, unknown>> = [];
 const mark = (name: string) => {
   routeCalls.set(name, (routeCalls.get(name) ?? 0) + 1);
 };
@@ -127,9 +129,41 @@ const reportsStub = {
     mark("topBottomStatements");
     return success;
   },
-  feedbackWorkbook: () => {
+  feedbackWorkbook: (
+    _principal: Principal,
+    _query: unknown,
+    _detailed: boolean,
+    queryFilter?: Record<string, unknown>,
+  ) => {
     mark("feedbackWorkbook");
+    feedbackWorkbookFilters.push(queryFilter);
     return Promise.resolve(Buffer.from("xlsx"));
+  },
+  feedbackPreview: (
+    _principal: Principal,
+    _query: unknown,
+    ranges: Record<string, unknown>,
+  ) => {
+    mark("feedbackPreview");
+    feedbackPreviewRanges.push(ranges);
+    return Promise.resolve({
+      success: true,
+      message: "success",
+      isConfidential: false,
+      data: {
+        heatmapPreview: [
+          { row: 5, col: 4, color: "neutral", value: 72 },
+        ],
+        percentage: {
+          positivePercentage: 0,
+          neutralPercentage: 37.5,
+          negativePercentage: 0,
+          greenPercentage: 0,
+          bluePercentage: 37.5,
+          redPercentage: 0,
+        },
+      },
+    });
   },
   benchmarkWorkbook: () => {
     mark("benchmarkWorkbook");
@@ -351,6 +385,7 @@ describe("native compatibility report endpoints", () => {
   it("serves the next twenty migrated routes without legacy dispatch", async () => {
     const app = await createTestApp();
     routeCalls.clear();
+    feedbackWorkbookFilters.length = 0;
     const token = app.get(JwtService).sign({
       sub: "6c79998f-10bd-45af-bdd1-61e11b50297a",
       organizationId: "206ab572-1825-4327-81d7-a4c3524a938a",
@@ -417,7 +452,9 @@ describe("native compatibility report endpoints", () => {
       { method: "GET" as const, url: `/client/generateHeatMap${query}` },
       {
         method: "POST" as const,
-        url: `/client/generateHeatMap${query}`,
+        url: `/client/generateHeatMap${query}&queryFilter=${encodeURIComponent(
+          JSON.stringify({ department: ["Technology"] }),
+        )}`,
         payload: {},
       },
       {
@@ -469,6 +506,64 @@ describe("native compatibility report endpoints", () => {
         feedbackWorkbook: 3,
         benchmarkWorkbook: 2,
         responseDetailSections: 1,
+      });
+      assert.equal(feedbackWorkbookFilters.length, 3);
+      assert.deepEqual(
+        feedbackWorkbookFilters.filter((filter) => filter !== undefined),
+        [{ department: ["Technology"] }],
+      );
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("previews response-pattern ranges and downloads the matching workbook", async () => {
+    const app = await createTestApp();
+    routeCalls.clear();
+    feedbackPreviewRanges.length = 0;
+    feedbackWorkbookFilters.length = 0;
+    const token = app.get(JwtService).sign({
+      sub: "6c79998f-10bd-45af-bdd1-61e11b50297a",
+      organizationId: "206ab572-1825-4327-81d7-a4c3524a938a",
+      roles: ["client"],
+      permissions: ["reports.read"],
+    } satisfies Principal);
+    const headers = { authorization: `Bearer ${token}` };
+    const rangeQuery =
+      "selectedProgramId=legacy-program&patternMode=range" +
+      "&includePositive=false&includeNeutral=true&includeNegative=false" +
+      "&neutralMin=60&neutralMax=79";
+
+    try {
+      const preview = await app.inject({
+        method: "GET",
+        url: `/client/generateHeatMap?${rangeQuery}&isPreview=true`,
+        headers,
+      });
+      assert.equal(preview.statusCode, 200, preview.body);
+      const previewPayload = preview.json() as {
+        data: { percentage: { neutralPercentage: number } };
+      };
+      assert.equal(previewPayload.data.percentage.neutralPercentage, 37.5);
+      assert.deepEqual(feedbackPreviewRanges, [{ neutral: [60, 79] }]);
+
+      const download = await app.inject({
+        method: "GET",
+        url: `/client/generateHeatMap?${rangeQuery}`,
+        headers,
+      });
+      assert.equal(download.statusCode, 200, download.body);
+      assert.match(download.headers["content-type"] ?? "", /spreadsheetml/u);
+      assert.deepEqual(feedbackWorkbookFilters, [
+        {
+          responsePatterns: [
+            { metric: "agreement", minimum: 60, maximum: 79 },
+          ],
+        },
+      ]);
+      assert.deepEqual(Object.fromEntries(routeCalls), {
+        feedbackPreview: 1,
+        feedbackWorkbook: 1,
       });
     } finally {
       await app.close();
