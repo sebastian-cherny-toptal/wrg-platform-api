@@ -1,9 +1,10 @@
 node_modules/
 dist/
-.env
 coverage/
 generated/
 openapi.json
 *.log
 .DS_Store
-legacy/node_modules/
+.env
+
+
