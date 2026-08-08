@@ -9,7 +9,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "build": "prisma generate && tsc -p tsconfig.build.json && cp -R src/native-legacy dist/native-legacy",
+    "build": "prisma generate && tsc -p tsconfig.build.json && cp -R src/native-legacy dist/native-legacy && cp -R src/modules/reports/report-templates dist/modules/reports/",
     "start": "tsx src/main.ts",
     "start:dev": "tsx watch src/main.ts",
     "start:prod": "node --max-old-space-size=3000 dist/main.js",

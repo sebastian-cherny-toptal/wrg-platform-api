@@ -48,6 +48,16 @@ import {
   demoUserQuestionById,
 } from "./demo-user-detailed-results.js";
 import { demoUserResponseBreakdownBySection } from "./demo-user-response-breakdown.js";
+import {
+  createBenchmarkWorkbook,
+  createBenefitsWorkbook,
+  createResponseDetailWorkbook,
+  createVerbatimWorkbook,
+  createWorkforceFeedbackWorkbook,
+  type FeedbackWorkbookSection,
+  type ReportWorkbookDemographic,
+  type ReportWorkbookMetadata,
+} from "./report-template-workbooks.js";
 
 const privacyThreshold = 5;
 const isDemoUserReport = (principal: Principal, query: ReportQuery) =>
@@ -388,6 +398,89 @@ function responseColor(caption: string): string {
 @Injectable()
 export class CompatibilityReportsService {
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
+
+  private async reportWorkbookMetadata(
+    principal: Principal,
+    query: ReportQuery,
+    providedContext?: ReportContext,
+  ): Promise<ReportWorkbookMetadata> {
+    if (isDemoUserReport(principal, query)) {
+      return {
+        organizationName: "Cohen & Steers",
+        programName: "Best Places to Work in Money Management 2025",
+        surveyDates: "July 18, 2025 to August 8, 2025",
+      };
+    }
+    const context = providedContext ?? await this.context(principal, query);
+    const formatDate = (value: Date | null) =>
+      value?.toLocaleDateString("en-US", {
+        day: "numeric",
+        month: "long",
+        timeZone: "UTC",
+        year: "numeric",
+      }) ?? "Not available";
+    return {
+      organizationName:
+        metadataString(
+          context.enrollmentMetrics,
+          "OrganizationName",
+          "organizationName",
+          "CompanyName",
+          "companyName",
+        ) ?? "Organization",
+      programName: context.program.name,
+      surveyDates: `${formatDate(context.survey.startsAt)} to ${formatDate(context.survey.endsAt)}`,
+    };
+  }
+
+  private async reportWorkbookDemographics(
+    principal: Principal,
+    query: ReportQuery,
+  ): Promise<ReportWorkbookDemographic[]> {
+    const response = await this.demographicResponseCounts(principal, query);
+    return response.data.map((demographic) => ({
+      title: demographic.categoryLabel,
+      options: demographic.options.map((option) => ({
+        label: option.Caption,
+        count: option.Count,
+      })),
+    }));
+  }
+
+  private feedbackSectionsFromBreakdown(
+    breakdown: Awaited<
+      ReturnType<CompatibilityReportsService["responseBreakdownBySection"]>
+    >,
+  ): FeedbackWorkbookSection[] {
+    const percentage = (
+      responses: Array<Record<string, unknown>>,
+      caption: "Agree" | "Neutral" | "Disagree",
+    ) => {
+      const response = responses.find(
+        (item) => item.ResponseCaption === caption,
+      );
+      if (typeof response?.percentage === "number") return response.percentage;
+      if (typeof response?.percent === "number") {
+        return Math.round(
+          response.percent <= 1 ? response.percent * 100 : response.percent,
+        );
+      }
+      return 0;
+    };
+    return breakdown.data.flatMap((section) =>
+      Object.entries(section).map(([title, responses]) => ({
+        title,
+        questions: [
+          {
+            text: `${title} average`,
+            agreement: percentage(responses, "Agree"),
+            neutral: percentage(responses, "Neutral"),
+            disagreement: percentage(responses, "Disagree"),
+          },
+        ],
+      })),
+    );
+  }
 
   async employeeComparison(
     principal: Principal,
@@ -1485,10 +1578,6 @@ export class CompatibilityReportsService {
       queryFilter,
       detailed ? "RD_Access" : "WFR_Access",
     );
-    const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet(
-      detailed ? "Detailed Results" : "Feedback Results",
-    );
     const responsePatterns = Array.isArray(queryFilter?.responsePatterns)
       ? queryFilter.responsePatterns.filter(
           (item: unknown): item is {
@@ -1508,80 +1597,49 @@ export class CompatibilityReportsService {
             ),
         )
       : [];
-    if (!detailed && isDemoUserReport(principal, query) && responsePatterns.length) {
-      worksheet.columns = [
-        { header: "Section", key: "section", width: 42 },
-        { header: "Question", key: "question", width: 78 },
-        { header: "Agreement", key: "agreement", width: 16 },
-        { header: "Neutral", key: "neutral", width: 16 },
-        { header: "Disagreement", key: "disagreement", width: 18 },
-      ];
-      for (const item of demoUserDetailedResults) {
-        for (const question of item.questions) {
-          const matches = responsePatterns.some((pattern) => {
-            const value = question[pattern.metric];
-            return value >= pattern.minimum && value <= pattern.maximum;
-          });
-          if (matches) {
-            worksheet.addRow({
-              section: item.title,
-              question: question.question,
-              agreement: question.agreement / 100,
-              neutral: question.neutral / 100,
-              disagreement: question.disagreement / 100,
-            });
-          }
-        }
-      }
-      this.styleWorkbook(worksheet);
-      return Buffer.from(await workbook.xlsx.writeBuffer());
-    }
-    if (detailed && isDemoUserReport(principal, query)) {
-      worksheet.columns = [
-        { header: "Section", key: "section", width: 42 },
-        { header: "Question", key: "question", width: 78 },
-        { header: "Response", key: "response", width: 18 },
-        { header: "Percentage", key: "percentage", width: 16 },
-      ];
-      for (const item of demoUserDetailedResults) {
-        for (const question of item.questions) {
-          for (const [response, percentage] of [
-            ["Agree", question.agreement],
-            ["Neutral", question.neutral],
-            ["Disagree", question.disagreement],
-          ] as const) {
-            worksheet.addRow({
-              section: item.title,
-              question: question.question,
-              response,
-              percentage: percentage / 100,
-            });
-          }
-        }
-      }
-      this.styleWorkbook(worksheet);
-      return Buffer.from(await workbook.xlsx.writeBuffer());
-    }
-    worksheet.columns = [
-      { header: "Section", key: "section", width: 42 },
-      { header: "Response", key: "response", width: 28 },
-      { header: "Percentage", key: "percentage", width: 16 },
-    ];
-    for (const item of breakdown.data) {
-      const section = Object.keys(item)[0];
-      if (!section) continue;
-      const values = item[section] as Array<Record<string, unknown>>;
-      for (const value of values) {
-        if (typeof value.ResponseCaption !== "string") continue;
-        worksheet.addRow({
-          section,
-          response: value.ResponseCaption,
-          percentage: value.percent,
-        });
-      }
-    }
-    this.styleWorkbook(worksheet);
-    return Buffer.from(await workbook.xlsx.writeBuffer());
+    const sourceSections: FeedbackWorkbookSection[] = isDemoUserReport(
+      principal,
+      query,
+    )
+      ? demoUserDetailedResults.map((section) => ({
+          title: section.title,
+          questions: section.questions.map((question) => ({
+            text: question.question,
+            agreement: question.agreement,
+            neutral: question.neutral,
+            disagreement: question.disagreement,
+          })),
+        }))
+      : this.feedbackSectionsFromBreakdown(breakdown);
+    const sections = responsePatterns.length
+      ? sourceSections.flatMap((section) => {
+          const questions = section.questions.filter((question) =>
+            responsePatterns.some((pattern) => {
+              const value = question[pattern.metric];
+              return value >= pattern.minimum && value <= pattern.maximum;
+            }),
+          );
+          return questions.length ? [{ ...section, questions }] : [];
+        })
+      : sourceSections;
+    const demographics = await this.reportWorkbookDemographics(
+      principal,
+      query,
+    );
+    const totalResponses = isDemoUserReport(principal, query)
+      ? 199
+      : Math.max(
+          0,
+          ...demographics.map((item) =>
+            item.options.reduce((total, option) => total + option.count, 0),
+          ),
+        );
+    return createWorkforceFeedbackWorkbook({
+      metadata: await this.reportWorkbookMetadata(principal, query),
+      demographics,
+      sections,
+      totalResponses,
+    });
   }
 
   async benchmarkWorkbook(
@@ -1589,39 +1647,49 @@ export class CompatibilityReportsService {
     query: ReportQuery,
   ): Promise<Buffer> {
     const report = await this.workforceComparison(principal, query);
-    const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet("Benchmark Comparisons");
-    const headers = report.data.tableHeaders;
-    worksheet.columns = [
-      { header: "Section / Question", key: "title", width: 55 },
-      ...headers.map((header, index) => ({
-        header: header.title ?? `Group ${index + 1}`,
-        key: `group${index}`,
-        width: 20,
+    const firstAverage = report.data.surveyAverage[0];
+    const averageValue = (key: "Yes" | "No"): number | string => {
+      const value = firstAverage?.[key];
+      return value && typeof value === "object" && "value" in value &&
+        (typeof value.value === "number" || typeof value.value === "string")
+        ? value.value
+        : "x";
+    };
+    return createBenchmarkWorkbook({
+      metadata: await this.reportWorkbookMetadata(principal, query),
+      categories: report.data.data.map((category) => ({
+        title: typeof category.title === "string" ? category.title : "",
+        values: Array.isArray(category.dataValues)
+          ? category.dataValues.filter(
+              (value): value is number | string =>
+                typeof value === "number" || typeof value === "string",
+            )
+          : [],
+        questions: Array.isArray(category.nestedData)
+          ? (category.nestedData as unknown[]).flatMap((question: unknown) => {
+              if (!question || typeof question !== "object") return [];
+              const rawValues: unknown[] =
+                "dataValues" in question && Array.isArray(question.dataValues)
+                  ? (question.dataValues as unknown[])
+                  : [];
+              const values = rawValues.filter(
+                (value: unknown): value is number | string =>
+                  typeof value === "number" || typeof value === "string",
+              );
+              return [
+                {
+                  text:
+                    "title" in question && typeof question.title === "string"
+                      ? question.title
+                      : "",
+                  values,
+                },
+              ];
+            })
+          : [],
       })),
-    ];
-    for (const category of report.data.data) {
-      worksheet.addRow({
-        title: String(category.title),
-        ...(category.dataValues as Array<number | string>).reduce(
-          (row, value, index) => ({ ...row, [`group${index}`]: value }),
-          {},
-        ),
-      });
-      for (const question of category.nestedData as Array<
-        Record<string, unknown>
-      >) {
-        worksheet.addRow({
-          title: String(question.title),
-          ...(question.dataValues as Array<number | string>).reduce(
-            (row, value, index) => ({ ...row, [`group${index}`]: value }),
-            {},
-          ),
-        });
-      }
-    }
-    this.styleWorkbook(worksheet);
-    return Buffer.from(await workbook.xlsx.writeBuffer());
+      surveyAverage: [averageValue("Yes"), averageValue("No")],
+    });
   }
 
   async responseDetailSections(principal: Principal, query: ReportQuery) {
@@ -1808,40 +1876,41 @@ export class CompatibilityReportsService {
     principal: Principal,
     query: ReportQuery,
   ): Promise<Buffer> {
-    const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet("Response Detail");
-    worksheet.columns = [
-      { header: "Category", key: "category", width: 42 },
-      { header: "Question", key: "question", width: 78 },
-      { header: "Response", key: "response", width: 24 },
-      { header: "Gen Z", key: "genZ", width: 14 },
-      { header: "Millennial", key: "millennial", width: 14 },
-      { header: "Gen X", key: "genX", width: 14 },
-      { header: "Baby Boomer", key: "boomer", width: 16 },
-    ];
-    const categories = isDemoUserReport(principal, query)
-      ? demoUserDetailedResults
-      : [];
-    const fallback = categories.length
-      ? categories
-      : [{ title: "Core Employee Experience", questions: [{ question: "I have the tools and resources I need." }] }];
-    const responseRows = [
-      ["Strongly Agree", 45, 47, 44, 46],
-      ["Agree", 31, 30, 32, 31],
-      ["Slightly Agree", 12, 11, 13, 12],
-      ["Slightly Disagree", 6, 6, 5, 6],
-      ["Disagree", 4, 4, 4, 3],
-      ["Strongly Disagree", 2, 2, 2, 2],
-    ] as const;
-    for (const category of fallback) {
-      for (const question of category.questions) {
-        for (const [response, genZ, millennial, genX, boomer] of responseRows) {
-          worksheet.addRow({ category: category.title, question: question.question, response, genZ: genZ / 100, millennial: millennial / 100, genX: genX / 100, boomer: boomer / 100 });
-        }
-      }
-    }
-    this.styleWorkbook(worksheet);
-    return Buffer.from(await workbook.xlsx.writeBuffer());
+    const breakdown = await this.responseBreakdownBySection(
+      principal,
+      query,
+      undefined,
+      "RD_Access",
+    );
+    const sections: FeedbackWorkbookSection[] = isDemoUserReport(principal, query)
+      ? demoUserDetailedResults.map((section) => ({
+          title: section.title,
+          questions: section.questions.map((question) => ({
+            text: question.question,
+            agreement: question.agreement,
+            neutral: question.neutral,
+            disagreement: question.disagreement,
+          })),
+        }))
+      : this.feedbackSectionsFromBreakdown(breakdown);
+    const demographics = await this.reportWorkbookDemographics(
+      principal,
+      query,
+    );
+    const totalResponses = isDemoUserReport(principal, query)
+      ? 199
+      : Math.max(
+          0,
+          ...demographics.map((item) =>
+            item.options.reduce((total, option) => total + option.count, 0),
+          ),
+        );
+    return createResponseDetailWorkbook({
+      metadata: await this.reportWorkbookMetadata(principal, query),
+      demographics,
+      sections,
+      totalResponses,
+    });
   }
 
   async demographicResponseCounts(principal: Principal, query: ReportQuery) {
@@ -2069,36 +2138,19 @@ export class CompatibilityReportsService {
     query: ReportQuery,
   ): Promise<Buffer> {
     const report = await this.employerBenchmark(principal, query);
-    const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet("Benefits & Best Practices");
-    worksheet.columns = [
-      { header: "Section / Question / Response", key: "title", width: 62 },
-      ...report.data.tableHeaders.map((header, index) => ({
-        header: header.title,
-        key: `group${index}`,
-        width: 20,
+    return createBenefitsWorkbook({
+      headers: report.data.tableHeaders.map((header) => header.title),
+      sections: report.data.tableData.map((section) => ({
+        title: section.title,
+        questions: section.nestedData.map((question) => ({
+          text: question.title,
+          responses: question.nestedData.map((response) => ({
+            label: response.title,
+            values: response.dataValues,
+          })),
+        })),
       })),
-    ];
-    for (const section of report.data.tableData) {
-      worksheet.addRow({ title: section.title });
-      for (const question of section.nestedData) {
-        worksheet.addRow({ title: question.title });
-        for (const answer of question.nestedData) {
-          worksheet.addRow({
-            title: `  ${answer.title}`,
-            ...answer.dataValues.reduce(
-              (row, value, index) => ({
-                ...row,
-                [`group${index}`]: value,
-              }),
-              {},
-            ),
-          });
-        }
-      }
-    }
-    this.styleWorkbook(worksheet);
-    return Buffer.from(await workbook.xlsx.writeBuffer());
+    });
   }
 
   async winnersList(principal: Principal, query: ReportQuery) {
@@ -2577,12 +2629,6 @@ export class CompatibilityReportsService {
     queryFilter?: Record<string, unknown>,
   ): Promise<Buffer> {
     if (isDemoUserReport(principal, query)) {
-      const workbook = new ExcelJS.Workbook();
-      const worksheet = workbook.addWorksheet("Employee Verbatims");
-      worksheet.columns = [
-        { header: "Question", key: "question", width: 78 },
-        { header: "Employee Response", key: "answer", width: 82 },
-      ];
       const questions = [
         "What are the top two or three reasons people like working for this organization? (2000 character limit)",
         "What two or three things can this organization add or change to improve employee engagement and success? (2000 character limit)",
@@ -2591,84 +2637,67 @@ export class CompatibilityReportsService {
         ["The people, collaborative culture, and meaningful work.", "Supportive colleagues and managers.", "Strong benefits and flexibility."],
         ["Improve communication between departments.", "Provide clearer career paths.", "Invest in modern tools and training."],
       ];
-      questions.forEach((question, index) => {
-        for (const answer of answers[index] ?? []) worksheet.addRow({ question, answer });
+      return createVerbatimWorkbook({
+        metadata: await this.reportWorkbookMetadata(principal, query),
+        demographicTitle: "Department",
+        questions: questions.map((text, index) => ({
+          text,
+          responses: (answers[index] ?? []).map((answer) => ({
+            answer,
+            demographic: "All respondents",
+          })),
+        })),
       });
-      this.styleWorkbook(worksheet);
-      return Buffer.from(await workbook.xlsx.writeBuffer());
     }
     const context = await this.context(principal, query);
     const isDummy =
       query.isDummy || this.requiresDemo(principal, context, "EV_Access");
-    const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet("Employee Verbatims");
     if (isDummy) {
-      worksheet.columns = [
-        { header: "Respondent", key: "respondent", width: 18 },
-        { header: "What do you value most?", key: "answer", width: 60 },
-      ];
-      worksheet.addRows([
-        { respondent: "Sample 1", answer: "Supportive colleagues" },
-        { respondent: "Sample 2", answer: "Flexible working arrangements" },
-      ]);
-    } else {
-      const questions = await this.openQuestions(
-        context.survey.id,
-        queryFilter,
-      );
-      const respondents = await this.prisma.respondent.findMany({
-        where: {
-          surveyId: context.survey.id,
-          organizationId: context.organizationId,
-          completedAt: { not: null },
-        },
-        orderBy: { createdAt: "asc" },
-        select: {
-          id: true,
-          legacyId: true,
-          externalId: true,
-          responses: {
-            where: { questionId: { in: questions.map(({ id }) => id) } },
-            select: { questionId: true, value: true },
+      return createVerbatimWorkbook({
+        metadata: await this.reportWorkbookMetadata(principal, query, context),
+        demographicTitle: "Department",
+        questions: [
+          {
+            text: "What do you value most?",
+            responses: [
+              { answer: "Supportive colleagues", demographic: "All respondents" },
+              { answer: "Flexible working arrangements", demographic: "All respondents" },
+            ],
           },
-        },
+        ],
       });
-      worksheet.columns = [
-        { header: "Respondent", key: "respondent", width: 20 },
-        ...questions.map((question) => ({
-          header: question.caption,
-          key: question.id,
-          width: 50,
-        })),
-      ];
-      for (const respondent of respondents) {
-        const answers = new Map(
-          respondent.responses.map((response) => [
-            response.questionId,
-            responseCaption(response.value) ?? "",
-          ]),
-        );
-        const row: Record<string, string> = {
-          respondent:
-            respondent.legacyId ?? respondent.externalId ?? respondent.id,
-        };
-        for (const question of questions) {
-          row[question.id] = safeSpreadsheetValue(
-            answers.get(question.id) ?? "",
-          );
-        }
-        worksheet.addRow(row);
-      }
     }
-    worksheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
-    worksheet.getRow(1).fill = {
-      type: "pattern",
-      pattern: "solid",
-      fgColor: { argb: "FF2E1065" },
-    };
-    worksheet.views = [{ state: "frozen", ySplit: 1 }];
-    const output = await workbook.xlsx.writeBuffer();
-    return Buffer.from(output);
+    const questions = await this.openQuestions(context.survey.id, queryFilter);
+    const respondents = await this.prisma.respondent.findMany({
+      where: {
+        surveyId: context.survey.id,
+        organizationId: context.organizationId,
+        completedAt: { not: null },
+      },
+      orderBy: { createdAt: "asc" },
+      select: {
+        responses: {
+          where: { questionId: { in: questions.map(({ id }) => id) } },
+          select: { questionId: true, value: true },
+        },
+      },
+    });
+    return createVerbatimWorkbook({
+      metadata: await this.reportWorkbookMetadata(principal, query, context),
+      demographicTitle: "Department",
+      questions: questions.slice(0, 2).map((question) => ({
+        text: question.caption,
+        responses: respondents.flatMap((respondent) => {
+          const response = respondent.responses.find(
+            (item) => item.questionId === question.id,
+          );
+          const answer = response ? responseCaption(response.value) : null;
+          return answer
+            ? [{ answer: safeSpreadsheetValue(answer), demographic: "All respondents" }]
+            : [];
+        }),
+      })),
+    });
   }
 
   private async context(
