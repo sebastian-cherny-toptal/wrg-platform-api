@@ -57,6 +57,7 @@ import {
   type FeedbackWorkbookSection,
   type ReportWorkbookDemographic,
   type ReportWorkbookMetadata,
+  type ResponsePatternRanges,
 } from "./report-template-workbooks.js";
 
 const privacyThreshold = 5;
@@ -207,12 +208,6 @@ interface ReportQuery {
   selectedProgramId: string;
   organizationId?: string;
   isDummy: boolean;
-}
-
-interface ResponsePatternRanges {
-  positive?: [number, number];
-  neutral?: [number, number];
-  negative?: [number, number];
 }
 
 interface ResponsePatternQueryInput {
@@ -1590,6 +1585,7 @@ export class CompatibilityReportsService {
     query: ReportQuery,
     detailed: boolean,
     queryFilter?: Record<string, unknown>,
+    responsePatternRanges?: ResponsePatternRanges,
   ): Promise<Buffer> {
     const responsePatterns = Array.isArray(queryFilter?.responsePatterns)
       ? queryFilter.responsePatterns.filter(
@@ -1610,6 +1606,18 @@ export class CompatibilityReportsService {
             ),
         )
       : [];
+    const legacyRanges = responsePatterns.reduce<ResponsePatternRanges>(
+      (ranges, pattern) => {
+        const range: [number, number] = [pattern.minimum, pattern.maximum];
+        if (pattern.metric === "disagreement") ranges.negative = range;
+        else if (pattern.minimum >= 80) ranges.positive = range;
+        else ranges.neutral = range;
+        return ranges;
+      },
+      {},
+    );
+    const highlightRanges = responsePatternRanges ??
+      (Object.keys(legacyRanges).length ? legacyRanges : undefined);
     const demoUser = isDemoUserReport(principal, query);
     let sourceSections: FeedbackWorkbookSection[];
     let demographics: ReportWorkbookDemographic[];
@@ -1670,22 +1678,12 @@ export class CompatibilityReportsService {
         totalResponses = 38;
       }
     }
-    const sections = responsePatterns.length
-      ? sourceSections.flatMap((section) => {
-          const questions = section.questions.filter((question) =>
-            responsePatterns.some((pattern) => {
-              const value = question[pattern.metric];
-              return value >= pattern.minimum && value <= pattern.maximum;
-            }),
-          );
-          return questions.length ? [{ ...section, questions }] : [];
-        })
-      : sourceSections;
     return createWorkforceFeedbackWorkbook({
       metadata,
       demographics,
-      sections,
+      sections: sourceSections,
       totalResponses,
+      ...(highlightRanges ? { responsePatternRanges: highlightRanges } : {}),
     });
   }
 
@@ -4446,6 +4444,7 @@ export class CompatibilityReportsController {
       responsePatterns
         ? { ...parsedFilter, responsePatterns }
         : parsedFilter,
+      ranges,
     );
     this.sendWorkbook(reply, workbook, "Employee_Feedback_Heatmap.xlsx");
   }

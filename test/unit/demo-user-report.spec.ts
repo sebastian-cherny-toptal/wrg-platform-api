@@ -193,6 +193,11 @@ describe("Demo User report fixtures", () => {
       service.openResponsesWorkbook(principal, query),
       service.employerBenchmarkWorkbook(principal, query),
       service.responseDetailWorkbook(principal, query),
+      service.feedbackWorkbook(principal, query, false, undefined, {
+        positive: [80, 100],
+        neutral: [60, 79],
+        negative: [10, 20],
+      }),
     ]);
     const loaded = await Promise.all(
       workbooks.map(async (buffer) => {
@@ -209,12 +214,20 @@ describe("Demo User report fixtures", () => {
       }),
     );
 
-    const [feedback, benchmark, verbatims, benefits, responseDetail] = loaded;
+    const [
+      feedback,
+      benchmark,
+      verbatims,
+      benefits,
+      responseDetail,
+      responsePatterns,
+    ] = loaded;
     assert.ok(feedback);
     assert.ok(benchmark);
     assert.ok(verbatims);
     assert.ok(benefits);
     assert.ok(responseDetail);
+    assert.ok(responsePatterns);
     const feedbackSheet = feedback.worksheets[0];
     const benchmarkSheet = benchmark.worksheets[0];
     const verbatimSheet = verbatims.worksheets[0];
@@ -237,5 +250,49 @@ describe("Demo User report fixtures", () => {
     assert.equal(benefitsSheet.getCell("B1").value, "All Winners");
     assert.equal(responseDetailSheet.name, "Response Detail Report");
     assert.match(String(responseDetailSheet.getCell("B3").value), /Cohen & Steers/u);
+
+    const responsePatternsSheet = responsePatterns.worksheets[0];
+    assert.ok(responsePatternsSheet);
+    const ruleFillColor = (rule: ExcelJS.ConditionalFormattingRule) => {
+      const fill = rule.style?.fill;
+      return fill?.type === "pattern"
+        ? fill.fgColor?.argb?.toUpperCase().slice(-6)
+        : undefined;
+    };
+    const conditionalFormattings = (
+      responsePatternsSheet as unknown as {
+        conditionalFormattings: Array<{
+          ref: string;
+          rules: ExcelJS.ConditionalFormattingRule[];
+        }>;
+      }
+    ).conditionalFormattings;
+    const formattingByRange = new Map(
+      conditionalFormattings.map((formatting) => [
+        formatting.ref,
+        formatting.rules,
+      ]),
+    );
+    const formattingRanges = [...formattingByRange.keys()];
+    assert.match(formattingRanges[0] ?? "", /^D5:D\d+$/u);
+    assert.match(formattingRanges[1] ?? "", /^F5:BN\d+$/u);
+    assert.match(formattingRanges[2] ?? "", /^E5:E\d+$/u);
+    const overallAgreementRules =
+      formattingByRange.get(formattingRanges[0] ?? "") ?? [];
+    const demographicAgreementRules =
+      formattingByRange.get(formattingRanges[1] ?? "") ?? [];
+    const disagreementRules =
+      formattingByRange.get(formattingRanges[2] ?? "") ?? [];
+    assert.deepEqual(
+      overallAgreementRules.map(ruleFillColor),
+      ["00FF00", "FFFF00"],
+    );
+    assert.deepEqual(
+      demographicAgreementRules.map(ruleFillColor),
+      ["00FF00", "FFFF00"],
+    );
+    assert.deepEqual(disagreementRules.map(ruleFillColor), ["FF0000"]);
+    assert.equal(responsePatternsSheet.getCell("D6").value, 80);
+    assert.equal(responsePatternsSheet.getCell("D10").value, 79);
   });
 });

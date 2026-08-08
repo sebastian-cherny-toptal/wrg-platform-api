@@ -22,6 +22,12 @@ export interface FeedbackWorkbookSection {
   }>;
 }
 
+export interface ResponsePatternRanges {
+  positive?: [number, number];
+  neutral?: [number, number];
+  negative?: [number, number];
+}
+
 export interface BenchmarkWorkbookCategory {
   title: string;
   values: Array<number | string>;
@@ -134,11 +140,88 @@ function roundedAverage(values: number[]): number {
   return Math.round(values.reduce((total, value) => total + value, 0) / values.length);
 }
 
+const responsePatternFills = {
+  positive: {
+    type: "pattern",
+    pattern: "solid",
+    fgColor: { argb: "00FF00" },
+    bgColor: { argb: "00FF00" },
+  },
+  neutral: {
+    type: "pattern",
+    pattern: "solid",
+    fgColor: { argb: "FFFF00" },
+    bgColor: { argb: "FFFF00" },
+  },
+  negative: {
+    type: "pattern",
+    pattern: "solid",
+    fgColor: { argb: "FF0000" },
+    bgColor: { argb: "FF0000" },
+  },
+} satisfies Record<"positive" | "neutral" | "negative", ExcelJS.FillPattern>;
+
+function applyResponsePatternFills(
+  workbook: ExcelJS.Workbook,
+  ranges: ResponsePatternRanges | undefined,
+): void {
+  if (!ranges || (!ranges.positive && !ranges.neutral && !ranges.negative)) {
+    return;
+  }
+  workbook.eachSheet((sheet) => {
+    const lastRow = sheet.rowCount;
+    const agreementRules: ExcelJS.ConditionalFormattingRule[] = [];
+    if (ranges.positive) {
+      agreementRules.push({
+        type: "cellIs",
+        operator: "between",
+        formulae: ranges.positive,
+        priority: 1,
+        style: { fill: responsePatternFills.positive },
+      });
+    }
+    if (ranges.neutral) {
+      agreementRules.push({
+        type: "cellIs",
+        operator: "between",
+        formulae: ranges.neutral,
+        priority: 2,
+        style: { fill: responsePatternFills.neutral },
+      });
+    }
+    if (agreementRules.length) {
+      sheet.addConditionalFormatting({
+        ref: `D5:D${lastRow}`,
+        rules: agreementRules,
+      });
+      if (sheet.columnCount >= 6) {
+        sheet.addConditionalFormatting({
+          ref: `F5:${sheet.getColumn(sheet.columnCount).letter}${lastRow}`,
+          rules: agreementRules,
+        });
+      }
+    }
+    if (ranges.negative) {
+      sheet.addConditionalFormatting({
+        ref: `E5:E${lastRow}`,
+        rules: [{
+          type: "cellIs",
+          operator: "between",
+          formulae: ranges.negative,
+          priority: 3,
+          style: { fill: responsePatternFills.negative },
+        }],
+      });
+    }
+  });
+}
+
 export async function createWorkforceFeedbackWorkbook(input: {
   metadata: ReportWorkbookMetadata;
   demographics: ReportWorkbookDemographic[];
   sections: FeedbackWorkbookSection[];
   totalResponses: number;
+  responsePatternRanges?: ResponsePatternRanges;
 }): Promise<Buffer> {
   const workbook = await loadTemplate("workforce-feedback-results.xlsx");
   const questions = input.sections.flatMap((section) => section.questions);
@@ -202,6 +285,7 @@ export async function createWorkforceFeedbackWorkbook(input: {
     }
     return null;
   });
+  applyResponsePatternFills(workbook, input.responsePatternRanges);
   return workbookBuffer(workbook);
 }
 
