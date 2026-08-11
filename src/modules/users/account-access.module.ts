@@ -410,7 +410,9 @@ export class AccountAccessService {
     success: true;
     message: "sent successfully";
   }> {
-    const frontendUrl = this.config.get("FRONTEND_URL", { infer: true });
+    const frontendUrl =
+      this.config.get("ADMIN_FRONTEND_URL", { infer: true }) ??
+      this.config.get("FRONTEND_URL", { infer: true });
     if (!frontendUrl) {
       throw new ServiceUnavailableException(
         "Password reset URL is not configured",

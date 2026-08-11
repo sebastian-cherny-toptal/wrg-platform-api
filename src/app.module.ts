@@ -14,6 +14,7 @@ import {
 import { validateEnv, type Env } from "./config/env.js";
 import { DatabaseModule } from "./database/database.module.js";
 import { AuthModule } from "./modules/auth/auth.module.js";
+import { ImpersonationModule } from "./modules/auth/impersonation.module.js";
 import { CommerceModule } from "./modules/commerce/commerce.module.js";
 import { CompatibilityPaymentModule } from "./modules/commerce/compatibility-payment.module.js";
 import { ContentModule } from "./modules/content/content.module.js";
@@ -100,6 +101,7 @@ import { CompatibilityAdminModule } from "./modules/management/compatibility-adm
     BullModule.registerQueue({ name: "integrations" }),
     DatabaseModule,
     AuthModule,
+    ImpersonationModule,
     UsersModule,
     AccountAccessModule,
     TenantsModule,

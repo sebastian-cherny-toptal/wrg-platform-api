@@ -1,12 +1,12 @@
+import assert from "node:assert/strict";
 import type { ExecutionContext } from "@nestjs/common";
 import type { ConfigService } from "@nestjs/config";
-import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { validateEnv, type Env } from "../../src/config/env.js";
 import {
   JwtAuthGuard,
   type Principal,
 } from "../../src/modules/auth/auth.module.js";
-import { validateEnv, type Env } from "../../src/config/env.js";
 
 const validEnvironment = {
   NODE_ENV: "test",
@@ -25,17 +25,29 @@ const validEnvironment = {
   CHECKMARKET_WEBHOOK_SECRET: "change-me-checkmarket-webhook",
 };
 
-describe("login authentication bypass", () => {
-  it("defaults to disabled and parses the true value", () => {
+describe("login authentication configuration", () => {
+  it("defaults the bypass off and accepts it outside production", () => {
     assert.equal(validateEnv(validEnvironment).BYPASS_LOGIN_AUTH, false);
-    assert.equal(
-      validateEnv({ ...validEnvironment, BYPASS_LOGIN_AUTH: "true" })
-        .BYPASS_LOGIN_AUTH,
-      true,
+    const environment = validateEnv({
+      ...validEnvironment,
+      BYPASS_LOGIN_AUTH: "true",
+    });
+    assert.equal(environment.BYPASS_LOGIN_AUTH, true);
+  });
+
+  it("rejects the bypass in production", () => {
+    assert.throws(
+      () =>
+        validateEnv({
+          ...validEnvironment,
+          NODE_ENV: "production",
+          BYPASS_LOGIN_AUTH: "true",
+        }),
+      /BYPASS_LOGIN_AUTH cannot be enabled in production/,
     );
   });
 
-  it("allows requests through with a development principal when enabled", () => {
+  it("uses a synthetic administrator principal when enabled", () => {
     const request: { user?: Principal; params: Record<string, string> } = {
       params: { organizationId: "organization-1" },
     };
@@ -52,6 +64,7 @@ describe("login authentication bypass", () => {
       organizationId: "organization-1",
       roles: ["admin"],
       permissions: ["ops.manage"],
+      localAuthBypass: true,
     });
   });
 });

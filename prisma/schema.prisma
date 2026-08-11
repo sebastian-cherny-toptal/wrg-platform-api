@@ -51,6 +51,7 @@ model Organization {
   orders           Order[]
   assets           Asset[]
   auditLogs        AuditLog[]
+  impersonationGrants ImpersonationGrant[]
 }
 
 model Project {
@@ -87,6 +88,7 @@ model Program {
   surveys       Survey[]
   users         UserProgram[]
   orders        Order[]
+  impersonationGrants ImpersonationGrant[]
 
   @@index([projectId])
 }
@@ -138,6 +140,8 @@ model User {
   programs              UserProgram[]
   sessions              Session[]
   auditLogs             AuditLog[]
+  impersonationGrantsAsActor  ImpersonationGrant[] @relation("ImpersonationActor")
+  impersonationGrantsAsTarget ImpersonationGrant[] @relation("ImpersonationTarget")
 }
 
 model Role {
@@ -209,6 +213,27 @@ model Session {
   user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, expiresAt])
+}
+
+model ImpersonationGrant {
+  id             String       @id @default(uuid()) @db.Uuid
+  actorUserId    String       @db.Uuid
+  targetUserId   String       @db.Uuid
+  organizationId String       @db.Uuid
+  programId      String       @db.Uuid
+  tokenHash      String
+  expiresAt      DateTime
+  consumedAt     DateTime?
+  revokedAt      DateTime?
+  createdAt      DateTime     @default(now())
+  actor          User         @relation("ImpersonationActor", fields: [actorUserId], references: [id], onDelete: Cascade)
+  target         User         @relation("ImpersonationTarget", fields: [targetUserId], references: [id], onDelete: Cascade)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  program        Program      @relation(fields: [programId], references: [id], onDelete: Cascade)
+
+  @@index([actorUserId, createdAt])
+  @@index([targetUserId, expiresAt])
+  @@index([organizationId, programId])
 }
 
 model Survey {

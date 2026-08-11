@@ -20,6 +20,7 @@ const schema = z.object({
   SENDGRID_KEY: z.string().min(1).optional(),
   SENDGRID_DOMAIN: z.string().email().optional(),
   FRONTEND_URL: z.string().url().optional(),
+  ADMIN_FRONTEND_URL: z.string().url().optional(),
   ZOHO_BASE_URL: z.string().url(),
   ZOHO_CLIENT_ID: z.string().min(1),
   ZOHO_CLIENT_SECRET: z.string().min(1),
@@ -44,6 +45,11 @@ export function validateEnv(input: Record<string, unknown>): Env {
   const result = schema.safeParse(input);
   if (!result.success) {
     throw new Error(`Invalid environment: ${z.prettifyError(result.error)}`);
+  }
+  if (result.data.NODE_ENV === "production" && result.data.BYPASS_LOGIN_AUTH) {
+    throw new Error(
+      "Invalid environment: BYPASS_LOGIN_AUTH cannot be enabled in production",
+    );
   }
   return result.data;
 }

@@ -6,6 +6,33 @@ import { demoUserDemographicResponse } from "../../src/modules/reports/demo-user
 import { demoUserResponseBreakdownBySection } from "../../src/modules/reports/demo-user-response-breakdown.js";
 
 describe("Demo User report fixtures", () => {
+  it("uses fixtures for a real program while locally impersonating", async () => {
+    const service = new CompatibilityReportsService({} as never);
+    const result = await service.responseBreakdownBySection(
+      {
+        sub: "5be73591-7298-42fe-9c1b-48098b9c3ce3",
+        organizationId: "05c31b96-357f-4617-b0b6-560602c82248",
+        roles: ["client"],
+        permissions: [],
+        localAuthBypass: true,
+        impersonation: {
+          grantId: "7bcd5e87-80ef-45d8-a8e8-2bb31c6ecfc0",
+          actorUserId: "68dcbe3b-c53a-467d-91a8-f3541a43155f",
+          actorDisplayName: "Local Admin",
+          organizationId: "05c31b96-357f-4617-b0b6-560602c82248",
+          programId: "c34c7df6-0755-448b-bcc0-7c7832ae4f98",
+          startedAt: new Date().toISOString(),
+        },
+      },
+      {
+        selectedProgramId: "c34c7df6-0755-448b-bcc0-7c7832ae4f98",
+        isDummy: false,
+      },
+    );
+
+    assert.deepEqual(result, demoUserResponseBreakdownBySection);
+  });
+
   it("serves the demo response breakdown without resolving a database program", async () => {
     const service = new CompatibilityReportsService({} as never);
     const result = await service.responseBreakdownBySection(

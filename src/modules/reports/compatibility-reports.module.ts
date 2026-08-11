@@ -62,8 +62,9 @@ import {
 
 const privacyThreshold = 5;
 const isDemoUserReport = (principal: Principal, query: ReportQuery) =>
-  query.selectedProgramId === "demo-workplace-2025" &&
-  (principal.sub === "bypass-login-auth" || principal.sub === "demo-user");
+  principal.localAuthBypass === true ||
+  (query.selectedProgramId === "demo-workplace-2025" &&
+    (principal.sub === "bypass-login-auth" || principal.sub === "demo-user"));
 const demoTrendDistribution = (
   values: readonly [number, number, number],
 ) =>
@@ -1152,10 +1153,7 @@ export class CompatibilityReportsService {
     queryFilter?: Record<string, unknown>,
     accessKey: "WFR_Access" | "RD_Access" = "WFR_Access",
   ) {
-    if (
-      query.selectedProgramId === "demo-workplace-2025" &&
-      (principal.sub === "bypass-login-auth" || principal.sub === "demo-user")
-    ) {
+    if (isDemoUserReport(principal, query)) {
       return demoUserResponseBreakdownBySection;
     }
 
@@ -1225,10 +1223,7 @@ export class CompatibilityReportsService {
     questionRange: string[],
     queryFilter?: Record<string, unknown>,
   ) {
-    if (
-      query.selectedProgramId === "demo-workplace-2025" &&
-      (principal.sub === "bypass-login-auth" || principal.sub === "demo-user")
-    ) {
+    if (isDemoUserReport(principal, query)) {
       return this.demoResponseBreakdown(questionRange);
     }
 
@@ -2164,10 +2159,7 @@ export class CompatibilityReportsService {
   }
 
   async demographicResponseCounts(principal: Principal, query: ReportQuery) {
-    if (
-      query.selectedProgramId === "demo-workplace-2025" &&
-      (principal.sub === "bypass-login-auth" || principal.sub === "demo-user")
-    ) {
+    if (isDemoUserReport(principal, query)) {
       return demoUserDemographicResponse;
     }
 

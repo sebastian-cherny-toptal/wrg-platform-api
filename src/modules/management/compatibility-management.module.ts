@@ -119,7 +119,11 @@ export class CompatibilityManagementService {
         ...(allowedProjectIds ? { id: { in: allowedProjectIds } } : {}),
       },
       orderBy: { createdAt: "desc" },
-      include: { programs: expand === "programs" },
+      include: {
+        programs: {
+          include: { _count: { select: { organizations: true } } },
+        },
+      },
     });
     return {
       success: true,
@@ -132,9 +136,10 @@ export class CompatibilityManagementService {
         createAt: project.createdAt,
         ...(expand === "programs"
           ? {
-              Programs: project.programs.map((program) =>
-                this.programCompatibility(program),
-              ),
+              Programs: project.programs.map((program) => ({
+                ...this.programCompatibility(program),
+                Number_of_Organizations: program._count.organizations,
+              })),
             }
           : {}),
       })),
@@ -180,6 +185,7 @@ export class CompatibilityManagementService {
       message: "success",
       data: programs.map((program) => ({
         ...this.programCompatibility(program),
+        Number_of_Organizations: program.organizations.length,
         Project: {
           _id: program.project.legacyId ?? program.project.id,
           Name: program.project.name,

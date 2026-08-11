@@ -26,6 +26,15 @@ export interface Principal {
   organizationId: string | null;
   roles: string[];
   permissions: string[];
+  localAuthBypass?: boolean;
+  impersonation?: {
+    grantId: string;
+    actorUserId: string;
+    actorDisplayName: string;
+    organizationId: string;
+    programId: string;
+    startedAt: string;
+  };
 }
 
 class LoginDto {
@@ -61,13 +70,19 @@ export class JwtAuthGuard extends AuthGuard("jwt") {
   }
 
   override canActivate(context: ExecutionContext) {
-    if (this.config?.get("BYPASS_LOGIN_AUTH", { infer: true })) {
-      const request = context.switchToHttp().getRequest<{
-        user?: Principal;
-        params?: Record<string, string | undefined>;
-        query?: Record<string, string | undefined>;
-      }>();
-
+    const request = context.switchToHttp().getRequest<{
+      user?: Principal;
+      headers?: { authorization?: string | string[] };
+      params?: Record<string, string | undefined>;
+      query?: Record<string, string | undefined>;
+    }>();
+    const authorization = request.headers?.authorization;
+    const hasBearerToken =
+      typeof authorization === "string" && /^Bearer\s+\S+/iu.test(authorization);
+    if (
+      this.config?.get("BYPASS_LOGIN_AUTH", { infer: true }) &&
+      !hasBearerToken
+    ) {
       request.user ??= {
         sub: "bypass-login-auth",
         organizationId:
@@ -76,17 +91,21 @@ export class JwtAuthGuard extends AuthGuard("jwt") {
           null,
         roles: ["admin"],
         permissions: ["ops.manage"],
+        localAuthBypass: true,
       };
       return true;
     }
-
     return super.canActivate(context);
   }
 }
 
 @Injectable()
 class JwtStrategy extends PassportStrategy(Strategy) {
-  constructor(@Inject(ConfigService) config: ConfigService<Env, true>) {
+  constructor(
+    @Inject(ConfigService)
+    private readonly config: ConfigService<Env, true>,
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+  ) {
     const secret = config.get("JWT_ACCESS_SECRET", { infer: true });
     if (!secret) {
       throw new Error("JWT_ACCESS_SECRET is required");
@@ -97,8 +116,26 @@ class JwtStrategy extends PassportStrategy(Strategy) {
     });
   }
 
-  validate(payload: Principal): Principal {
-    return payload;
+  async validate(payload: Principal): Promise<Principal> {
+    const principal = this.config.get("BYPASS_LOGIN_AUTH", { infer: true })
+      ? { ...payload, localAuthBypass: true }
+      : payload;
+    if (principal.impersonation) {
+      const activeGrant = await this.prisma.impersonationGrant.findFirst({
+        where: {
+          id: principal.impersonation.grantId,
+          targetUserId: principal.sub,
+          consumedAt: { not: null },
+          revokedAt: null,
+          expiresAt: { gt: new Date() },
+        },
+        select: { id: true },
+      });
+      if (!activeGrant) {
+        throw new UnauthorizedException("Dashboard preview has ended");
+      }
+    }
+    return principal;
   }
 }
 
@@ -154,10 +191,7 @@ export class AuthService {
   async issueTokens(
     principal: Principal,
   ): Promise<{ accessToken: string; refreshToken: string }> {
-    const accessToken = await this.jwt.signAsync(principal, {
-      secret: this.config.get("JWT_ACCESS_SECRET", { infer: true }),
-      expiresIn: this.config.get("JWT_ACCESS_TTL", { infer: true }) as never,
-    });
+    const accessToken = await this.issueAccessToken(principal);
     const sessionId = crypto.randomUUID();
     const refreshToken = await this.jwt.signAsync(
       { sub: principal.sub, sid: sessionId },
@@ -180,6 +214,46 @@ export class AuthService {
       },
     });
     return { accessToken, refreshToken };
+  }
+
+  issueAccessToken(
+    principal: Principal,
+    expiresIn: string = this.config.get("JWT_ACCESS_TTL", { infer: true }),
+  ): Promise<string> {
+    return this.jwt.signAsync(principal, {
+      secret: this.config.get("JWT_ACCESS_SECRET", { infer: true }),
+      expiresIn: expiresIn as never,
+    });
+  }
+
+  async principalForUserId(userId: string): Promise<Principal> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        roles: {
+          include: {
+            role: {
+              include: { permissions: { include: { permission: true } } },
+            },
+          },
+        },
+      },
+    });
+    if (user?.status !== "ACTIVE") {
+      throw new UnauthorizedException("User is not available");
+    }
+    return {
+      sub: user.id,
+      organizationId: user.organizationId,
+      roles: user.roles.map(({ role }) => role.key),
+      permissions: [
+        ...new Set(
+          user.roles.flatMap(({ role }) =>
+            role.permissions.map(({ permission }) => permission.key),
+          ),
+        ),
+      ],
+    };
   }
 
   async rotateRefreshToken(token: string): Promise<{
