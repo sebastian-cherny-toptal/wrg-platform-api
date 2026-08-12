@@ -26,6 +26,7 @@ import {
 
 const jwtSecret = "test-secret-that-is-at-least-32-characters";
 const serviceStub = {
+  eligibleUsers: () => ({ users: [{ id: "target", fullName: "Demo Client" }] }),
   start: () => ({ url: "http://client.test/admin-preview?grant=opaque" }),
   exchange: () => ({ accessToken: "preview-token", session: { impersonation: {} } }),
   revoke: () => ({ ok: true }),
@@ -95,9 +96,25 @@ describe("secure admin dashboard previews", () => {
         method: "POST",
         url: "/admin/impersonations",
         headers,
-        payload: { organizationId: "org", programId: "program" },
+        payload: { organizationId: "org", programId: "program", targetUserId: "target" },
       });
       assert.equal(started.statusCode, 201, started.body);
+
+      const unauthenticatedEligibleUsers = await app.inject({
+        method: "GET",
+        url: "/admin/impersonations/eligible-users?organizationId=org&programId=program",
+      });
+      assert.equal(unauthenticatedEligibleUsers.statusCode, 401);
+
+      const eligibleUsers = await app.inject({
+        method: "GET",
+        url: "/admin/impersonations/eligible-users?organizationId=org&programId=program",
+        headers,
+      });
+      assert.equal(eligibleUsers.statusCode, 200, eligibleUsers.body);
+      assert.deepEqual(eligibleUsers.json(), {
+        users: [{ id: "target", fullName: "Demo Client" }],
+      });
 
       const exchanged = await app.inject({
         method: "POST",
@@ -130,35 +147,36 @@ describe("secure admin dashboard previews", () => {
     let createdActorId = "";
     const prisma = {
       user: {
-        findUnique: async (input: { where: { id: string } }) => {
+        findUnique: (input: { where: { id: string } }) => {
           lookedUpSyntheticId ||= input.where.id === "bypass-login-auth";
-          return null;
+          return Promise.resolve(null);
         },
-        findFirst: async (input: {
-          where: { roles?: { some: { role: { key: string } } } };
+        findFirst: (input: {
+          where: { id?: string; roles?: { some: { role: { key: string } } } };
         }) =>
-          input.where.roles?.some.role.key === "admin"
+          Promise.resolve(input.where.roles?.some.role.key === "admin"
             ? { id: actorId, fullName: "Local Admin" }
-            : { id: targetId, fullName: "Demo Client" },
+            : input.where.id === targetId
+              ? { id: targetId, fullName: "Demo Client" }
+              : null),
       },
       organization: {
-        findFirst: async () => ({ id: "05c31b96-357f-4617-b0b6-560602c82248", name: "Demo Organization" }),
+        findFirst: () => Promise.resolve({ id: "05c31b96-357f-4617-b0b6-560602c82248", name: "Demo Organization" }),
       },
       program: {
-        findFirst: async () => ({ id: "c34c7df6-0755-448b-bcc0-7c7832ae4f98", name: "Demo Program" }),
+        findFirst: () => Promise.resolve({ id: "c34c7df6-0755-448b-bcc0-7c7832ae4f98", name: "Demo Program" }),
       },
       organizationProgram: {
-        findUnique: async () => ({ id: "1541a2be-4503-4c75-9f9f-e8c77d08c2a4" }),
+        findUnique: () => Promise.resolve({ id: "1541a2be-4503-4c75-9f9f-e8c77d08c2a4" }),
       },
       impersonationGrant: {
-        create: async (input: { data: { actorUserId: string } }) => {
+        create: (input: { data: { actorUserId: string } }) => {
           createdActorId = input.data.actorUserId;
-          return input.data;
+          return Promise.resolve(input.data);
         },
       },
-      auditLog: { create: async (input: unknown) => input },
-      $transaction: async (operations: Promise<unknown>[]) =>
-        Promise.all(operations),
+      auditLog: { create: (input: unknown) => Promise.resolve(input) },
+      $transaction: (operations: Promise<unknown>[]) => Promise.all(operations),
     };
     const config = {
       get: () => "http://localhost:5173",
@@ -179,6 +197,7 @@ describe("secure admin dashboard previews", () => {
       {
         organizationId: "05c31b96-357f-4617-b0b6-560602c82248",
         programId: "c34c7df6-0755-448b-bcc0-7c7832ae4f98",
+        targetUserId: targetId,
       },
     );
 

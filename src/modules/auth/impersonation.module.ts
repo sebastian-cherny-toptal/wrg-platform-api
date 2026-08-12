@@ -3,12 +3,14 @@ import {
   Controller,
   Delete,
   ForbiddenException,
+  Get,
   HttpCode,
   Inject,
   Injectable,
   Module,
   NotFoundException,
   Post,
+  Query,
   UnauthorizedException,
   UseGuards,
   VERSION_NEUTRAL,
@@ -50,9 +52,23 @@ class StartImpersonationDto {
   @MinLength(1)
   programId!: string;
 
+  @IsString()
+  @MinLength(1)
+  targetUserId!: string;
+
   @IsOptional()
   @IsString()
   reason?: string;
+}
+
+class EligibleImpersonationUsersQuery {
+  @IsString()
+  @MinLength(1)
+  organizationId!: string;
+
+  @IsString()
+  @MinLength(1)
+  programId!: string;
 }
 
 class ExchangeImpersonationDto {
@@ -86,6 +102,37 @@ export class ImpersonationService {
     @Inject(ConfigService) private readonly config: ConfigService<Env, true>,
   ) {}
 
+  async eligibleUsers(
+    principal: Principal,
+    organizationReference: string,
+    programReference: string,
+  ) {
+    this.assertPreviewAccess(principal);
+    const { organization, program, enrollment } = await this.previewContext(
+      organizationReference,
+      programReference,
+    );
+    const users = await this.prisma.user.findMany({
+      where: this.eligibleUserWhere(
+        organization.id,
+        program.id,
+        enrollment.id,
+      ),
+      orderBy: [{ fullName: "asc" }, { email: "asc" }],
+      select: {
+        id: true,
+        fullName: true,
+        email: true,
+        username: true,
+      },
+    });
+    return {
+      organization: { id: organization.id, name: organization.name },
+      program: { id: program.id, name: program.name },
+      users,
+    };
+  }
+
   async start(principal: Principal, input: StartImpersonationDto) {
     this.assertPreviewAccess(principal);
     const actorLookup =
@@ -102,49 +149,28 @@ export class ImpersonationService {
             where: { id: principal.sub },
             select: { id: true, fullName: true },
           });
-    const [actor, organization, program] = await Promise.all([
+    const [actor, context] = await Promise.all([
       actorLookup,
-      this.prisma.organization.findFirst({
-        where: referenceWhere(input.organizationId),
-        select: { id: true, name: true },
-      }),
-      this.prisma.program.findFirst({
-        where: referenceWhere(input.programId),
-        select: { id: true, name: true },
-      }),
+      this.previewContext(input.organizationId, input.programId),
     ]);
     if (!actor) throw new UnauthorizedException("Administrator not found");
-    if (!organization) throw new NotFoundException("Organization not found");
-    if (!program) throw new NotFoundException("Program not found");
-
-    const enrollment = await this.prisma.organizationProgram.findUnique({
-      where: {
-        organizationId_programId: {
-          organizationId: organization.id,
-          programId: program.id,
-        },
-      },
-      select: { id: true },
-    });
-    if (!enrollment) {
-      throw new BadRequestException("Organization does not belong to this program");
-    }
+    const { organization, program, enrollment } = context;
 
     const target = await this.prisma.user.findFirst({
       where: {
-        status: "ACTIVE",
-        organizationId: organization.id,
-        roles: { some: { role: { key: "client" } } },
-        OR: [
-          { organizationProgramId: enrollment.id },
-          { programs: { some: { programId: program.id } } },
-        ],
+        ...this.eligibleUserWhere(
+          organization.id,
+          program.id,
+          enrollment.id,
+        ),
+        id: input.targetUserId,
       },
-      orderBy: { createdAt: "asc" },
       select: { id: true, fullName: true },
     });
     if (!target) {
-      throw new NotFoundException("No active portal user can preview this dashboard");
+      throw new NotFoundException(
+        "Selected portal user does not have access to this program",
+      );
     }
 
     const id = randomUUID();
@@ -333,6 +359,53 @@ export class ImpersonationService {
       throw new ForbiddenException("Dashboard preview permission is required");
     }
   }
+
+  private eligibleUserWhere(
+    organizationId: string,
+    programId: string,
+    organizationProgramId: string,
+  ): Prisma.UserWhereInput {
+    return {
+      status: "ACTIVE",
+      organizationId,
+      roles: { some: { role: { key: "client" } } },
+      OR: [
+        { organizationProgramId },
+        { programs: { some: { programId } } },
+      ],
+    };
+  }
+
+  private async previewContext(
+    organizationReference: string,
+    programReference: string,
+  ) {
+    const [organization, program] = await Promise.all([
+      this.prisma.organization.findFirst({
+        where: referenceWhere(organizationReference),
+        select: { id: true, name: true },
+      }),
+      this.prisma.program.findFirst({
+        where: referenceWhere(programReference),
+        select: { id: true, name: true },
+      }),
+    ]);
+    if (!organization) throw new NotFoundException("Organization not found");
+    if (!program) throw new NotFoundException("Program not found");
+    const enrollment = await this.prisma.organizationProgram.findUnique({
+      where: {
+        organizationId_programId: {
+          organizationId: organization.id,
+          programId: program.id,
+        },
+      },
+      select: { id: true },
+    });
+    if (!enrollment) {
+      throw new BadRequestException("Organization does not belong to this program");
+    }
+    return { organization, program, enrollment };
+  }
 }
 
 @ApiTags("admin impersonation")
@@ -341,6 +414,18 @@ export class ImpersonationService {
 @Controller({ path: "admin/impersonations", version: VERSION_NEUTRAL })
 export class AdminImpersonationController {
   constructor(@Inject(ImpersonationService) private readonly service: ImpersonationService) {}
+
+  @Get("eligible-users")
+  eligibleUsers(
+    @CurrentUser() principal: Principal,
+    @Query() query: EligibleImpersonationUsersQuery,
+  ) {
+    return this.service.eligibleUsers(
+      principal,
+      query.organizationId,
+      query.programId,
+    );
+  }
 
   @Post()
   @HttpCode(201)
