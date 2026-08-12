@@ -6,7 +6,7 @@
   },
   "deploy": {
     "preDeployCommand": "npm run db:deploy:production",
-    "healthcheckPath": "/api/v1/health/ready",
+    "healthcheckPath": "/health",
     "healthcheckTimeout": 300,
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 3
