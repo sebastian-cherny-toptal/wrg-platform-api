@@ -55,11 +55,12 @@ export async function createApp(): Promise<NestFastifyApplication> {
       ...log,
       statusCode: reply.statusCode,
       durationMs: reply.elapsedTime,
-      outcome: reply.statusCode >= 500
-        ? "server_error"
-        : reply.statusCode >= 400
-          ? "client_error"
-          : "success",
+      outcome:
+        reply.statusCode >= 500
+          ? "server_error"
+          : reply.statusCode >= 400
+            ? "client_error"
+            : "success",
     };
 
     if (reply.statusCode >= 500) {
@@ -76,27 +77,40 @@ export async function createApp(): Promise<NestFastifyApplication> {
     AppModule,
     adapter,
     {
+      abortOnError: false,
       bufferLogs: true,
       rawBody: true,
     },
   );
   app.useLogger(app.get(Logger));
   await app.register(helmet);
-  await app.register(multipart, { limits: { fileSize: 100 * 1024 * 1024, files: 20 } });
+  await app.register(multipart, {
+    limits: { fileSize: 100 * 1024 * 1024, files: 20 },
+  });
   await app.register(cors, {
     origin: true,
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
   });
-  const nativeCompatibilityPrefixes = ["user", "client", "admin", "dashboard", "payment", "zoho", "webhook"];
-  const nativeCompatibilityRoutes = nativeCompatibilityPrefixes.flatMap((prefix) => [
-    prefix,
-    `${prefix}/:one`,
-    `${prefix}/:one/:two`,
-    `${prefix}/:one/:two/:three`,
-    `${prefix}/:one/:two/:three/:four`,
-  ]);
+  const nativeCompatibilityPrefixes = [
+    "user",
+    "client",
+    "admin",
+    "dashboard",
+    "payment",
+    "zoho",
+    "webhook",
+  ];
+  const nativeCompatibilityRoutes = nativeCompatibilityPrefixes.flatMap(
+    (prefix) => [
+      prefix,
+      `${prefix}/:one`,
+      `${prefix}/:one/:two`,
+      `${prefix}/:one/:two/:three`,
+      `${prefix}/:one/:two/:three/:four`,
+    ],
+  );
   app.setGlobalPrefix("api", {
     exclude: [
       ...nativeCompatibilityRoutes,
