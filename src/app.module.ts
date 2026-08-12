@@ -33,6 +33,7 @@ import { UsersModule } from "./modules/users/users.module.js";
 import { AccountAccessModule } from "./modules/users/account-access.module.js";
 import { CompatibilityManagementModule } from "./modules/management/compatibility-management.module.js";
 import { CompatibilityAdminModule } from "./modules/management/compatibility-admin.module.js";
+import { BootstrapAdminService } from "./bootstrap-admin.service.js";
 
 @Module({
   imports: [
@@ -121,5 +122,6 @@ import { CompatibilityAdminModule } from "./modules/management/compatibility-adm
     CompatibilityWebhooksModule,
     HealthModule,
   ],
+  providers: [BootstrapAdminService],
 })
 export class AppModule {}

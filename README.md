@@ -27,6 +27,11 @@ Point `REACT_APP_API_ENDPOINT` at this service the same way you pointed it at `w
 - Integration calls for Nest modules are mocked while `INTEGRATIONS_MOCK=true`.
 - ETL only reads MongoDB unless both `ETL_ALLOW_WRITE=true` and `--apply` are supplied.
 - No production credentials belong in this repository.
+- To provision the first production administrator, set `ADMIN_USERNAME` (a valid
+  email address) and `ADMIN_PASSWORD` on the API service. On startup the API
+  creates an active administrator when that email/username is unused. When it
+  already exists, the API updates its password only if the configured password
+  differs, allowing credential rotation through a variable change and redeploy.
 - Stripe webhooks use Stripe raw-body verification. Canonical Zoho/CheckMarket webhooks use `x-wrg-timestamp` + `x-wrg-signature`. Compatibility callbacks are recorded as unverified during provider URL migration; manual `/webhook/*` sync controls require an administrator/operations JWT.
 
 ## Commands
