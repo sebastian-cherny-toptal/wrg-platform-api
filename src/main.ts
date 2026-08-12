@@ -139,5 +139,12 @@ async function bootstrap(): Promise<void> {
 }
 
 if (process.env.NODE_ENV !== "test") {
-  void bootstrap();
+  void bootstrap().catch((error: unknown) => {
+    const message =
+      error instanceof Error ? error.message : "Unknown startup failure";
+    // Nest's logger may not exist yet when configuration validation fails.
+    // Keep this on stderr so Railway always surfaces the cause in deploy logs.
+    console.error(`[FATAL] API failed to start: ${message}`);
+    process.exit(1);
+  });
 }
