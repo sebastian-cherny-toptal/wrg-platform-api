@@ -411,7 +411,9 @@ function loadSourceWorkbooks(source: string): LoadedSources {
 }
 
 function digest(value: string, length = 16): string {
-  return createHash("sha256").update(value).digest("hex").slice(0, length);
+  console.log("digest", value, length);
+  return value;
+  // return createHash("sha256").update(value).digest("hex").slice(0, length);
 }
 
 function deterministicUuid(value: string): string {
