@@ -109,6 +109,7 @@ async function metadataCleanWorkbook(filePath: string): Promise<Buffer> {
 }
 
 async function main(): Promise<void> {
+  console.log("Preparing Baton Rouge test fixture...");
   const options = parseOptions(process.argv.slice(2));
   if (!existsSync(options.source))
     throw new Error(`Source does not exist: ${options.source}`);
