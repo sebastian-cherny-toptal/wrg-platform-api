@@ -32,7 +32,9 @@ export class PingController {
 @Controller({ path: "", version: VERSION_NEUTRAL })
 export class DeployCheckController {
   @Get("deploy-check")
-  @ApiOkResponse({ description: "Confirms that the deployed build is running." })
+  @ApiOkResponse({
+    description: "Confirms that the deployed build is running.",
+  })
   deployCheck(): string {
     return "Hello! Deployed something";
   }
@@ -47,13 +49,13 @@ interface DatabaseHealthResponse {
 @ApiTags("health")
 @Controller({ path: "", version: VERSION_NEUTRAL })
 export class DatabaseHealthController {
-  constructor(
-    @Inject(PrismaService) private readonly prisma: PrismaService,
-  ) {}
+  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
   @Get("health")
   @ApiOkResponse({ description: "The database is reachable." })
-  @ApiServiceUnavailableResponse({ description: "The database is unavailable." })
+  @ApiServiceUnavailableResponse({
+    description: "The database is unavailable.",
+  })
   async health(
     @Res({ passthrough: true }) reply: FastifyReply,
   ): Promise<DatabaseHealthResponse> {

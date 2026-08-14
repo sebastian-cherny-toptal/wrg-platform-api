@@ -48,7 +48,11 @@ export function sanitizeLogValue(
   depth = 0,
 ): unknown {
   if (key && sensitiveKeyPattern.test(key)) return REDACTED;
-  if (value === null || typeof value === "boolean" || typeof value === "number") {
+  if (
+    value === null ||
+    typeof value === "boolean" ||
+    typeof value === "number"
+  ) {
     return value;
   }
   if (typeof value === "string") return truncate(value);
@@ -74,7 +78,9 @@ export function sanitizeLogValue(
   return truncate(String(value));
 }
 
-function selectedHeaders(headers: Record<string, unknown>): Record<string, unknown> {
+function selectedHeaders(
+  headers: Record<string, unknown>,
+): Record<string, unknown> {
   const allowedHeaders = [
     "accept",
     "content-length",
@@ -135,20 +141,26 @@ function pathname(url: string | undefined): string {
   }
 }
 
-function numericHeader(headers: IncomingMessage["headers"], name: string): number | undefined {
+function numericHeader(
+  headers: IncomingMessage["headers"],
+  name: string,
+): number | undefined {
   const value = headers[name];
   const number = typeof value === "string" ? Number(value) : NaN;
   return Number.isFinite(number) && number >= 0 ? number : undefined;
 }
 
-function headerValue(headers: IncomingMessage["headers"], name: string): string | undefined {
+function headerValue(
+  headers: IncomingMessage["headers"],
+  name: string,
+): string | undefined {
   const value = headers[name];
   return typeof value === "string" ? truncate(value) : undefined;
 }
 
-function principal(value: unknown):
-  | { id: string; organizationId: string | null; roles: string[] }
-  | undefined {
+function principal(
+  value: unknown,
+): { id: string; organizationId: string | null; roles: string[] } | undefined {
   if (!isRecord(value) || typeof value.sub !== "string") return undefined;
 
   return {
@@ -158,7 +170,9 @@ function principal(value: unknown):
         ? value.organizationId
         : null,
     roles: Array.isArray(value.roles)
-      ? value.roles.filter((role): role is string => typeof role === "string").slice(0, 20)
+      ? value.roles
+          .filter((role): role is string => typeof role === "string")
+          .slice(0, 20)
       : [],
   };
 }
@@ -183,9 +197,7 @@ export function requestLogPropsForRequest(
       ? request.routeOptions.url
       : pathname(request.url);
   const ip =
-    typeof request.ip === "string"
-      ? request.ip
-      : request.socket.remoteAddress;
+    typeof request.ip === "string" ? request.ip : request.socket.remoteAddress;
   const responseContentLength = response.getHeader("content-length");
   const responseContentType = response.getHeader("content-type");
 
@@ -196,7 +208,8 @@ export function requestLogPropsForRequest(
     route,
     params: sanitizeLogValue(request.params),
     query: sanitizeLogValue(request.query),
-    protocol: typeof request.protocol === "string" ? request.protocol : undefined,
+    protocol:
+      typeof request.protocol === "string" ? request.protocol : undefined,
     client: {
       ip,
       userAgent: headerValue(request.headers, "user-agent"),

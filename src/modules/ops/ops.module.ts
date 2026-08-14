@@ -10,7 +10,12 @@ import {
   Post,
   UseGuards,
 } from "@nestjs/common";
-import { ApiBearerAuth, ApiProperty, ApiPropertyOptional, ApiTags } from "@nestjs/swagger";
+import {
+  ApiBearerAuth,
+  ApiProperty,
+  ApiPropertyOptional,
+  ApiTags,
+} from "@nestjs/swagger";
 import { IsIn, IsOptional, IsString } from "class-validator";
 import { BodyDto } from "../../common/http/body-dto.js";
 import { PrismaService } from "../../database/prisma.service.js";

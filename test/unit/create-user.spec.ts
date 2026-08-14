@@ -15,7 +15,10 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { PrismaService } from "../../src/database/prisma.service.js";
 import { ExtractJwt, Strategy } from "passport-jwt";
-import { JwtAuthGuard, type Principal } from "../../src/modules/auth/auth.module.js";
+import {
+  JwtAuthGuard,
+  type Principal,
+} from "../../src/modules/auth/auth.module.js";
 import {
   AdminRoleGuard,
   UserInvitationMailer,
@@ -317,10 +320,7 @@ describe("create user endpoint", () => {
 
     assert.ok(createdData);
     assert.equal(createdData.organizationId, "organization-id");
-    assert.equal(
-      createdData.organizationProgramId,
-      "organization-program-id",
-    );
+    assert.equal(createdData.organizationProgramId, "organization-program-id");
     assert.deepEqual(createdData.roles, {
       create: [{ roleId: "client-role-id" }],
     });

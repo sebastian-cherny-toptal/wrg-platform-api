@@ -1,8 +1,4 @@
-import {
-  Module,
-  RequestMethod,
-  VersioningType,
-} from "@nestjs/common";
+import { Module, RequestMethod, VersioningType } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import {
   FastifyAdapter,
@@ -114,8 +110,7 @@ describe("client login endpoint", () => {
               username: "client-user",
               fullName: "Client User",
               metadata: { mobile: "123" },
-              organizationProgramId:
-                "4b680987-e44e-4c9f-932d-29d340146973",
+              organizationProgramId: "4b680987-e44e-4c9f-932d-29d340146973",
               organization: {
                 id: "206ab572-1825-4327-81d7-a4c3524a938a",
                 legacyId: "legacy-organization-id",
@@ -135,9 +130,7 @@ describe("client login endpoint", () => {
                     id: "041c8098-7b6a-4492-b079-6e32dfcb5e63",
                     legacyId: "legacy-client-role-id",
                     key: "client",
-                    permissions: [
-                      { permission: { key: "reports.read" } },
-                    ],
+                    permissions: [{ permission: { key: "reports.read" } }],
                   },
                 },
               ],
@@ -207,10 +200,7 @@ describe("client login endpoint", () => {
     assert.equal("passwordHash" in response.data.userData, false);
     const organizationPrograms = response.data.userData
       .organizationProgram as Array<{ programId: { _id: string } }>;
-    assert.equal(
-      organizationPrograms[0]?.programId._id,
-      "legacy-program-id",
-    );
+    assert.equal(organizationPrograms[0]?.programId._id, "legacy-program-id");
     assert.equal(organizationUpdates, 1);
     assert.equal(auditEntries, 1);
   });

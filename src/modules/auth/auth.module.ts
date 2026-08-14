@@ -78,7 +78,8 @@ export class JwtAuthGuard extends AuthGuard("jwt") {
     }>();
     const authorization = request.headers?.authorization;
     const hasBearerToken =
-      typeof authorization === "string" && /^Bearer\s+\S+/iu.test(authorization);
+      typeof authorization === "string" &&
+      /^Bearer\s+\S+/iu.test(authorization);
     if (
       this.config?.get("BYPASS_LOGIN_AUTH", { infer: true }) &&
       !hasBearerToken

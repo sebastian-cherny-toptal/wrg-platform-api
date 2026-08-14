@@ -59,7 +59,8 @@ class SyncProcessor extends WorkerHost {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(ZohoAdapter) private readonly zoho: ZohoAdapter,
-    @Inject(CheckMarketAdapter) private readonly checkMarket: CheckMarketAdapter,
+    @Inject(CheckMarketAdapter)
+    private readonly checkMarket: CheckMarketAdapter,
   ) {
     super();
   }
@@ -82,9 +83,9 @@ class SyncProcessor extends WorkerHost {
           ? await this.zoho.listRecords(job.data.kind)
           : job.data.kind === "activate" && job.data.externalId
             ? await this.checkMarket.activateWebhook(job.data.externalId)
-          : job.data.kind === "surveys" || !job.data.externalId
-            ? await this.checkMarket.listSurveys()
-            : await this.checkMarket.getSurvey(Number(job.data.externalId));
+            : job.data.kind === "surveys" || !job.data.externalId
+              ? await this.checkMarket.listSurveys()
+              : await this.checkMarket.getSurvey(Number(job.data.externalId));
       await this.prisma.syncJob.updateMany({
         where: { idempotencyKey },
         data: {

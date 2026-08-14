@@ -1,4 +1,11 @@
-import { Controller, Get, Inject, Module, Param, UseGuards } from "@nestjs/common";
+import {
+  Controller,
+  Get,
+  Inject,
+  Module,
+  Param,
+  UseGuards,
+} from "@nestjs/common";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
 import { PrismaService } from "../../database/prisma.service.js";
 import { JwtAuthGuard } from "../auth/auth.module.js";
@@ -9,9 +16,7 @@ import { TenantGuard } from "../tenants/tenants.module.js";
 @UseGuards(JwtAuthGuard, TenantGuard)
 @Controller("organizations/:organizationId/assets")
 class ContentController {
-  constructor(
-    @Inject(PrismaService) private readonly prisma: PrismaService,
-  ) {}
+  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
   @Get()
   list(@Param("organizationId") organizationId: string) {

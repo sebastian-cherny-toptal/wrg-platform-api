@@ -15,7 +15,10 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { ExtractJwt, Strategy } from "passport-jwt";
 import { PrismaService } from "../../src/database/prisma.service.js";
-import { JwtAuthGuard, type Principal } from "../../src/modules/auth/auth.module.js";
+import {
+  JwtAuthGuard,
+  type Principal,
+} from "../../src/modules/auth/auth.module.js";
 import {
   AdminRoleGuard,
   UserInvitationMailer,
@@ -154,10 +157,7 @@ describe("list users endpoint", () => {
     } as unknown as PrismaService;
     const service = new UsersService(prisma, {} as UserInvitationMailer);
 
-    const response = await service.list(
-      "projects",
-      "fullName,role,projects",
-    );
+    const response = await service.list("projects", "fullName,role,projects");
     const user = response.data[0];
     assert.ok(user);
     assert.equal(user._id, "legacy-user-id");
@@ -172,9 +172,6 @@ describe("list users endpoint", () => {
       service.list(undefined, "passwordHash"),
       /unsupported user field/u,
     );
-    await assert.rejects(
-      service.list("roles"),
-      /must be projects/u,
-    );
+    await assert.rejects(service.list("roles"), /must be projects/u);
   });
 });

@@ -140,10 +140,12 @@ describe("CheckMarket webhook ingestion", () => {
       false,
     );
 
-    assert.deepEqual(queued, [{
-      provider: "checkmarket",
-      kind: "activate",
-      externalId: "hook-1",
-    }]);
+    assert.deepEqual(queued, [
+      {
+        provider: "checkmarket",
+        kind: "activate",
+        externalId: "hook-1",
+      },
+    ]);
   });
 });

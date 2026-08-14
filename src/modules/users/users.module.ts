@@ -655,7 +655,9 @@ export class UsersService {
     const projectReferences = dto.projects ?? [];
     const programReferences = dto.programs ?? [];
     if (isClient && !dto.organizationId) {
-      throw new BadRequestException("Organization is required for client users");
+      throw new BadRequestException(
+        "Organization is required for client users",
+      );
     }
     if (isClient && programReferences.length === 0) {
       throw new BadRequestException(
@@ -694,10 +696,7 @@ export class UsersService {
                 isUuid(reference)
                   ? { id: reference }
                   : {
-                      OR: [
-                        { legacyId: reference },
-                        { externalId: reference },
-                      ],
+                      OR: [{ legacyId: reference }, { externalId: reference }],
                     },
               ),
             },
@@ -741,10 +740,7 @@ export class UsersService {
                 isUuid(reference)
                   ? { id: reference }
                   : {
-                      OR: [
-                        { legacyId: reference },
-                        { externalId: reference },
-                      ],
+                      OR: [{ legacyId: reference }, { externalId: reference }],
                     },
               ),
             },
@@ -754,7 +750,11 @@ export class UsersService {
       throw new NotFoundException("One or more projects were not found");
     }
     const projects = isClient
-      ? [...new Map(enrollments.map(({ project }) => [project.id, project])).values()]
+      ? [
+          ...new Map(
+            enrollments.map(({ project }) => [project.id, project]),
+          ).values(),
+        ]
       : managementProjects;
     const primaryEnrollment = enrollments[0] ?? null;
 

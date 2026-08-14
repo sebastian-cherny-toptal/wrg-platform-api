@@ -73,11 +73,15 @@ function safeValue(value: TemplateValue | undefined): TemplateValue {
   return /^[=+\-@]/u.test(value) ? `'${value}` : value;
 }
 
-function fillTokens(workbook: ExcelJS.Workbook, resolve: TemplateResolver): void {
+function fillTokens(
+  workbook: ExcelJS.Workbook,
+  resolve: TemplateResolver,
+): void {
   workbook.eachSheet((sheet) => {
     sheet.eachRow({ includeEmpty: true }, (row) => {
       row.eachCell({ includeEmpty: true }, (cell) => {
-        if (typeof cell.value !== "string" || !cell.value.includes("{{")) return;
+        if (typeof cell.value !== "string" || !cell.value.includes("{{"))
+          return;
         const exact = /^\{\{([A-Z0-9_]+)\}\}$/u.exec(cell.value);
         if (exact?.[1]) {
           cell.value = safeValue(resolve(exact[1], cell, sheet));
@@ -103,7 +107,9 @@ function assertNoTokens(workbook: ExcelJS.Workbook): void {
     });
   });
   if (unresolved.length) {
-    throw new Error(`Unresolved report template values: ${unresolved.join(", ")}`);
+    throw new Error(
+      `Unresolved report template values: ${unresolved.join(", ")}`,
+    );
   }
 }
 
@@ -137,7 +143,9 @@ function demographicValue(
 
 function roundedAverage(values: number[]): number {
   if (!values.length) return 0;
-  return Math.round(values.reduce((total, value) => total + value, 0) / values.length);
+  return Math.round(
+    values.reduce((total, value) => total + value, 0) / values.length,
+  );
 }
 
 const responsePatternFills = {
@@ -204,13 +212,15 @@ function applyResponsePatternFills(
     if (ranges.negative) {
       sheet.addConditionalFormatting({
         ref: `E5:E${lastRow}`,
-        rules: [{
-          type: "cellIs",
-          operator: "between",
-          formulae: ranges.negative,
-          priority: 3,
-          style: { fill: responsePatternFills.negative },
-        }],
+        rules: [
+          {
+            type: "cellIs",
+            operator: "between",
+            formulae: ranges.negative,
+            priority: 3,
+            style: { fill: responsePatternFills.negative },
+          },
+        ],
       });
     }
   });
@@ -238,9 +248,11 @@ export async function createWorkforceFeedbackWorkbook(input: {
       return count;
     }
     const categoryMatch = /^CATEGORY_(\d+)_TITLE$/u.exec(name);
-    if (categoryMatch) return input.sections[Number(categoryMatch[1]) - 1]?.title;
-    const categoryQuestionMatch =
-      /^CATEGORY_(\d+)_QUESTION_(\d+)_TEXT$/u.exec(name);
+    if (categoryMatch)
+      return input.sections[Number(categoryMatch[1]) - 1]?.title;
+    const categoryQuestionMatch = /^CATEGORY_(\d+)_QUESTION_(\d+)_TEXT$/u.exec(
+      name,
+    );
     if (categoryQuestionMatch) {
       return input.sections[Number(categoryQuestionMatch[1]) - 1]?.questions[
         Number(categoryQuestionMatch[2]) - 1
@@ -251,13 +263,16 @@ export async function createWorkforceFeedbackWorkbook(input: {
       const title = input.sections[Number(averageTitleMatch[1]) - 1]?.title;
       return title ? `${title.toUpperCase()} - AVERAGE` : null;
     }
-    const averageValueMatch =
-      /^CATEGORY_(\d+)_AVERAGE_VALUE_(\d+)$/u.exec(name);
+    const averageValueMatch = /^CATEGORY_(\d+)_AVERAGE_VALUE_(\d+)$/u.exec(
+      name,
+    );
     if (averageValueMatch) {
       const section = input.sections[Number(averageValueMatch[1]) - 1];
       if (!section) return null;
       const valueIndex = Number(averageValueMatch[2]);
-      const agreement = roundedAverage(section.questions.map((item) => item.agreement));
+      const agreement = roundedAverage(
+        section.questions.map((item) => item.agreement),
+      );
       const disagreement = roundedAverage(
         section.questions.map((item) => item.disagreement),
       );
@@ -278,7 +293,9 @@ export async function createWorkforceFeedbackWorkbook(input: {
     if (surveyAverageMatch) {
       const valueIndex = Number(surveyAverageMatch[1]);
       const agreement = roundedAverage(questions.map((item) => item.agreement));
-      const disagreement = roundedAverage(questions.map((item) => item.disagreement));
+      const disagreement = roundedAverage(
+        questions.map((item) => item.disagreement),
+      );
       if (valueIndex === 1) return agreement;
       if (valueIndex === 2) return disagreement;
       return demographicValue(input.demographics, cell, agreement);
@@ -305,10 +322,13 @@ export async function createBenchmarkWorkbook(input: {
     if (name === "WINNER_TITLE") return "All Winners";
     if (name === "NON_WINNER_TITLE") return "All Non-Winners";
     if (name === "SURVEY_AVERAGE_WINNER") return input.surveyAverage[0] ?? "x";
-    if (name === "SURVEY_AVERAGE_NON_WINNER") return input.surveyAverage[1] ?? "x";
+    if (name === "SURVEY_AVERAGE_NON_WINNER")
+      return input.surveyAverage[1] ?? "x";
     const categoryMatch = /^CATEGORY_(\d+)_TITLE$/u.exec(name);
     if (categoryMatch) {
-      return input.categories[Number(categoryMatch[1]) - 1]?.title.toUpperCase();
+      return input.categories[
+        Number(categoryMatch[1]) - 1
+      ]?.title.toUpperCase();
     }
     const averageTitleMatch = /^CATEGORY_(\d+)_AVERAGE_TITLE$/u.exec(name);
     if (averageTitleMatch) {
@@ -324,9 +344,10 @@ export async function createBenchmarkWorkbook(input: {
     const questionMatch =
       /^CATEGORY_(\d+)_QUESTION_(\d+)_(TEXT|WINNER|NON_WINNER)$/u.exec(name);
     if (questionMatch) {
-      const question = input.categories[Number(questionMatch[1]) - 1]?.questions[
-        Number(questionMatch[2]) - 1
-      ];
+      const question =
+        input.categories[Number(questionMatch[1]) - 1]?.questions[
+          Number(questionMatch[2]) - 1
+        ];
       if (questionMatch[3] === "TEXT") return question?.text;
       return question?.values[questionMatch[3] === "WINNER" ? 0 : 1] ?? "x";
     }
@@ -341,9 +362,13 @@ export async function createBenefitsWorkbook(input: {
 }): Promise<Buffer> {
   const workbook = await loadTemplate("benefits-best-practices.xlsx");
   const section = input.sections[0];
-  const rows = section?.questions.flatMap((question) =>
-    question.responses.map((response) => ({ question: question.text, response })),
-  ) ?? [];
+  const rows =
+    section?.questions.flatMap((question) =>
+      question.responses.map((response) => ({
+        question: question.text,
+        response,
+      })),
+    ) ?? [];
   fillTokens(workbook, (name) => {
     const headerMatch = /^GROUP_(\d+)_TITLE$/u.exec(name);
     if (headerMatch) return input.headers[Number(headerMatch[1]) - 1];
@@ -378,7 +403,8 @@ export async function createVerbatimWorkbook(input: {
     if (name === "SURVEY_DATES") return input.metadata.surveyDates;
     if (name === "DEMOGRAPHIC_TITLE") return input.demographicTitle;
     const questionMatch = /^QUESTION_(\d+)_TEXT$/u.exec(name);
-    if (questionMatch) return input.questions[Number(questionMatch[1]) - 1]?.text;
+    if (questionMatch)
+      return input.questions[Number(questionMatch[1]) - 1]?.text;
     const responseMatch = /^QUESTION_(\d+)_RESPONSE_(\d+)$/u.exec(name);
     if (responseMatch) {
       return input.questions[Number(responseMatch[1]) - 1]?.responses[
@@ -403,12 +429,21 @@ export async function createVerbatimWorkbook(input: {
   return workbookBuffer(workbook);
 }
 
-function responsePercentages(question: FeedbackWorkbookSection["questions"][number]): number[] {
+function responsePercentages(
+  question: FeedbackWorkbookSection["questions"][number],
+): number[] {
   const stronglyDisagree = Math.round(question.disagreement * 0.4);
   const disagree = question.disagreement - stronglyDisagree;
   const stronglyAgree = Math.round(question.agreement * 0.6);
   const agree = question.agreement - stronglyAgree;
-  return [stronglyDisagree, disagree, question.neutral, agree, stronglyAgree, 0];
+  return [
+    stronglyDisagree,
+    disagree,
+    question.neutral,
+    agree,
+    stronglyAgree,
+    0,
+  ];
 }
 
 export async function createResponseDetailWorkbook(input: {
@@ -428,30 +463,35 @@ export async function createResponseDetailWorkbook(input: {
     if (countMatch) {
       const label = cell.worksheet.getCell(3, cell.col).value;
       return typeof label === "string"
-        ? demographicCount(input.demographics, label) ?? 0
+        ? (demographicCount(input.demographics, label) ?? 0)
         : 0;
     }
     const categoryMatch = /^CATEGORY_(\d+)_TITLE$/u.exec(name);
-    if (categoryMatch) return input.sections[Number(categoryMatch[1]) - 1]?.title;
+    if (categoryMatch)
+      return input.sections[Number(categoryMatch[1]) - 1]?.title;
     const questionTextMatch = /^QUESTION_(\d+)_TEXT$/u.exec(name);
-    if (questionTextMatch) return questions[Number(questionTextMatch[1]) - 1]?.text;
+    if (questionTextMatch)
+      return questions[Number(questionTextMatch[1]) - 1]?.text;
     const totalMatch = /^QUESTION_(\d+)_TOTAL_VALUE_(\d+)$/u.exec(name);
     if (totalMatch) {
       if (cell.fullAddress.col === 5) return input.totalResponses;
       const label = cell.worksheet.getCell(3, cell.fullAddress.col).value;
-      const count = typeof label === "string"
-        ? demographicCount(input.demographics, label)
-        : undefined;
+      const count =
+        typeof label === "string"
+          ? demographicCount(input.demographics, label)
+          : undefined;
       return count === undefined || count < 5
         ? "x"
         : Math.round((count * 100) / input.totalResponses);
     }
-    const responseMatch =
-      /^QUESTION_(\d+)_RESPONSE_(\d+)_VALUE_(\d+)$/u.exec(name);
+    const responseMatch = /^QUESTION_(\d+)_RESPONSE_(\d+)_VALUE_(\d+)$/u.exec(
+      name,
+    );
     if (responseMatch) {
       const question = questions[Number(responseMatch[1]) - 1];
       if (!question) return null;
-      const value = responsePercentages(question)[Number(responseMatch[2]) - 1] ?? 0;
+      const value =
+        responsePercentages(question)[Number(responseMatch[2]) - 1] ?? 0;
       if (cell.fullAddress.col === 5) return value;
       return demographicValue(input.demographics, cell, value);
     }

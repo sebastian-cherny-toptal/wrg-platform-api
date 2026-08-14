@@ -15,7 +15,10 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { ExtractJwt, Strategy } from "passport-jwt";
 import { PrismaService } from "../../src/database/prisma.service.js";
-import { JwtAuthGuard, type Principal } from "../../src/modules/auth/auth.module.js";
+import {
+  JwtAuthGuard,
+  type Principal,
+} from "../../src/modules/auth/auth.module.js";
 import {
   AdminRoleGuard,
   UserInvitationMailer,

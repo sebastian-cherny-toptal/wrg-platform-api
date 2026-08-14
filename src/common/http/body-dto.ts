@@ -36,10 +36,9 @@ export function BodyDto<T extends object>(dto: Type<T>): ParameterDecorator {
     if (propertyKey == null) {
       return;
     }
-    const descriptor =
-      Object.getOwnPropertyDescriptor(target, propertyKey) ?? {
-        value: (target as Record<string | symbol, unknown>)[propertyKey],
-      };
+    const descriptor = Object.getOwnPropertyDescriptor(target, propertyKey) ?? {
+      value: (target as Record<string | symbol, unknown>)[propertyKey],
+    };
     ApiBody({ type: dto, required: true })(
       target,
       propertyKey,

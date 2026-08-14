@@ -2925,7 +2925,6 @@ export class CompatibilityReportsService {
             value: true,
             score: true,
             question: {
-              orderBy: { position: "asc" },
               select: {
                 id: true,
                 legacyId: true,

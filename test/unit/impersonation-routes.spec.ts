@@ -28,7 +28,10 @@ const jwtSecret = "test-secret-that-is-at-least-32-characters";
 const serviceStub = {
   eligibleUsers: () => ({ users: [{ id: "target", fullName: "Demo Client" }] }),
   start: () => ({ url: "http://client.test/admin-preview?grant=opaque" }),
-  exchange: () => ({ accessToken: "preview-token", session: { impersonation: {} } }),
+  exchange: () => ({
+    accessToken: "preview-token",
+    session: { impersonation: {} },
+  }),
   revoke: () => ({ ok: true }),
 };
 
@@ -96,7 +99,11 @@ describe("secure admin dashboard previews", () => {
         method: "POST",
         url: "/admin/impersonations",
         headers,
-        payload: { organizationId: "org", programId: "program", targetUserId: "target" },
+        payload: {
+          organizationId: "org",
+          programId: "program",
+          targetUserId: "target",
+        },
       });
       assert.equal(started.statusCode, 201, started.body);
 
@@ -162,20 +169,31 @@ describe("secure admin dashboard previews", () => {
         findFirst: (input: {
           where: { id?: string; roles?: { some: { role: { key: string } } } };
         }) =>
-          Promise.resolve(input.where.roles?.some.role.key === "admin"
-            ? { id: actorId, fullName: "Local Admin" }
-            : input.where.id === targetId
-              ? { id: targetId, fullName: "Demo Client" }
-              : null),
+          Promise.resolve(
+            input.where.roles?.some.role.key === "admin"
+              ? { id: actorId, fullName: "Local Admin" }
+              : input.where.id === targetId
+                ? { id: targetId, fullName: "Demo Client" }
+                : null,
+          ),
       },
       organization: {
-        findFirst: () => Promise.resolve({ id: "05c31b96-357f-4617-b0b6-560602c82248", name: "Demo Organization" }),
+        findFirst: () =>
+          Promise.resolve({
+            id: "05c31b96-357f-4617-b0b6-560602c82248",
+            name: "Demo Organization",
+          }),
       },
       program: {
-        findFirst: () => Promise.resolve({ id: "c34c7df6-0755-448b-bcc0-7c7832ae4f98", name: "Demo Program" }),
+        findFirst: () =>
+          Promise.resolve({
+            id: "c34c7df6-0755-448b-bcc0-7c7832ae4f98",
+            name: "Demo Program",
+          }),
       },
       organizationProgram: {
-        findUnique: () => Promise.resolve({ id: "1541a2be-4503-4c75-9f9f-e8c77d08c2a4" }),
+        findUnique: () =>
+          Promise.resolve({ id: "1541a2be-4503-4c75-9f9f-e8c77d08c2a4" }),
       },
       impersonationGrant: {
         create: (input: { data: { actorUserId: string } }) => {
@@ -211,6 +229,9 @@ describe("secure admin dashboard previews", () => {
 
     assert.equal(lookedUpSyntheticId, false);
     assert.equal(createdActorId, actorId);
-    assert.match(result.url, /^http:\/\/localhost:5173\/admin-preview\?grant=/u);
+    assert.match(
+      result.url,
+      /^http:\/\/localhost:5173\/admin-preview\?grant=/u,
+    );
   });
 });

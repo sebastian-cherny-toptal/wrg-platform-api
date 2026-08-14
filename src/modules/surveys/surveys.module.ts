@@ -1,4 +1,11 @@
-import { Controller, Get, Inject, Module, Param, UseGuards } from "@nestjs/common";
+import {
+  Controller,
+  Get,
+  Inject,
+  Module,
+  Param,
+  UseGuards,
+} from "@nestjs/common";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
 import { PrismaService } from "../../database/prisma.service.js";
 import {
@@ -12,9 +19,7 @@ import {
 @UseGuards(JwtAuthGuard)
 @Controller("surveys")
 class SurveysController {
-  constructor(
-    @Inject(PrismaService) private readonly prisma: PrismaService,
-  ) {}
+  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
   @Get(":id")
   get(@Param("id") id: string, @CurrentUser() principal: Principal) {

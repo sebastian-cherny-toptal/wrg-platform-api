@@ -79,7 +79,10 @@ class ExchangeImpersonationDto {
 }
 
 function referenceWhere(reference: string) {
-  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(reference);
+  const isUuid =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(
+      reference,
+    );
   return {
     OR: [
       ...(isUuid ? [{ id: reference }] : []),
@@ -114,11 +117,7 @@ export class ImpersonationService {
       programReference,
     );
     const users = await this.prisma.user.findMany({
-      where: this.eligibleUserWhere(
-        organization.id,
-        program.id,
-        enrollment.id,
-      ),
+      where: this.eligibleUserWhere(organization.id, program.id, enrollment.id),
       orderBy: [{ fullName: "asc" }, { email: "asc" }],
       select: {
         id: true,
@@ -216,7 +215,8 @@ export class ImpersonationService {
 
     const clientUrl = new URL(
       "/admin-preview",
-      this.config.get("FRONTEND_URL", { infer: true }) ?? "http://localhost:5173",
+      this.config.get("FRONTEND_URL", { infer: true }) ??
+        "http://localhost:5173",
     );
     clientUrl.searchParams.set("grant", `${id}.${secret}`);
     return {
@@ -275,7 +275,9 @@ export class ImpersonationService {
       throw new UnauthorizedException("Preview grant has already been used");
     }
 
-    const basePrincipal = await this.auth.principalForUserId(grant.targetUserId);
+    const basePrincipal = await this.auth.principalForUserId(
+      grant.targetUserId,
+    );
     const startedAt = new Date().toISOString();
     const principal: Principal = {
       ...basePrincipal,
@@ -303,7 +305,10 @@ export class ImpersonationService {
     });
     const reportAccess = jsonObject(enrollment?.reportAccess ?? {});
     const entitlements = Object.fromEntries(
-      entitlementKeys.map((key) => [key, reportAccess[key] === "no" ? "no" : "yes"]),
+      entitlementKeys.map((key) => [
+        key,
+        reportAccess[key] === "no" ? "no" : "yes",
+      ]),
     );
     const expiresAt = new Date(Date.now() + previewLifetimeMs).toISOString();
     return {
@@ -339,7 +344,8 @@ export class ImpersonationService {
 
   async revoke(principal: Principal) {
     const impersonation = principal.impersonation;
-    if (!impersonation) throw new BadRequestException("No preview session is active");
+    if (!impersonation)
+      throw new BadRequestException("No preview session is active");
     await this.prisma.$transaction([
       this.prisma.impersonationGrant.updateMany({
         where: { id: impersonation.grantId, targetUserId: principal.sub },
@@ -377,10 +383,7 @@ export class ImpersonationService {
       status: "ACTIVE",
       organizationId,
       roles: { some: { role: { key: "client" } } },
-      OR: [
-        { organizationProgramId },
-        { programs: { some: { programId } } },
-      ],
+      OR: [{ organizationProgramId }, { programs: { some: { programId } } }],
     };
   }
 
@@ -464,7 +467,9 @@ export class ImpersonationService {
       select: { id: true },
     });
     if (!enrollment) {
-      throw new BadRequestException("Organization does not belong to this program");
+      throw new BadRequestException(
+        "Organization does not belong to this program",
+      );
     }
     return { organization, program, enrollment };
   }
@@ -475,7 +480,10 @@ export class ImpersonationService {
 @UseGuards(JwtAuthGuard)
 @Controller({ path: "admin/impersonations", version: VERSION_NEUTRAL })
 export class AdminImpersonationController {
-  constructor(@Inject(ImpersonationService) private readonly service: ImpersonationService) {}
+  constructor(
+    @Inject(ImpersonationService)
+    private readonly service: ImpersonationService,
+  ) {}
 
   @Get("eligible-users")
   eligibleUsers(
@@ -502,7 +510,10 @@ export class AdminImpersonationController {
 @ApiTags("auth impersonation")
 @Controller({ path: "auth/impersonations", version: VERSION_NEUTRAL })
 export class ImpersonationExchangeController {
-  constructor(@Inject(ImpersonationService) private readonly service: ImpersonationService) {}
+  constructor(
+    @Inject(ImpersonationService)
+    private readonly service: ImpersonationService,
+  ) {}
 
   @Post("exchange")
   @HttpCode(200)

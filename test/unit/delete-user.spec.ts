@@ -15,7 +15,10 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { ExtractJwt, Strategy } from "passport-jwt";
 import { PrismaService } from "../../src/database/prisma.service.js";
-import { JwtAuthGuard, type Principal } from "../../src/modules/auth/auth.module.js";
+import {
+  JwtAuthGuard,
+  type Principal,
+} from "../../src/modules/auth/auth.module.js";
 import {
   AdminRoleGuard,
   UserInvitationMailer,
@@ -127,10 +130,7 @@ describe("delete user endpoint", () => {
         },
       },
       user: {
-        update: (args: {
-          where: { id: string };
-          data: { status: string };
-        }) => {
+        update: (args: { where: { id: string }; data: { status: string } }) => {
           disabledUserId =
             args.data.status === "DISABLED" ? args.where.id : undefined;
           return Promise.resolve({ id: args.where.id });
@@ -149,10 +149,7 @@ describe("delete user endpoint", () => {
         operation: (client: typeof transaction) => Promise<void>,
       ) => operation(transaction),
     } as unknown as PrismaService;
-    const service = new UsersService(
-      prisma,
-      {} as UserInvitationMailer,
-    );
+    const service = new UsersService(prisma, {} as UserInvitationMailer);
 
     const response = await service.delete(targetId);
     assert.equal(response.success, true);

@@ -1,8 +1,4 @@
-import {
-  Module,
-  RequestMethod,
-  VersioningType,
-} from "@nestjs/common";
+import { Module, RequestMethod, VersioningType } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import {
   FastifyAdapter,

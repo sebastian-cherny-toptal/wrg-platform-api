@@ -41,9 +41,7 @@ export class TenantGuard implements CanActivate {
 @UseGuards(JwtAuthGuard, TenantGuard)
 @Controller("organizations")
 class TenantsController {
-  constructor(
-    @Inject(PrismaService) private readonly prisma: PrismaService,
-  ) {}
+  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
   @Get("me")
   me(@CurrentUser() principal: Principal) {
