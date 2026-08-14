@@ -380,6 +380,198 @@ function responseCaption(value: Prisma.JsonValue): string | null {
   return null;
 }
 
+const standardDemographicOptions: Record<string, string[]> = {
+  f_personaldemographics_gender: [
+    "Male",
+    "Female",
+    "Non-Binary",
+    "Prefer not to answer",
+  ],
+  f_personaldemographics_education: [
+    "Some High School",
+    "High School Graduate (includes equivalency)",
+    "Vocational Training",
+    "Some College",
+    "Associate Degree",
+    "Bachelor's Degree",
+    "Master's or Professional Degree",
+    "Other",
+    "Prefer not to answer",
+  ],
+  f_workplacedemographics_employmentlength: [
+    "Less than one year",
+    "One year to less than two years",
+    "Two years to less than five years",
+    "Five years to less than ten years",
+    "Ten years or more",
+    "Prefer not to answer",
+  ],
+  f_workplacedemographics_jobstatus: [
+    "Full-Time",
+    "Part-Time",
+    "Prefer not to answer",
+  ],
+  f_workplacedemographics_workplacesetting: [
+    "Fully on-site",
+    "Hybrid (a blend of on-site and remote)",
+    "Fully remote",
+    "Prefer not to answer",
+  ],
+  f_workplacedemographics_joblevel: [
+    "CEO/President/Owner",
+    "Sr. Executive (COO, CFO, CHRO, VP, Dir., etc.)",
+    "Department Manager/Supervisor",
+    "Production/Service",
+    "Professional/Salesperson/Analyst/Technician",
+    "Administrative/Clerical",
+    "Other",
+    "Prefer not to answer",
+  ],
+  f_workplacedemographics_department: [
+    "Administration/Management",
+    "Business Development/Sales",
+    "Customer Service/Care/Support",
+    "Finance/Accounting",
+    "Human Resources",
+    "Information Technology",
+    "Public Relations/Marketing",
+    "Maintenance/Operations",
+    "Production",
+    "Other",
+    "Prefer not to answer",
+  ],
+};
+
+const legacyEthnicityOptions = [
+  "Asian",
+  "Bi-Racial or Multi-Racial",
+  "Black or African American",
+  "Hispanic or Latino",
+  "Native American (not Pacific Islander)",
+  "Pacific Islander",
+  "White or Caucasian",
+  "Other",
+  "Prefer not to answer",
+];
+
+const currentEthnicityOptions = [
+  "American Indian or Alaska Native",
+  "Asian",
+  "Black or African American",
+  "Hispanic or Latino",
+  "Middle Eastern or North African",
+  "Multiracial and/or Multiethnic",
+  "Native Hawaiian or Pacific Islander",
+  "White",
+  "Other",
+  "Prefer not to answer",
+];
+
+function optionScalar(value: Prisma.JsonValue | undefined): string | null {
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  ) {
+    return String(value).trim();
+  }
+  return null;
+}
+
+function metadataResponseCaption(
+  rawCaption: string,
+  metadata: Prisma.JsonValue,
+): string | null {
+  const source = jsonObject(metadata);
+  for (const field of [
+    "QuestionResponses",
+    "questionResponses",
+    "responseOptions",
+    "options",
+  ]) {
+    const configured = source[field];
+    if (
+      configured &&
+      typeof configured === "object" &&
+      !Array.isArray(configured)
+    ) {
+      const direct = optionScalar(configured[rawCaption]);
+      if (direct) return direct;
+    }
+    if (!Array.isArray(configured)) continue;
+    for (const [index, item] of configured.entries()) {
+      const scalarItem = optionScalar(item);
+      if (scalarItem && rawCaption === String(index + 1)) return scalarItem;
+      if (item === null || typeof item !== "object" || Array.isArray(item)) {
+        continue;
+      }
+      const identifiers = [
+        "Id",
+        "id",
+        "ResponseId",
+        "responseId",
+        "Value",
+        "value",
+        "Code",
+        "code",
+      ]
+        .map((key) => optionScalar(item[key]))
+        .filter((candidate): candidate is string => Boolean(candidate));
+      if (
+        identifiers.length > 0
+          ? !identifiers.includes(rawCaption)
+          : rawCaption !== String(index + 1)
+      ) {
+        continue;
+      }
+      const caption = ["Caption", "caption", "Label", "label", "Text", "text"]
+        .map((key) => optionScalar(item[key]))
+        .find(Boolean);
+      if (caption) return caption;
+    }
+  }
+  return null;
+}
+
+function ageGenerationCaption(rawCaption: string, programYear?: number | null) {
+  const optionId = Number(rawCaption);
+  if (!Number.isInteger(optionId) || optionId < 1 || optionId > 86) return null;
+  if (optionId === 86) return "Prefer not to answer";
+  if (!programYear) return null;
+  const birthYear = programYear - optionId - 17;
+  if (birthYear >= 1997) return "Generation Z (Born 1997 or later)";
+  if (birthYear >= 1981) return "Millennials (Born 1981 to 1996)";
+  if (birthYear >= 1965) return "Generation X (Born 1965 to 1980)";
+  if (birthYear >= 1946) return "Baby Boomers (Born 1946 to 1964)";
+  return "The Silent Generation (Born 1928 to 1945)";
+}
+
+export function demographicResponseCaption(
+  value: Prisma.JsonValue,
+  question: Pick<DetailedResponse["question"], "dataLabel" | "metadata">,
+  programYear?: number | null,
+): string | null {
+  const rawCaption = responseCaption(value);
+  if (!rawCaption) return null;
+  const configured = metadataResponseCaption(rawCaption, question.metadata);
+  if (configured) return configured;
+  const dataLabel = question.dataLabel.toLowerCase();
+  if (dataLabel.includes("_orgid")) return rawCaption;
+  if (dataLabel === "f_personaldemographics_agegeneration") {
+    return ageGenerationCaption(rawCaption, programYear) ?? rawCaption;
+  }
+  const options =
+    dataLabel === "f_personaldemographics_ethnicorigin"
+      ? programYear && programYear <= 2024
+        ? legacyEthnicityOptions
+        : currentEthnicityOptions
+      : standardDemographicOptions[dataLabel];
+  const optionId = Number(rawCaption);
+  return Number.isInteger(optionId) && optionId >= 1
+    ? (options?.[optionId - 1] ?? rawCaption)
+    : rawCaption;
+}
+
 function safeSpreadsheetValue(value: string): string {
   return /^[=+\-@]/u.test(value) ? `'${value}` : value;
 }
@@ -1191,7 +1383,11 @@ export class CompatibilityReportsService {
         ) {
           continue;
         }
-        const value = responseCaption(response.value);
+        const value = demographicResponseCaption(
+          response.value,
+          response.question,
+          context.program.year,
+        );
         if (!value) continue;
         const entry = options.get(response.questionId) ?? {
           question: response.question,
@@ -1458,7 +1654,10 @@ export class CompatibilityReportsService {
     const sourceSections = confidential
       ? []
       : this.feedbackSections(questions, respondents);
-    const demographics = this.workbookDemographicsFromRespondents(respondents);
+    const demographics = this.workbookDemographicsFromRespondents(
+      respondents,
+      context.program.year,
+    );
     const metadata = await this.reportWorkbookMetadata(
       principal,
       query,
@@ -1591,13 +1790,18 @@ export class CompatibilityReportsService {
 
   private workbookDemographicsFromRespondents(
     respondents: DetailedRespondent[],
+    programYear?: number | null,
   ): ReportWorkbookDemographic[] {
     const questions = new Map<string, DetailedResponse["question"]>();
     const counts = new Map<string, Map<string, number>>();
     for (const respondent of respondents) {
       for (const response of respondent.responses) {
         if (!this.isDemographicQuestion(response.question)) continue;
-        const caption = responseCaption(response.value);
+        const caption = demographicResponseCaption(
+          response.value,
+          response.question,
+          programYear,
+        );
         if (!caption) continue;
         questions.set(response.questionId, response.question);
         const options =
@@ -1741,7 +1945,11 @@ export class CompatibilityReportsService {
         ({ questionId }) => questionId === filterQuestion.id,
       );
       const caption = filterResponse
-        ? responseCaption(filterResponse.value)
+        ? demographicResponseCaption(
+            filterResponse.value,
+            filterQuestion,
+            context.program.year,
+          )
         : null;
       if (!caption) continue;
       const existing = groups.get(caption) ?? [];
@@ -1751,7 +1959,11 @@ export class CompatibilityReportsService {
     const headers = [...groups.keys()].sort((left, right) =>
       left.localeCompare(right),
     );
-    const answerOptions = this.questionOptions(question, respondents);
+    const answerOptions = this.questionOptions(
+      question,
+      respondents,
+      context.program.year,
+    );
     const data: unknown[][] = [["", ...headers]];
     for (const option of answerOptions) {
       const row: unknown[] = [option];
@@ -1761,7 +1973,13 @@ export class CompatibilityReportsService {
           const answer = respondent.responses.find(
             ({ questionId }) => questionId === question.id,
           );
-          return responseCaption(answer?.value ?? null) === option;
+          return (
+            demographicResponseCaption(
+              answer?.value ?? null,
+              question,
+              context.program.year,
+            ) === option
+          );
         }).length;
         if (group.length < privacyThreshold || count < privacyThreshold) {
           row.push("x");
@@ -1835,7 +2053,11 @@ export class CompatibilityReportsService {
     for (const respondent of respondents) {
       for (const response of respondent.responses) {
         if (!this.isDemographicQuestion(response.question)) continue;
-        const caption = responseCaption(response.value);
+        const caption = demographicResponseCaption(
+          response.value,
+          response.question,
+          context.program.year,
+        );
         if (!caption) continue;
         questions.set(response.questionId, response.question);
         const options =
@@ -2737,7 +2959,11 @@ export class CompatibilityReportsService {
             response.question.id === reference ||
             response.question.legacyId === reference ||
             response.question.externalId === reference;
-          const caption = responseCaption(response.value)?.toLowerCase();
+          const caption = demographicResponseCaption(
+            response.value,
+            response.question,
+            context.program.year,
+          )?.toLowerCase();
           return Boolean(
             matchesQuestion && caption && values.includes(caption),
           );
@@ -2749,6 +2975,7 @@ export class CompatibilityReportsService {
   private questionOptions(
     question: BenchmarkQuestion,
     respondents: DetailedRespondent[],
+    programYear?: number | null,
   ): string[] {
     const configured = jsonObject(question.metadata).QuestionResponses;
     const metadataOptions = Array.isArray(configured)
@@ -2768,7 +2995,9 @@ export class CompatibilityReportsService {
       const response = respondent.responses.find(
         ({ questionId }) => questionId === question.id,
       );
-      const caption = response ? responseCaption(response.value) : null;
+      const caption = response
+        ? demographicResponseCaption(response.value, question, programYear)
+        : null;
       return caption ? [caption] : [];
     });
     return [...new Set([...metadataOptions, ...observed])].sort((left, right) =>
