@@ -46,7 +46,7 @@ function sanitizedValue(
 ): ExcelJS.CellValue {
   if (value === null || value === undefined) return null;
   const sensitiveColumn =
-    /respondent|organization.*(?:id|name)|email|phone|address|passcode|password|\bip\b|location|contact|first.*name|last.*name/iu.test(
+    /respondent|email|phone|address|passcode|password|\bip\b|location|contact|first.*name|last.*name/iu.test(
       header,
     );
   if (value instanceof Date) return new Date(`${year}-01-01T12:00:00.000Z`);
