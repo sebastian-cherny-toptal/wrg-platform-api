@@ -47,13 +47,27 @@ docker compose --profile baton-rouge run --rm seed-baton-rouge
 Use `--report-source <directory>` or `BR_REPORT_SOURCE` when the published
 workbooks are not beside the raw ZIP. Every non-dry run automatically reconciles
 survey/question/response totals, round-trips the published XLSX snapshots, and
-asserts that the report user has exactly one program grant.
+asserts that the report user has every imported program grant.
 
 The command is idempotent: each run replaces only records in the `seed-br`
 namespace, leaving ordinary application data untouched. The ZIP can instead be
 an extracted directory when passed via `--source` or `BR_SEED_SOURCE`.
 
-The seed creates a client user with access only to the latest Baton Rouge program:
+To regenerate the sanitized web E2E fixture without copying raw survey data
+into Git, run:
+
+```sh
+npm run fixture:baton-rouge -- \
+  --source "../Baton Rouge 24-26.zip" \
+  --report-source .. \
+  --output "../wrg-platform-web/apps/client/e2e/fixtures/baton-rouge-test-data.zip"
+```
+
+The generated archive preserves numeric survey inputs and aggregate reports,
+but replaces row-level identifiers, categorical strings, and free text with
+deterministic synthetic values.
+
+The seed creates a client user with access to every imported Baton Rouge program:
 
 - Username: `test.baton`
 - Email: `test.baton@example.test`
