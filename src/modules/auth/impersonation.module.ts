@@ -52,9 +52,10 @@ class StartImpersonationDto {
   @MinLength(1)
   programId!: string;
 
+  @IsOptional()
   @IsString()
   @MinLength(1)
-  targetUserId!: string;
+  targetUserId?: string;
 
   @IsOptional()
   @IsString()
@@ -156,17 +157,24 @@ export class ImpersonationService {
     if (!actor) throw new UnauthorizedException("Administrator not found");
     const { organization, program, enrollment } = context;
 
-    const target = await this.prisma.user.findFirst({
-      where: {
-        ...this.eligibleUserWhere(
+    const target = input.targetUserId
+      ? await this.prisma.user.findFirst({
+          where: {
+            ...this.eligibleUserWhere(
+              organization.id,
+              program.id,
+              enrollment.id,
+            ),
+            id: input.targetUserId,
+          },
+          select: { id: true, fullName: true },
+        })
+      : await this.genericPreviewUser(
           organization.id,
           program.id,
+          program.projectId,
           enrollment.id,
-        ),
-        id: input.targetUserId,
-      },
-      select: { id: true, fullName: true },
-    });
+        );
     if (!target) {
       throw new NotFoundException(
         "Selected portal user does not have access to this program",
@@ -376,6 +384,60 @@ export class ImpersonationService {
     };
   }
 
+  private async genericPreviewUser(
+    organizationId: string,
+    programId: string,
+    projectId: string,
+    organizationProgramId: string,
+  ): Promise<{ id: string; fullName: string }> {
+    const externalId = `generic-dashboard-preview-${organizationProgramId}`;
+    const clientRole = await this.prisma.role.upsert({
+      where: { key: "client" },
+      update: {},
+      create: { key: "client", name: "Client" },
+    });
+    const user = await this.prisma.user.upsert({
+      where: { externalId },
+      update: {
+        organizationId,
+        organizationProgramId,
+        status: "ACTIVE",
+      },
+      create: {
+        externalId,
+        organizationId,
+        organizationProgramId,
+        email: `dashboard-preview+${organizationProgramId}@example.invalid`,
+        username: `dashboard-preview-${organizationProgramId}`,
+        fullName: "Generic Dashboard Preview",
+        passwordHash: await hash(randomBytes(32).toString("base64url")),
+        status: "ACTIVE",
+        metadata: { genericDashboardPreview: true },
+      },
+      select: { id: true, fullName: true },
+    });
+    await Promise.all([
+      this.prisma.userRole.upsert({
+        where: {
+          userId_roleId: { userId: user.id, roleId: clientRole.id },
+        },
+        update: {},
+        create: { userId: user.id, roleId: clientRole.id },
+      }),
+      this.prisma.userProject.upsert({
+        where: { userId_projectId: { userId: user.id, projectId } },
+        update: {},
+        create: { userId: user.id, projectId },
+      }),
+      this.prisma.userProgram.upsert({
+        where: { userId_programId: { userId: user.id, programId } },
+        update: {},
+        create: { userId: user.id, programId },
+      }),
+    ]);
+    return user;
+  }
+
   private async previewContext(
     organizationReference: string,
     programReference: string,
@@ -387,7 +449,7 @@ export class ImpersonationService {
       }),
       this.prisma.program.findFirst({
         where: referenceWhere(programReference),
-        select: { id: true, name: true },
+        select: { id: true, name: true, projectId: true },
       }),
     ]);
     if (!organization) throw new NotFoundException("Organization not found");

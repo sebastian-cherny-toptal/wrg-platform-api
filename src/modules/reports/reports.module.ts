@@ -9,7 +9,11 @@ import {
 } from "@nestjs/common";
 import { ApiBearerAuth, ApiQuery, ApiTags } from "@nestjs/swagger";
 import { PrismaService } from "../../database/prisma.service.js";
-import { JwtAuthGuard } from "../auth/auth.module.js";
+import {
+  CurrentUser,
+  JwtAuthGuard,
+  type Principal,
+} from "../auth/auth.module.js";
 import { TenantGuard } from "../tenants/tenants.module.js";
 
 @ApiTags("reports")
@@ -17,9 +21,7 @@ import { TenantGuard } from "../tenants/tenants.module.js";
 @UseGuards(JwtAuthGuard, TenantGuard)
 @Controller("organizations/:organizationId/reports")
 class ReportsController {
-  constructor(
-    @Inject(PrismaService) private readonly prisma: PrismaService,
-  ) {}
+  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
   @Get("wfr")
   @ApiQuery({ name: "surveyId", required: true })
@@ -82,5 +84,35 @@ class ReportsController {
   }
 }
 
-@Module({ controllers: [ReportsController] })
+@ApiTags("reports")
+@ApiBearerAuth()
+@UseGuards(JwtAuthGuard)
+@Controller("reports")
+class ReportCatalogController {
+  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
+
+  @Get("catalog")
+  async catalog(@CurrentUser() principal: Principal) {
+    const programs = await this.prisma.userProgram.findMany({
+      where: { userId: principal.sub },
+      orderBy: { program: { year: "desc" } },
+      select: { program: { select: { metadata: true } } },
+    });
+    const products = programs.flatMap(({ program }) => {
+      const metadata = program.metadata;
+      if (
+        !metadata ||
+        typeof metadata !== "object" ||
+        Array.isArray(metadata)
+      ) {
+        return [];
+      }
+      const catalog = metadata.reportCatalog;
+      return Array.isArray(catalog) ? catalog : [];
+    });
+    return products;
+  }
+}
+
+@Module({ controllers: [ReportsController, ReportCatalogController] })
 export class ReportsModule {}

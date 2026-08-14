@@ -100,6 +100,14 @@ describe("secure admin dashboard previews", () => {
       });
       assert.equal(started.statusCode, 201, started.body);
 
+      const genericStarted = await app.inject({
+        method: "POST",
+        url: "/admin/impersonations",
+        headers,
+        payload: { organizationId: "org", programId: "program" },
+      });
+      assert.equal(genericStarted.statusCode, 201, genericStarted.body);
+
       const unauthenticatedEligibleUsers = await app.inject({
         method: "GET",
         url: "/admin/impersonations/eligible-users?organizationId=org&programId=program",

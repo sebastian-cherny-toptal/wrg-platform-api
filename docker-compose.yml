@@ -31,6 +31,29 @@ services:
     ports: ["9000:9000", "9001:9001"]
     volumes: [minio-data:/data]
 
+  seed-baton-rouge:
+    profiles: ["baton-rouge"]
+    build: .
+    environment:
+      DATABASE_URL: postgresql://wrg:wrg@postgres:5432/wrg
+      BR_SEED_SOURCE: /seed-data/Baton Rouge 24-26.zip
+      BR_REPORT_SOURCE: /report-data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ../Baton Rouge 24-26.zip:/seed-data/Baton Rouge 24-26.zip:ro
+      - ../BR 2024 - Benchmark Comparisons.xlsx:/report-data/BR 2024 - Benchmark Comparisons.xlsx:ro
+      - ../BR 2024 - Benefits & Best Practices.xlsx:/report-data/BR 2024 - Benefits & Best Practices.xlsx:ro
+      - ../Baton Rouge 2025 - Workforce Benchmark Comparisons.xlsx:/report-data/Baton Rouge 2025 - Workforce Benchmark Comparisons.xlsx:ro
+      - ../Baton Rouge 2025 - Benefits & Best Practices.xlsx:/report-data/Baton Rouge 2025 - Benefits & Best Practices.xlsx:ro
+      - ../BR 2026 - Workforce Benchmark Comparisons.xlsx:/report-data/BR 2026 - Workforce Benchmark Comparisons.xlsx:ro
+      - ../BR 2026 - Benefits & Best Practices.xlsx:/report-data/BR 2026 - Benefits & Best Practices.xlsx:ro
+    command:
+      - sh
+      - -c
+      - npm run db:deploy:production && npm run db:seed:baton-rouge:compiled
+
 volumes:
   postgres-data:
   minio-data:

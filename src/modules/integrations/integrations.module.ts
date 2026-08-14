@@ -44,7 +44,7 @@ export class ZohoAdapter {
 
   async listRecords(module: string, page = 1): Promise<ZohoRecord[]> {
     if (this.config.get("INTEGRATIONS_MOCK", { infer: true })) {
-      return [{ id: `zoho-mock-${module}-${page}`, Name: `Mock ${module}` }];
+      return [];
     }
     return withRetry(async () => {
       const response = await request(
@@ -106,7 +106,9 @@ export class CheckMarketAdapter {
 
   async getSurvey(id: number): Promise<CheckMarketSurvey> {
     if (this.config.get("INTEGRATIONS_MOCK", { infer: true })) {
-      return { Id: id, Title: `Mock survey ${id}`, SurveyStatusId: "1" };
+      throw new Error(
+        "CheckMarket is disabled locally; load survey data into PostgreSQL with a seed command",
+      );
     }
     return withRetry(async () => {
       const response = await request(
@@ -128,7 +130,7 @@ export class CheckMarketAdapter {
 
   async listSurveys(): Promise<CheckMarketSurvey[]> {
     if (this.config.get("INTEGRATIONS_MOCK", { infer: true })) {
-      return [{ Id: 1, Title: "Mock survey 1", SurveyStatusId: "1" }];
+      return [];
     }
     return withRetry(async () => {
       const response = await request(

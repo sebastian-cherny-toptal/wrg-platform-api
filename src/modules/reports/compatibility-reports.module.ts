@@ -40,14 +40,6 @@ import {
   JwtAuthGuard,
   type Principal,
 } from "../auth/auth.module.js";
-import { demoUserDemographicResponse } from "./demo-user-demographic-response.js";
-import {
-  demoUserAnnualCategoryResults,
-  demoUserCorePreviousResults,
-  demoUserDetailedResults,
-  demoUserQuestionById,
-} from "./demo-user-detailed-results.js";
-import { demoUserResponseBreakdownBySection } from "./demo-user-response-breakdown.js";
 import {
   createBenchmarkWorkbook,
   createBenefitsWorkbook,
@@ -61,47 +53,9 @@ import {
 } from "./report-template-workbooks.js";
 
 const privacyThreshold = 5;
-const isDemoUserReport = (principal: Principal, query: ReportQuery) =>
-  principal.localAuthBypass === true ||
-  (query.selectedProgramId === "demo-workplace-2025" &&
-    (principal.sub === "bypass-login-auth" || principal.sub === "demo-user"));
-const demoTrendDistribution = (
-  values: readonly [number, number, number],
-) =>
-  (["Agree", "Neutral", "Disagree"] as const).map(
-    (ResponseCaption, index) => {
-      const percentage = values[index] ?? 0;
-      return {
-        ResponseCaption,
-        numberOfResponses: Math.round((percentage * 199) / 100),
-        percent: percentage / 100,
-        percentage,
-        colorCode: responseColor(ResponseCaption),
-      };
-    },
-  );
 const winnerColors = { Yes: "#00a46a", No: "#ffc955" } as const;
 const headerColors = { Yes: "#0f0", No: "#ff0" } as const;
 const winnerTitles = { Yes: "Winners", No: "Non-Winners" } as const;
-const demoBenchmarkCategoryValues: Array<[string, number[]]> = [
-  ["Core Employee Experience", [91, 96, 94, 92, 90, 88]],
-  ["Your Job", [89, 94, 92, 89, 87, 85]],
-  ["Communication and Workplace Culture", [87, 93, 90, 87, 85, 84]],
-  ["Relationship With Your Manager", [93, 96, 94, 93, 92, 91]],
-  ["Training, Technology and Professional Development", [85, 91, 88, 86, 83, 79]],
-  ["Diversity and Inclusion", [92, 94, 91, 92, 91, 91]],
-  ["Leadership of this Organization", [87, 93, 91, 88, 84, 81]],
-  ["Employee Benefits", [86, 92, 89, 87, 84, 82]],
-  ["Work-Life Balance", [85, 91, 88, 86, 83, 81]],
-];
-const demoWinnerCohortKeys = [
-  "AllYes",
-  "SmallYes",
-  "MediumYes",
-  "LargeYes",
-  "MajorYes",
-  "SuperYes",
-] as const;
 const categoryOrder = [
   "Core Employee Experience",
   "Your Job",
@@ -301,6 +255,38 @@ interface BenchmarkGroup {
   hidden: boolean;
 }
 
+interface PublishedReportHeader {
+  title: string;
+  type: string;
+}
+
+interface PublishedWorkforceSnapshot {
+  categories: Array<{
+    dataValues: Array<number | string>;
+    questions: Array<{ dataValues: Array<number | string>; text: string }>;
+    title: string;
+  }>;
+  headers: PublishedReportHeader[];
+  sourceFile: string;
+  surveyAverage: Array<number | string>;
+}
+
+interface PublishedBenefitsSnapshot {
+  headers: PublishedReportHeader[];
+  sections: Array<{
+    questions: Array<{
+      responses: Array<{
+        dataValues: Array<number | string>;
+        format: "number" | "percent";
+        label: string;
+      }>;
+      text: string;
+    }>;
+    title: string;
+  }>;
+  sourceFile: string;
+}
+
 function isUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(
     value,
@@ -419,14 +405,7 @@ export class CompatibilityReportsService {
     query: ReportQuery,
     providedContext?: ReportContext,
   ): Promise<ReportWorkbookMetadata> {
-    if (isDemoUserReport(principal, query)) {
-      return {
-        organizationName: "Cohen & Steers",
-        programName: "Best Places to Work in Money Management 2025",
-        surveyDates: "July 18, 2025 to August 8, 2025",
-      };
-    }
-    const context = providedContext ?? await this.context(principal, query);
+    const context = providedContext ?? (await this.context(principal, query));
     const formatDate = (value: Date | null) =>
       value?.toLocaleDateString("en-US", {
         day: "numeric",
@@ -506,24 +485,21 @@ export class CompatibilityReportsService {
     data: Array<Record<string, number>>;
   }> {
     const context = await this.context(principal, query);
-    const isDummy =
-      query.isDummy || this.requiresDemo(principal, context, "WBC_Access");
+    this.requiresDemo(principal, context, "WBC_Access");
     const questions = await this.benchmarkQuestions(context.survey.id);
-    const groups = this.groups(context, isDummy).filter(
-      (group) => !group.hidden,
+    const groups = this.groups(context).filter((group) => !group.hidden);
+    const responses = await this.agreementResponses(
+      context.survey.id,
+      questions,
     );
-    const responses = isDummy
-      ? []
-      : await this.agreementResponses(context.survey.id, questions);
     return {
       success: true,
       message: "success",
-      data: groups.map((group, index) => ({
+      data: groups.map((group) => ({
         [group.key]: this.percentage(
           responses,
           questions.map(({ id }) => id),
           group.organizationIds,
-          isDummy ? this.dummyPercentage(group, index) : undefined,
         ),
       })),
     };
@@ -541,137 +517,102 @@ export class CompatibilityReportsService {
       surveyAverage: Array<Record<string, unknown>>;
     };
   }> {
-    if (isDemoUserReport(principal, query)) {
-      const employerSizes = ["All", "Small", "Medium", "Large", "Major", "Super"];
-      const tableHeaders = employerSizes.flatMap((size) =>
-        (["Yes", "No"] as const).map((winner) => ({
-          title: size === "All" ? "All Size Categories" : `${size} Employers`,
-          type: `${size}_${winner}`,
-          color: headerColors[winner],
-        })),
-      );
-      const detailSection = (title: string) =>
-        demoUserDetailedResults.find(
-          (section) =>
-            section.title === title ||
-            (title === "Leadership of this Organization" &&
-              section.title === "Leadership"),
-        );
+    const context = await this.context(principal, query);
+    this.requiresDemo(principal, context, "WBC_Access");
+    const published = this.publishedWorkforce(context);
+    if (published) {
+      const tableHeaders = this.publishedHeaders(published.headers);
       return {
         success: true,
         message: "true",
         data: {
           tableHeaders,
-          data: demoBenchmarkCategoryValues.map(([title, winnerValues]) => {
-            const section = detailSection(title);
-            const averageAgreement = section?.questions.length
-              ? section.questions.reduce(
-                  (total, question) => total + question.agreement,
-                  0,
-                ) / section.questions.length
-              : 85;
-            return {
+          data: published.categories.map((category) => ({
+            title: category.title,
+            dataValues: category.dataValues.map((value) =>
+              this.publishedValue(value),
+            ),
+            nestedData: category.questions.map((question, index) => ({
+              id: `${category.title}-${index + 1}`,
+              title: question.text,
+              dataValues: question.dataValues.map((value) =>
+                this.publishedValue(value),
+              ),
+            })),
+            legends: Object.entries(winnerTitles).map(([winner, title]) => ({
+              color: winnerColors[winner as "Yes" | "No"],
               title,
-              dataValues: winnerValues.flatMap((value) => [value, "x"]),
-              nestedData: (section?.questions ?? []).map((question) => ({
-                id: question.id,
-                title: question.question,
-                dataValues: winnerValues.flatMap((value) => [
-                  Math.max(
-                    1,
-                    Math.min(
-                      99,
-                      Math.round(
-                        value + (question.agreement - averageAgreement) * 0.35,
-                      ),
-                    ),
-                  ),
-                  "x",
-                ]),
-              })),
-              legends: [
-                { color: winnerColors.Yes, title: "Winners" },
-                { color: winnerColors.No, title: "Non-Winners" },
-              ],
-            };
-          }),
-          surveyAverage: [88, 93, 91, 89, 87, 85].map((value, index) => ({
-            title:
-              index === 0
-                ? "All Size Categories"
-                : `${employerSizes[index]} Employers`,
-            subTitle: "Survey Average",
-            Yes: { title: "Winners", value },
-            No: { title: "Non-Winners", value: "x" },
+            })),
           })),
+          surveyAverage: published.headers
+            .map((header, index) => ({ header, index }))
+            .filter(({ header }) => header.type.endsWith("_Yes"))
+            .map(({ header, index }) => ({
+              title: header.title,
+              subTitle: "Survey Average",
+              Yes: {
+                title: "Winners",
+                value: this.publishedValue(
+                  published.surveyAverage[index] ?? "x",
+                ),
+              },
+              No: {
+                title: "Non-Winners",
+                value: this.publishedValue(
+                  published.surveyAverage[index + 1] ?? "x",
+                ),
+              },
+            })),
         },
       };
     }
-    const context = await this.context(principal, query);
-    const isDummy =
-      query.isDummy || this.requiresDemo(principal, context, "WBC_Access");
     const questions = await this.benchmarkQuestions(context.survey.id);
-    const groups = this.groups(context, isDummy);
-    const responses = isDummy
-      ? []
-      : await this.agreementResponses(context.survey.id, questions);
+    const groups = this.groups(context);
+    const responses = await this.agreementResponses(
+      context.survey.id,
+      questions,
+    );
     const questionGroups = this.questionsByCategory(questions);
     const tableHeaders = this.tableHeaders(groups);
-    const data = sortedCategories(questionGroups.keys()).map(
-      (category, categoryIndex) => {
-        const categoryQuestions = questionGroups.get(category) ?? [];
-        return {
-          title: category,
-          nestedData: categoryQuestions.map((question, questionIndex) => ({
-            id: question.legacyId ?? question.externalId ?? question.id,
-            title: question.caption,
-            dataValues: groups.map((group, groupIndex) =>
-              group.hidden
-                ? "x"
-                : this.percentage(
-                    responses,
-                    [question.id],
-                    group.organizationIds,
-                    isDummy
-                      ? this.dummyPercentage(
-                          group,
-                          categoryIndex + questionIndex + groupIndex,
-                        )
-                      : undefined,
-                  ),
-            ),
-          })),
-          dataValues: groups.map((group, groupIndex) =>
+    const data = sortedCategories(questionGroups.keys()).map((category) => {
+      const categoryQuestions = questionGroups.get(category) ?? [];
+      return {
+        title: category,
+        nestedData: categoryQuestions.map((question) => ({
+          id: question.legacyId ?? question.externalId ?? question.id,
+          title: question.caption,
+          dataValues: groups.map((group) =>
             group.hidden
               ? "x"
               : this.percentage(
                   responses,
-                  categoryQuestions.map(({ id }) => id),
+                  [question.id],
                   group.organizationIds,
-                  isDummy
-                    ? this.dummyPercentage(group, categoryIndex + groupIndex)
-                    : undefined,
                 ),
           ),
-          legends: Object.entries(winnerTitles).map(([winner, title]) => ({
-            color: winnerColors[winner as "Yes" | "No"],
-            title,
-          })),
-        };
-      },
-    );
+        })),
+        dataValues: groups.map((group) =>
+          group.hidden
+            ? "x"
+            : this.percentage(
+                responses,
+                categoryQuestions.map(({ id }) => id),
+                group.organizationIds,
+              ),
+        ),
+        legends: Object.entries(winnerTitles).map(([winner, title]) => ({
+          color: winnerColors[winner as "Yes" | "No"],
+          title,
+        })),
+      };
+    });
     return {
       success: true,
       message: "true",
       data: {
         tableHeaders,
         data,
-        surveyAverage: this.surveyAverages(
-          groups,
-          questions,
-          responses,
-          isDummy,
-        ),
+        surveyAverage: this.surveyAverages(groups, questions, responses),
       },
     };
   }
@@ -688,34 +629,27 @@ export class CompatibilityReportsService {
     }>;
   }> {
     const context = await this.context(principal, query);
-    const isDummy =
-      query.isDummy || this.requiresDemo(principal, context, "WBC_Access");
+    this.requiresDemo(principal, context, "WBC_Access");
     const questions = await this.benchmarkQuestions(context.survey.id);
-    const groups = this.groups(context, isDummy).filter(
-      (group) => !group.hidden,
+    const groups = this.groups(context).filter((group) => !group.hidden);
+    const responses = await this.agreementResponses(
+      context.survey.id,
+      questions,
     );
-    const responses = isDummy
-      ? []
-      : await this.agreementResponses(context.survey.id, questions);
     const questionGroups = this.questionsByCategory(questions);
     return {
       success: true,
       message: "success",
-      data: sortedCategories(questionGroups.keys()).map(
-        (category, categoryIndex) => ({
-          category,
-          data: groups.map((group, groupIndex) => ({
-            [group.key]: this.percentage(
-              responses,
-              (questionGroups.get(category) ?? []).map(({ id }) => id),
-              group.organizationIds,
-              isDummy
-                ? this.dummyPercentage(group, categoryIndex + groupIndex)
-                : undefined,
-            ),
-          })),
-        }),
-      ),
+      data: sortedCategories(questionGroups.keys()).map((category) => ({
+        category,
+        data: groups.map((group) => ({
+          [group.key]: this.percentage(
+            responses,
+            (questionGroups.get(category) ?? []).map(({ id }) => id),
+            group.organizationIds,
+          ),
+        })),
+      })),
     };
   }
 
@@ -734,34 +668,29 @@ export class CompatibilityReportsService {
     };
   }> {
     const context = await this.context(principal, query);
-    const isDummy =
-      query.isDummy || this.requiresDemo(principal, context, "WBC_Access");
+    this.requiresDemo(principal, context, "WBC_Access");
     const allQuestions = await this.benchmarkQuestions(context.survey.id);
     const questions =
       this.questionsByCategory(allQuestions).get(category.trim()) ?? [];
     if (questions.length === 0) {
       throw new NotFoundException("Category not found");
     }
-    const groups = this.groups(context, isDummy).filter(
-      (group) => !group.hidden,
+    const groups = this.groups(context).filter((group) => !group.hidden);
+    const responses = await this.agreementResponses(
+      context.survey.id,
+      questions,
     );
-    const responses = isDummy
-      ? []
-      : await this.agreementResponses(context.survey.id, questions);
     return {
       success: true,
       message: "success",
       data: {
-        questionResponse: questions.map((question, questionIndex) => ({
+        questionResponse: questions.map((question) => ({
           question: question.caption,
-          data: groups.map((group, groupIndex) => ({
+          data: groups.map((group) => ({
             [group.key]: this.percentage(
               responses,
               [question.id],
               group.organizationIds,
-              isDummy
-                ? this.dummyPercentage(group, questionIndex + groupIndex)
-                : undefined,
             ),
           })),
         })),
@@ -782,18 +711,18 @@ export class CompatibilityReportsService {
     };
   }> {
     const context = await this.context(principal, query);
-    const isDummy =
-      query.isDummy || this.requiresDemo(principal, context, "WBC_Access");
+    this.requiresDemo(principal, context, "WBC_Access");
     const allQuestions = await this.benchmarkQuestions(context.survey.id);
     const questions =
       this.questionsByCategory(allQuestions).get(category.trim()) ?? [];
     if (questions.length === 0) {
       throw new NotFoundException("Category not found");
     }
-    const groups = this.groups(context, isDummy);
-    const responses = isDummy
-      ? []
-      : await this.agreementResponses(context.survey.id, questions);
+    const groups = this.groups(context);
+    const responses = await this.agreementResponses(
+      context.survey.id,
+      questions,
+    );
     return {
       success: true,
       message: "true",
@@ -802,22 +731,16 @@ export class CompatibilityReportsService {
         tableData: [
           {
             title: category.trim(),
-            nestedData: questions.map((question, questionIndex) => ({
+            nestedData: questions.map((question) => ({
               id: question.legacyId ?? question.externalId ?? question.id,
               title: question.caption,
-              dataValues: groups.map((group, groupIndex) =>
+              dataValues: groups.map((group) =>
                 group.hidden
                   ? "x"
                   : this.percentage(
                       responses,
                       [question.id],
                       group.organizationIds,
-                      isDummy
-                        ? this.dummyPercentage(
-                            group,
-                            questionIndex + groupIndex,
-                          )
-                        : undefined,
                     ),
               ),
             })),
@@ -843,47 +766,74 @@ export class CompatibilityReportsService {
     };
   }> {
     const context = await this.context(principal, query);
-    const isDummy =
-      query.isDummy || this.requiresDemo(principal, context, "WBC_Access");
+    this.requiresDemo(principal, context, "WBC_Access");
     const questions = await this.benchmarkQuestions(context.survey.id);
-    const groups = this.groups(context, isDummy);
+    const published = this.publishedWorkforce(context);
+    if (published) {
+      const selectedIndex = published.headers.findIndex(
+        (header) =>
+          header.type.replaceAll("_", "").toLowerCase() ===
+          selectedCategoryOption.replaceAll("_", "").toLowerCase(),
+      );
+      if (selectedIndex < 0) {
+        throw new BadRequestException("Invalid benchmark category");
+      }
+      const responses = await this.agreementResponses(
+        context.survey.id,
+        questions,
+      );
+      const questionGroups = this.questionsByCategory(questions);
+      return {
+        success: true,
+        message: "success",
+        data: {
+          categoryResponse: published.categories.map((category) => {
+            const questionIds = (questionGroups.get(category.title) ?? []).map(
+              ({ id }) => id,
+            );
+            return {
+              category: category.title,
+              currentOrg: this.percentage(responses, questionIds, [
+                context.organizationId,
+              ]),
+              otherOrg: Number(category.dataValues[selectedIndex] ?? 0),
+            };
+          }),
+        },
+      };
+    }
+    const groups = this.groups(context);
     const selected = groups.find(
       (group) =>
         group.key.toLowerCase() === selectedCategoryOption.toLowerCase(),
     );
     if (!selected) throw new BadRequestException("Invalid benchmark category");
-    const responses = isDummy
-      ? []
-      : await this.agreementResponses(context.survey.id, questions);
+    const responses = await this.agreementResponses(
+      context.survey.id,
+      questions,
+    );
     const questionGroups = this.questionsByCategory(questions);
     return {
       success: true,
       message: "success",
       data: {
         categoryResponse: sortedCategories(questionGroups.keys()).map(
-          (category, categoryIndex) => {
+          (category) => {
             const questionIds = (questionGroups.get(category) ?? []).map(
               ({ id }) => id,
             );
             return {
               category,
-              currentOrg: this.percentage(
-                responses,
-                questionIds,
-                [context.organizationId],
-                isDummy ? 76 - (categoryIndex % 6) : undefined,
-              ),
-              otherOrg:
-                selected.hidden && !isDummy
-                  ? 0
-                  : this.percentage(
-                      responses,
-                      questionIds,
-                      selected.organizationIds,
-                      isDummy
-                        ? this.dummyPercentage(selected, categoryIndex)
-                        : undefined,
-                    ),
+              currentOrg: this.percentage(responses, questionIds, [
+                context.organizationId,
+              ]),
+              otherOrg: selected.hidden
+                ? 0
+                : this.percentage(
+                    responses,
+                    questionIds,
+                    selected.organizationIds,
+                  ),
             };
           },
         ),
@@ -897,134 +847,94 @@ export class CompatibilityReportsService {
     category: string,
     selectedCategoryOption = "AllYes",
   ) {
-    if (isDemoUserReport(principal, query)) {
-      const normalizedCategory = category.trim();
-      const benchmarkCategory =
-        normalizedCategory === "Leadership"
-          ? "Leadership of this Organization"
-          : normalizedCategory;
-      const benchmarkValues = demoBenchmarkCategoryValues.find(
-        ([title]) => title === benchmarkCategory,
-      )?.[1];
-      const section = demoUserDetailedResults.find(
-        ({ title }) => title === normalizedCategory,
+    const context = await this.context(principal, query);
+    this.requiresDemo(principal, context, "WBC_Access");
+    const published = this.publishedWorkforce(context);
+    if (published) {
+      const selectedIndex = published.headers.findIndex(
+        (header) =>
+          header.type.replaceAll("_", "").toLowerCase() ===
+          selectedCategoryOption.replaceAll("_", "").toLowerCase(),
       );
-      const cohortIndex = demoWinnerCohortKeys.findIndex(
-        (key) => key.toLowerCase() === selectedCategoryOption.toLowerCase(),
-      );
-      if (!benchmarkValues || !section) {
-        throw new NotFoundException("Category not found");
-      }
-      if (cohortIndex < 0) {
+      if (selectedIndex < 0) {
         throw new BadRequestException("Invalid benchmark category");
       }
-      const categoryAverage =
-        section.questions.reduce(
-          (total, question) => total + question.agreement,
-          0,
-        ) / section.questions.length;
-      const cohortAverage = benchmarkValues[cohortIndex] ?? 0;
+      const categorySnapshot = published.categories.find(
+        (item) => item.title.toLowerCase() === category.trim().toLowerCase(),
+      );
+      const allQuestions = await this.benchmarkQuestions(context.survey.id);
+      const questions =
+        this.questionsByCategory(allQuestions).get(
+          categorySnapshot?.title ?? category.trim(),
+        ) ?? [];
+      if (!categorySnapshot || questions.length === 0) {
+        throw new NotFoundException("Category not found");
+      }
+      const responses = await this.agreementResponses(
+        context.survey.id,
+        questions,
+      );
       return {
         success: true,
         message: "success",
         data: {
-          questionResponse: section.questions.map((question) => ({
-            question: question.question,
-            currentOrg: question.agreement,
-            otherOrg: Math.max(
-              1,
-              Math.min(
-                99,
-                Math.round(
-                  cohortAverage +
-                    (question.agreement - categoryAverage) * 0.35,
-                ),
-              ),
+          questionResponse: questions.map((question, index) => ({
+            question: question.caption,
+            currentOrg: this.percentage(
+              responses,
+              [question.id],
+              [context.organizationId],
+            ),
+            otherOrg: this.publishedValue(
+              categorySnapshot.questions[index]?.dataValues[selectedIndex] ??
+                "x",
             ),
           })),
         },
       };
     }
-    const context = await this.context(principal, query);
-    const isDummy =
-      query.isDummy || this.requiresDemo(principal, context, "WBC_Access");
     const allQuestions = await this.benchmarkQuestions(context.survey.id);
     const questions =
       this.questionsByCategory(allQuestions).get(category.trim()) ?? [];
     if (questions.length === 0) {
       throw new NotFoundException("Category not found");
     }
-    const groups = this.groups(context, isDummy);
+    const groups = this.groups(context);
     const selected = groups.find(
       (group) =>
         group.key.toLowerCase() === selectedCategoryOption.toLowerCase(),
     );
     if (!selected) throw new BadRequestException("Invalid benchmark category");
-    const responses = isDummy
-      ? []
-      : await this.agreementResponses(context.survey.id, questions);
+    const responses = await this.agreementResponses(
+      context.survey.id,
+      questions,
+    );
     return {
       success: true,
       message: "success",
       data: {
-        questionResponse: questions.map((question, index) => ({
+        questionResponse: questions.map((question) => ({
           question: question.caption,
           currentOrg: this.percentage(
             responses,
             [question.id],
             [context.organizationId],
-            isDummy ? 76 - (index % 6) : undefined,
           ),
-          otherOrg:
-            selected.hidden && !isDummy
-              ? 0
-              : this.percentage(
-                  responses,
-                  [question.id],
-                  selected.organizationIds,
-                  isDummy ? this.dummyPercentage(selected, index) : undefined,
-                ),
+          otherOrg: selected.hidden
+            ? 0
+            : this.percentage(
+                responses,
+                [question.id],
+                selected.organizationIds,
+              ),
         })),
       },
     };
   }
 
   async openResponseQuestions(principal: Principal, query: ReportQuery) {
-    if (isDemoUserReport(principal, query)) {
-      return {
-        success: true,
-        message: "success",
-        data: [
-          { caption: "What are the top two or three reasons people like working for this organization? (2000 character limit)", id: "cohen-open-1", _id: "cohen-open-1", questionNumber: 1 },
-          { caption: "What two or three things can this organization add or change to improve employee engagement and success? (2000 character limit)", id: "cohen-open-2", _id: "cohen-open-2", questionNumber: 2 },
-        ],
-      };
-    }
     const context = await this.context(principal, query);
-    const isDummy =
-      query.isDummy || this.requiresDemo(principal, context, "EV_Access");
-    if (isDummy) {
-      return {
-        success: true,
-        message: "success",
-        data: [
-          {
-            caption:
-              "What are the top reasons people like working for this organization?",
-            id: "sample-open-1",
-            _id: "sample-open-1",
-            questionNumber: 1,
-          },
-          {
-            caption:
-              "What can this organization change to improve employee engagement?",
-            id: "sample-open-2",
-            _id: "sample-open-2",
-            questionNumber: 2,
-          },
-        ],
-      };
-    }
+    this.requiresDemo(principal, context, "EV_Access");
     const questions = await this.openQuestions(context.survey.id);
     return {
       success: true,
@@ -1044,49 +954,8 @@ export class CompatibilityReportsService {
     questionReference: string,
     queryFilter?: Record<string, unknown>,
   ) {
-    if (isDemoUserReport(principal, query)) {
-      const first = questionReference === "cohen-open-1";
-      const answers = first
-        ? ["The people, collaborative culture, and meaningful work.", "Supportive colleagues and managers.", "Strong benefits and flexibility.", "The variety of projects and opportunities to learn.", "The organization's stability and reputation."]
-        : ["Improve communication between departments.", "Provide clearer career paths.", "Reduce unnecessary processes.", "Invest in modern tools and training.", "Keep workloads sustainable during busy periods."];
-      return {
-        success: true,
-        message: "success",
-        data: {
-          respondentData: answers.map((answer, index) => this.sampleOpenAnswer(`Demo ${index + 1}`, answer)),
-          dataLen: answers.length,
-          queryQuestion: {
-            Caption: first
-              ? "What are the top two or three reasons people like working for this organization? (2000 character limit)"
-              : "What two or three things can this organization add or change to improve employee engagement and success? (2000 character limit)",
-            Id: questionReference,
-          },
-        },
-      };
-    }
     const context = await this.context(principal, query);
-    const isDummy =
-      query.isDummy || this.requiresDemo(principal, context, "EV_Access");
-    if (isDummy) {
-      return {
-        success: true,
-        message: "success",
-        data: {
-          respondentData: [
-            this.sampleOpenAnswer("Sample 1", "Supportive colleagues."),
-            this.sampleOpenAnswer("Sample 2", "Flexible working arrangements."),
-            this.sampleOpenAnswer("Sample 3", "Strong benefits."),
-            this.sampleOpenAnswer("Sample 4", "Opportunities to learn."),
-            this.sampleOpenAnswer("Sample 5", "A welcoming culture."),
-          ],
-          dataLen: 5,
-          queryQuestion: {
-            Caption: "Sample employee verbatim question",
-            Id: questionReference,
-          },
-        },
-      };
-    }
+    this.requiresDemo(principal, context, "EV_Access");
     const questions = await this.openQuestions(context.survey.id);
     const question = questions.find(
       (candidate) =>
@@ -1153,19 +1022,14 @@ export class CompatibilityReportsService {
     queryFilter?: Record<string, unknown>,
     accessKey: "WFR_Access" | "RD_Access" = "WFR_Access",
   ) {
-    if (isDemoUserReport(principal, query)) {
-      return demoUserResponseBreakdownBySection;
-    }
-
     const context = await this.context(principal, query);
-    const isDummy =
-      query.isDummy || this.requiresDemo(principal, context, accessKey);
+    this.requiresDemo(principal, context, accessKey);
     const questions = await this.benchmarkQuestions(context.survey.id);
-    const respondents = isDummy
-      ? []
-      : await this.organizationRespondents(context, queryFilter);
+    const respondents = await this.organizationRespondents(
+      context,
+      queryFilter,
+    );
     const confidential =
-      !isDummy &&
       Boolean(queryFilter && Object.keys(queryFilter).length > 0) &&
       respondents.length < privacyThreshold;
     if (confidential) {
@@ -1180,22 +1044,17 @@ export class CompatibilityReportsService {
     const grouped = this.questionsByCategory(questions);
     return {
       success: true,
-      message:
-        respondents.length === 0 && !isDummy ? "No data found." : "success",
+      message: respondents.length === 0 ? "No data found." : "success",
       isConfidential: false,
-      data: sortedCategories(grouped.keys()).map((category, index) => {
+      data: sortedCategories(grouped.keys()).map((category) => {
         const categoryQuestions = grouped.get(category) ?? [];
-        const distribution = isDummy
-          ? this.sampleSectionDistribution(index)
-          : this.sectionDistribution(
-              respondents.flatMap(({ responses }) =>
-                responses.filter((response) =>
-                  categoryQuestions.some(
-                    ({ id }) => id === response.questionId,
-                  ),
-                ),
-              ),
-            );
+        const distribution = this.sectionDistribution(
+          respondents.flatMap(({ responses }) =>
+            responses.filter((response) =>
+              categoryQuestions.some(({ id }) => id === response.questionId),
+            ),
+          ),
+        );
         return {
           [category]: [
             ...distribution,
@@ -1204,8 +1063,8 @@ export class CompatibilityReportsService {
               // Keep the legacy contract: this includes unanswered and N/A
               // responses, while the three distribution buckets do not.
               totalNumberOfResponsePerSection:
-                categoryQuestions.length * (isDummy ? 25 : respondents.length),
-              totalRespondents: isDummy ? 25 : respondents.length,
+                categoryQuestions.length * respondents.length,
+              totalRespondents: respondents.length,
               questionRange: categoryQuestions.map(
                 (question) =>
                   question.legacyId ?? question.externalId ?? question.id,
@@ -1223,20 +1082,15 @@ export class CompatibilityReportsService {
     questionRange: string[],
     queryFilter?: Record<string, unknown>,
   ) {
-    if (isDemoUserReport(principal, query)) {
-      return this.demoResponseBreakdown(questionRange);
-    }
-
     const context = await this.context(principal, query);
-    const isDummy =
-      query.isDummy || this.requiresDemo(principal, context, "WFR_Access");
+    this.requiresDemo(principal, context, "WFR_Access");
     const questions = await this.benchmarkQuestions(context.survey.id);
     const selected = this.resolveQuestions(questions, questionRange);
-    const respondents = isDummy
-      ? []
-      : await this.organizationRespondents(context, queryFilter);
+    const respondents = await this.organizationRespondents(
+      context,
+      queryFilter,
+    );
     if (
-      !isDummy &&
       queryFilter &&
       Object.keys(queryFilter).length > 0 &&
       respondents.length < privacyThreshold
@@ -1253,18 +1107,14 @@ export class CompatibilityReportsService {
       success: true,
       message: "success",
       isConfidential: false,
-      data: selected.map((question, index) => ({
+      data: selected.map((question) => ({
         question: question.caption,
         questionId: question.legacyId ?? question.externalId ?? question.id,
-        responses: isDummy
-          ? this.sampleDistribution(index)
-          : this.distribution(
-              respondents.flatMap(({ responses }) =>
-                responses.filter(
-                  (response) => response.questionId === question.id,
-                ),
-              ),
-            ),
+        responses: this.distribution(
+          respondents.flatMap(({ responses }) =>
+            responses.filter((response) => response.questionId === question.id),
+          ),
+        ),
       })),
     };
   }
@@ -1280,25 +1130,18 @@ export class CompatibilityReportsService {
     questionRange: string[],
   ) {
     const context = await this.context(principal, query);
-    const isDummy =
-      query.isDummy || this.requiresDemo(principal, context, "WFR_Access");
+    this.requiresDemo(principal, context, "WFR_Access");
     const questions = this.resolveQuestions(
       await this.benchmarkQuestions(context.survey.id),
       questionRange,
     );
-    const respondents = isDummy
-      ? []
-      : await this.organizationRespondents(context);
+    const respondents = await this.organizationRespondents(context);
     const sectionTotals = new Map<string, number>();
-    const rows = questions.map((question, index) => {
-      const responses = isDummy
-        ? []
-        : respondents.flatMap(({ responses: items }) =>
-            items.filter((response) => response.questionId === question.id),
-          );
-      const distribution = isDummy
-        ? this.sampleDistribution(index)
-        : this.distribution(responses);
+    const rows = questions.map((question) => {
+      const responses = respondents.flatMap(({ responses: items }) =>
+        items.filter((response) => response.questionId === question.id),
+      );
+      const distribution = this.distribution(responses);
       for (const item of distribution) {
         sectionTotals.set(
           item.ResponseCaption,
@@ -1313,7 +1156,7 @@ export class CompatibilityReportsService {
         questionId: question.legacyId ?? question.externalId ?? question.id,
         questionType: question.type,
         dataLabel: question.dataLabel,
-        totalNumberOfRespondents: isDummy ? 25 : respondents.length,
+        totalNumberOfRespondents: respondents.length,
         meanScore:
           scores.length === 0
             ? "0.00"
@@ -1336,29 +1179,6 @@ export class CompatibilityReportsService {
 
   async surveyFilters(principal: Principal, query: ReportQuery) {
     const context = await this.context(principal, query);
-    const isDummy =
-      query.isDummy ||
-      (this.requiresDemo(principal, context, "EV_Access") &&
-        this.requiresDemo(principal, context, "WFR_Access") &&
-        this.requiresDemo(principal, context, "RD_Access"));
-    if (isDummy) {
-      return {
-        success: true,
-        message: "success",
-        data: [
-          {
-            QuestionId: "sample-demographic-department",
-            filterLabel: "Department",
-            type: "Demographics",
-            filterOption: [
-              { Caption: "Operations" },
-              { Caption: "Sales" },
-              { Caption: "Technology" },
-            ],
-          },
-        ],
-      };
-    }
     const respondents = await this.organizationRespondents(context);
     const options = new Map<
       string,
@@ -1584,20 +1404,22 @@ export class CompatibilityReportsService {
   ): Promise<Buffer> {
     const responsePatterns = Array.isArray(queryFilter?.responsePatterns)
       ? queryFilter.responsePatterns.filter(
-          (item: unknown): item is {
+          (
+            item: unknown,
+          ): item is {
             metric: "agreement" | "disagreement";
             minimum: number;
             maximum: number;
           } =>
             Boolean(
               item &&
-                typeof item === "object" &&
-                "metric" in item &&
-                (item.metric === "agreement" || item.metric === "disagreement") &&
-                "minimum" in item &&
-                typeof item.minimum === "number" &&
-                "maximum" in item &&
-                typeof item.maximum === "number",
+              typeof item === "object" &&
+              "metric" in item &&
+              (item.metric === "agreement" || item.metric === "disagreement") &&
+              "minimum" in item &&
+              typeof item.minimum === "number" &&
+              "maximum" in item &&
+              typeof item.maximum === "number",
             ),
         )
       : [];
@@ -1611,68 +1433,38 @@ export class CompatibilityReportsService {
       },
       {},
     );
-    const highlightRanges = responsePatternRanges ??
+    const highlightRanges =
+      responsePatternRanges ??
       (Object.keys(legacyRanges).length ? legacyRanges : undefined);
-    const demoUser = isDemoUserReport(principal, query);
-    let sourceSections: FeedbackWorkbookSection[];
-    let demographics: ReportWorkbookDemographic[];
-    let metadata: ReportWorkbookMetadata;
-    let totalResponses: number;
-
-    if (demoUser) {
-      sourceSections = this.demoFeedbackSections();
-      demographics = this.sampleWorkbookDemographics();
-      metadata = await this.reportWorkbookMetadata(principal, query);
-      totalResponses = 199;
-    } else {
-      try {
-        const context = await this.context(principal, query);
-        const isDummy =
-          query.isDummy ||
-          this.requiresDemo(
-            principal,
-            context,
-            detailed ? "RD_Access" : "WFR_Access",
-          );
-        const respondentFilter = Object.fromEntries(
-          Object.entries(queryFilter ?? {}).filter(
-            ([key]) => key !== "responsePatterns",
-          ),
-        );
-        const questions = await this.benchmarkQuestions(context.survey.id);
-        const respondents = isDummy
-          ? []
-          : await this.organizationRespondents(context, respondentFilter);
-        const confidential =
-          !isDummy &&
-          Object.keys(respondentFilter).length > 0 &&
-          respondents.length < privacyThreshold;
-        sourceSections = confidential
-          ? []
-          : this.feedbackSections(questions, respondents, isDummy);
-        demographics = isDummy
-          ? this.sampleWorkbookDemographics()
-          : this.workbookDemographicsFromRespondents(respondents);
-        metadata = await this.reportWorkbookMetadata(principal, query, context);
-        totalResponses = isDummy ? 38 : respondents.length;
-      } catch (error) {
-        if (
-          error instanceof BadRequestException ||
-          error instanceof ForbiddenException ||
-          error instanceof NotFoundException
-        ) {
-          throw error;
-        }
-        sourceSections = this.demoFeedbackSections();
-        demographics = this.sampleWorkbookDemographics();
-        metadata = {
-          organizationName: "Demonstration Organization",
-          programName: "Workplace Survey",
-          surveyDates: "Sample data",
-        };
-        totalResponses = 38;
-      }
-    }
+    const context = await this.context(principal, query);
+    this.requiresDemo(
+      principal,
+      context,
+      detailed ? "RD_Access" : "WFR_Access",
+    );
+    const respondentFilter = Object.fromEntries(
+      Object.entries(queryFilter ?? {}).filter(
+        ([key]) => key !== "responsePatterns",
+      ),
+    );
+    const questions = await this.benchmarkQuestions(context.survey.id);
+    const respondents = await this.organizationRespondents(
+      context,
+      respondentFilter,
+    );
+    const confidential =
+      Object.keys(respondentFilter).length > 0 &&
+      respondents.length < privacyThreshold;
+    const sourceSections = confidential
+      ? []
+      : this.feedbackSections(questions, respondents);
+    const demographics = this.workbookDemographicsFromRespondents(respondents);
+    const metadata = await this.reportWorkbookMetadata(
+      principal,
+      query,
+      context,
+    );
+    const totalResponses = respondents.length;
     return createWorkforceFeedbackWorkbook({
       metadata,
       demographics,
@@ -1687,37 +1479,15 @@ export class CompatibilityReportsService {
     query: ReportQuery,
     ranges: ResponsePatternRanges,
   ) {
-    let sections: FeedbackWorkbookSection[];
-    let isConfidential = false;
-    let isFallback = false;
-
-    if (isDemoUserReport(principal, query)) {
-      sections = this.demoFeedbackSections();
-    } else {
-      try {
-        const context = await this.context(principal, query);
-        const isDummy =
-          query.isDummy || this.requiresDemo(principal, context, "WFR_Access");
-        const questions = await this.benchmarkQuestions(context.survey.id);
-        const respondents = isDummy
-          ? []
-          : await this.organizationRespondents(context);
-        isConfidential = !isDummy && respondents.length < privacyThreshold;
-        sections = isConfidential
-          ? []
-          : this.feedbackSections(questions, respondents, isDummy);
-      } catch (error) {
-        if (
-          error instanceof BadRequestException ||
-          error instanceof ForbiddenException ||
-          error instanceof NotFoundException
-        ) {
-          throw error;
-        }
-        sections = this.demoFeedbackSections();
-        isFallback = true;
-      }
-    }
+    const context = await this.context(principal, query);
+    this.requiresDemo(principal, context, "WFR_Access");
+    const questions = await this.benchmarkQuestions(context.survey.id);
+    const respondents = await this.organizationRespondents(context);
+    const isConfidential = respondents.length < privacyThreshold;
+    const sections = isConfidential
+      ? []
+      : this.feedbackSections(questions, respondents);
+    const isFallback = false;
 
     const cells: Array<{
       row: number;
@@ -1793,42 +1563,22 @@ export class CompatibilityReportsService {
     };
   }
 
-  private demoFeedbackSections(): FeedbackWorkbookSection[] {
-    return demoUserDetailedResults.map((section) => ({
-      title: section.title,
-      questions: section.questions.map((question) => ({
-        text: question.question,
-        agreement: question.agreement,
-        neutral: question.neutral,
-        disagreement: question.disagreement,
-      })),
-    }));
-  }
-
   private feedbackSections(
     questions: BenchmarkQuestion[],
     respondents: DetailedRespondent[],
-    isDummy: boolean,
   ): FeedbackWorkbookSection[] {
     const grouped = this.questionsByCategory(questions);
-    let sampleIndex = 0;
     return sortedCategories(grouped.keys()).map((title) => ({
       title,
       questions: (grouped.get(title) ?? []).map((question) => {
-        const distribution = isDummy
-          ? this.sampleDistribution(sampleIndex++)
-          : this.distribution(
-              respondents.flatMap(({ responses }) =>
-                responses.filter(
-                  (response) => response.questionId === question.id,
-                ),
-              ),
-            );
+        const distribution = this.trendDistribution(
+          respondents.flatMap(({ responses }) =>
+            responses.filter((response) => response.questionId === question.id),
+          ),
+        );
         const percentage = (caption: "Agree" | "Neutral" | "Disagree") =>
-          Math.round(
-            (distribution.find((item) => item.ResponseCaption === caption)
-              ?.percent ?? 0) * 100,
-          );
+          distribution.find((item) => item.ResponseCaption === caption)
+            ?.percentage ?? 0;
         return {
           text: question.caption,
           agreement: percentage("Agree"),
@@ -1837,27 +1587,6 @@ export class CompatibilityReportsService {
         };
       }),
     }));
-  }
-
-  private sampleWorkbookDemographics(): ReportWorkbookDemographic[] {
-    return [
-      {
-        title: "Department",
-        options: [
-          { label: "Operations", count: 12 },
-          { label: "Sales", count: 9 },
-          { label: "Technology", count: 14 },
-        ],
-      },
-      {
-        title: "Gender",
-        options: [
-          { label: "Female", count: 18 },
-          { label: "Male", count: 15 },
-          { label: "Non-Binary", count: 5 },
-        ],
-      },
-    ];
   }
 
   private workbookDemographicsFromRespondents(
@@ -1895,7 +1624,9 @@ export class CompatibilityReportsService {
     const firstAverage = report.data.surveyAverage[0];
     const averageValue = (key: "Yes" | "No"): number | string => {
       const value = firstAverage?.[key];
-      return value && typeof value === "object" && "value" in value &&
+      return value &&
+        typeof value === "object" &&
+        "value" in value &&
         (typeof value.value === "number" || typeof value.value === "string")
         ? value.value
         : "x";
@@ -1940,36 +1671,7 @@ export class CompatibilityReportsService {
   async responseDetailSections(principal: Principal, query: ReportQuery) {
     const context = await this.context(principal, query);
     const questions = await this.benchmarkQuestions(context.survey.id);
-    const isDummy =
-      query.isDummy || this.requiresDemo(principal, context, "RD_Access");
-    if (isDummy) {
-      const sampleQuestions =
-        questions.length > 0
-          ? questions
-          : [
-              {
-                id: "sample-question-1",
-                legacyId: null,
-                externalId: null,
-                dataLabel: "q_YourJob1",
-                caption: "I have the tools and resources I need.",
-                type: "5",
-                position: 1,
-                metadata: {},
-              },
-            ];
-      const grouped = this.questionsByCategory(sampleQuestions);
-      return {
-        success: true,
-        message: "success",
-        data: sortedCategories(grouped.keys()).map((category) => ({
-          [category]: (grouped.get(category) ?? []).map((question) => ({
-            QuestionId: question.legacyId ?? question.externalId ?? question.id,
-            Caption: question.caption,
-          })),
-        })),
-      };
-    }
+    this.requiresDemo(principal, context, "RD_Access");
     const respondents = await this.organizationRespondents(context);
     if (respondents.length < privacyThreshold) {
       return {
@@ -2000,30 +1702,7 @@ export class CompatibilityReportsService {
     version = "1",
   ) {
     const context = await this.context(principal, query);
-    const isDummy =
-      query.isDummy || this.requiresDemo(principal, context, "RD_Access");
-    if (isDummy) {
-      return {
-        success: true,
-        message: "success",
-        data: [
-          ["", "Operations", "Sales", "Technology"],
-          [
-            "Strongly Agree",
-            { percentile: "72%", respondentCount: 18 },
-            { percentile: "68%", respondentCount: 17 },
-            { percentile: "76%", respondentCount: 19 },
-          ],
-          [
-            "Agree",
-            { percentile: "20%", respondentCount: 5 },
-            { percentile: "24%", respondentCount: 6 },
-            { percentile: "20%", respondentCount: 5 },
-          ],
-          ["Question Total", "92%", "92%", "96%"],
-        ],
-      };
-    }
+    this.requiresDemo(principal, context, "RD_Access");
     const allQuestions = await this.prisma.question.findMany({
       where: { surveyId: context.survey.id },
       orderBy: { position: "asc" },
@@ -2127,29 +1806,18 @@ export class CompatibilityReportsService {
       undefined,
       "RD_Access",
     );
-    const sections: FeedbackWorkbookSection[] = isDemoUserReport(principal, query)
-      ? demoUserDetailedResults.map((section) => ({
-          title: section.title,
-          questions: section.questions.map((question) => ({
-            text: question.question,
-            agreement: question.agreement,
-            neutral: question.neutral,
-            disagreement: question.disagreement,
-          })),
-        }))
-      : this.feedbackSectionsFromBreakdown(breakdown);
+    const sections: FeedbackWorkbookSection[] =
+      this.feedbackSectionsFromBreakdown(breakdown);
     const demographics = await this.reportWorkbookDemographics(
       principal,
       query,
     );
-    const totalResponses = isDemoUserReport(principal, query)
-      ? 199
-      : Math.max(
-          0,
-          ...demographics.map((item) =>
-            item.options.reduce((total, option) => total + option.count, 0),
-          ),
-        );
+    const totalResponses = Math.max(
+      0,
+      ...demographics.map((item) =>
+        item.options.reduce((total, option) => total + option.count, 0),
+      ),
+    );
     return createResponseDetailWorkbook({
       metadata: await this.reportWorkbookMetadata(principal, query),
       demographics,
@@ -2159,41 +1827,8 @@ export class CompatibilityReportsService {
   }
 
   async demographicResponseCounts(principal: Principal, query: ReportQuery) {
-    if (isDemoUserReport(principal, query)) {
-      return demoUserDemographicResponse;
-    }
-
     const context = await this.context(principal, query);
-    const isDummy =
-      query.isDummy || this.requiresDemo(principal, context, "WFR_Access");
-    if (isDummy) {
-      return {
-        success: true,
-        message: "success",
-        data: [
-          {
-            QuestionId: "sample-demographic-department",
-            category: "Workplace Demographics",
-            categoryLabel: "Department",
-            options: [
-              { Caption: "Operations", Count: 12 },
-              { Caption: "Sales", Count: 9 },
-              { Caption: "Technology", Count: 14 },
-            ],
-          },
-          {
-            QuestionId: "sample-demographic-gender",
-            category: "Personal Demographics",
-            categoryLabel: "Gender",
-            options: [
-              { Caption: "Female", Count: 18 },
-              { Caption: "Male", Count: 15 },
-              { Caption: "Non-Binary", Count: 5 },
-            ],
-          },
-        ],
-      };
-    }
+    this.requiresDemo(principal, context, "WFR_Access");
     const respondents = await this.organizationRespondents(context);
     const questions = new Map<string, DetailedResponse["question"]>();
     const counts = new Map<string, Map<string, number>>();
@@ -2226,19 +1861,6 @@ export class CompatibilityReportsService {
   }
 
   async customReports(principal: Principal, query: ReportQuery) {
-    if (isDemoUserReport(principal, query)) {
-      return {
-        success: true,
-        message: "success",
-        data: [{
-          _id: "cohen-response-detail-2025",
-          ReportTitle: "Cohen & Steers - Response Detail Report",
-          ReportDescription: "RDR for Cohen & Steers, using employee survey data from the Best Places Money Management 2025 program.",
-          createAt: "2025-11-05T00:00:00.000Z",
-          reportFormats: [{ _id: "cohen-response-detail-xlsx", fileName: "Cohen_Steers_Response_Detail_2025.xlsx", filename: "Cohen_Steers_Response_Detail_2025.xlsx", fileUrl: "/v1/client/responseDetailReportExcel?selectedProgramId=demo-workplace-2025" }],
-        }],
-      };
-    }
     const context = await this.context(principal, query);
     const assets = await this.prisma.asset.findMany({
       where: { organizationId: context.organizationId },
@@ -2268,65 +1890,38 @@ export class CompatibilityReportsService {
   }
 
   async employerBenchmark(principal: Principal, query: ReportQuery) {
-    if (isDemoUserReport(principal, query)) {
-      const headers = ["All Winners", "Small Winners", "Medium Winners", "Large Winners", "Major Winners", "Super Winners"];
-      const rows: Array<[string, string, number[]]> = [
-        ["Does your organization coordinate “Fun” activities?", "Yes", [100, 100, 100, 100, 100, 100]],
-        ["Does your organization have a structured system for recognizing achievements, attendance, or safety goals?", "Yes", [86, 83, 80, 88, 89, 100]],
-        ["Does your organization formally recognize individual employee milestones?", "Yes", [97, 96, 100, 95, 100, 100]],
-        ["Do you have a strategy to recruit and retain a diverse workforce?", "Yes", [89, 91, 84, 91, 100, 80]],
-        ["Do you have a strategy specifically focused on recruiting and retaining Generation Z employees?", "Yes", [69, 57, 48, 79, 100, 80]],
-        ["Does your organization conduct preemployment screening?", "Yes", [96, 96, 92, 98, 100, 100]],
-        ["Which preemployment tools does your organization use?", "Credit history", [61, 32, 74, 63, 78, 80]],
-        ["Which preemployment tools does your organization use?", "Criminal background", [99, 95, 100, 100, 100, 100]],
-        ["Which preemployment tools does your organization use?", "Education verification", [88, 73, 87, 93, 100, 100]],
-        ["Which preemployment tools does your organization use?", "Professional reference", [84, 77, 91, 85, 89, 60]],
-      ];
-      return {
-        success: true,
-        message: "true",
-        data: {
-          tableHeaders: headers.map((title) => ({ title })),
-          tableData: [{
-            title: "Benefits & Best Practices",
-            nestedData: rows.map(([title, answer, dataValues], index) => ({ id: `cohen-practice-${index + 1}`, title, type: "%", nestedData: [{ title: answer, type: "%", dataValues }] })),
-          }],
-        },
-      };
-    }
     const context = await this.employerContext(principal, query);
-    const isDummy =
-      query.isDummy || this.requiresDemo(principal, context, "BBP_Access");
-    const groups = this.groups(context, isDummy);
-    if (isDummy) {
+    this.requiresDemo(principal, context, "BBP_Access");
+    const published = this.publishedBenefits(context);
+    if (published) {
       return {
         success: true,
         message: "true",
         data: {
-          tableHeaders: this.tableHeaders(groups),
-          tableData: [
-            {
-              title: "Benefits",
-              nestedData: [
-                {
-                  title: "Does your organization offer flexible scheduling?",
-                  type: "%",
-                  nestedData: [
-                    {
-                      title: "Yes",
-                      type: "%",
-                      dataValues: groups.map((group, index) =>
-                        this.dummyPercentage(group, index),
-                      ),
-                    },
-                  ],
-                },
-              ],
-            },
-          ],
+          tableHeaders: this.publishedHeaders(published.headers),
+          tableData: published.sections.map((section) => ({
+            title: section.title,
+            nestedData: section.questions.map((question, questionIndex) => ({
+              id: `${section.title}-${questionIndex + 1}`,
+              title: question.text,
+              type: question.responses.every(
+                ({ format }) => format === "percent",
+              )
+                ? "%"
+                : "number",
+              nestedData: question.responses.map((response) => ({
+                title: response.label,
+                type: response.format === "percent" ? "%" : "number",
+                dataValues: response.dataValues.map((value) =>
+                  this.publishedValue(value),
+                ),
+              })),
+            })),
+          })),
         },
       };
     }
+    const groups = this.groups(context);
     const questions = await this.employerQuestions(context.survey.id);
     const responses =
       questions.length === 0
@@ -2397,7 +1992,7 @@ export class CompatibilityReportsService {
 
   async winnersList(principal: Principal, query: ReportQuery) {
     const context = await this.context(principal, query);
-    return this.groups(context, false)
+    return this.groups(context)
       .filter((group) => !group.hidden)
       .map((group) => ({
         title:
@@ -2533,34 +2128,7 @@ export class CompatibilityReportsService {
 
   async keyImpactAnalysis(principal: Principal, query: ReportQuery) {
     const context = await this.context(principal, query);
-    const isDummy =
-      query.isDummy || this.requiresDemo(principal, context, "KIA_Access");
-    if (isDummy) {
-      return {
-        success: true,
-        message: "success",
-        data: {
-          data: { signedUrl: null },
-          report: [
-            {
-              label: "Communication",
-              key: "Clear communication from leadership",
-              value: 86,
-            },
-            {
-              label: "Recognition",
-              key: "Employees feel valued",
-              value: 78,
-            },
-            {
-              label: "Development",
-              key: "Opportunities to grow",
-              value: 72,
-            },
-          ],
-        },
-      };
-    }
+    this.requiresDemo(principal, context, "KIA_Access");
     const assets = await this.prisma.asset.findMany({
       where: { organizationId: context.organizationId },
       orderBy: { createdAt: "desc" },
@@ -2590,27 +2158,12 @@ export class CompatibilityReportsService {
   }
 
   async annualResponseRate(principal: Principal, query: ReportQuery) {
-    if (isDemoUserReport(principal, query)) {
-      return {
-        success: true,
-        message: "survey avg data",
-        data: [{ "2025": "83", "2024": "84" }],
-      };
-    }
     const { current, previous } = await this.annualContexts(principal, query);
-    const isDummy =
-      query.isDummy || this.requiresDemo(principal, current, "WFR_Access");
+    this.requiresDemo(principal, current, "WFR_Access");
     const currentYear = this.contextYear(current);
     const previousYear = previous
       ? this.contextYear(previous)
       : String(Number(currentYear) - 1);
-    if (isDummy) {
-      return {
-        success: true,
-        message: "survey avg data",
-        data: [{ [currentYear]: "78", [previousYear]: "74" }],
-      };
-    }
     if (!previous) {
       return { success: true, message: "survey avg data", data: null };
     }
@@ -2631,48 +2184,18 @@ export class CompatibilityReportsService {
   }
 
   async annualCategories(principal: Principal, query: ReportQuery) {
-    if (isDemoUserReport(principal, query)) {
-      return {
-        success: true,
-        data: demoUserAnnualCategoryResults.map(
-          ([category, current, previous]) => ({
-            category: { category },
-            "2025": {
-              data: demoTrendDistribution(current),
-              questionIds:
-                demoUserDetailedResults.find((item) => item.title === category)
-                  ?.questions.map((question) => question.id) ?? [],
-            },
-            ...(previous
-              ? {
-                  "2024": {
-                    data: demoTrendDistribution(previous),
-                    questionIds:
-                      demoUserDetailedResults.find(
-                        (item) => item.title === category,
-                      )?.questions.map((question) => question.id) ?? [],
-                  },
-                }
-              : {}),
-          }),
-        ),
-      };
-    }
     const { current, previous } = await this.annualContexts(principal, query);
-    const isDummy =
-      query.isDummy || this.requiresDemo(principal, current, "WFR_Access");
+    this.requiresDemo(principal, current, "WFR_Access");
     const currentYear = this.contextYear(current);
     const previousYear = previous
       ? this.contextYear(previous)
       : String(Number(currentYear) - 1);
-    if (!previous && !isDummy) {
+    if (!previous) {
       return { success: true, data: [] };
     }
     const [currentData, previousData] = await Promise.all([
-      this.annualCategorySnapshot(current, isDummy),
-      previous
-        ? this.annualCategorySnapshot(previous, isDummy)
-        : this.annualCategorySnapshot(current, true, 2),
+      this.annualCategorySnapshot(current),
+      this.annualCategorySnapshot(previous),
     ]);
     const categories = new Set([...currentData.keys(), ...previousData.keys()]);
     return {
@@ -2698,48 +2221,13 @@ export class CompatibilityReportsService {
     currentReferences: string[],
     previousReferences: string[],
   ) {
-    if (isDemoUserReport(principal, query)) {
-      const selected = demoUserDetailedResults.find(
-        (item) => item.title === category,
-      );
-      return {
-        success: true,
-        message: "success",
-        category,
-        data: (selected?.questions ?? []).map((question, index) => ({
-          question: question.question,
-          questionId: question.id,
-          "2025": {
-            question: question.question,
-            questionId: question.id,
-            responses: demoTrendDistribution([
-              question.agreement,
-              question.neutral,
-              question.disagreement,
-            ]),
-          },
-          ...(category === "Core Employee Experience"
-            ? {
-                "2024": {
-                  question: question.question,
-                  questionId: `2024-${question.id}`,
-                  responses: demoTrendDistribution(
-                    demoUserCorePreviousResults[index] ?? [0, 0, 0],
-                  ),
-                },
-              }
-            : {}),
-        })),
-      };
-    }
     const { current, previous } = await this.annualContexts(principal, query);
-    const isDummy =
-      query.isDummy || this.requiresDemo(principal, current, "WFR_Access");
+    this.requiresDemo(principal, current, "WFR_Access");
     const currentYear = this.contextYear(current);
     const previousYear = previous
       ? this.contextYear(previous)
       : String(Number(currentYear) - 1);
-    if (!previous && !isDummy) {
+    if (!previous) {
       return { success: true, message: "success", data: [], category };
     }
     const currentQuestions = this.selectCategoryQuestions(
@@ -2747,25 +2235,19 @@ export class CompatibilityReportsService {
       category,
       currentReferences,
     );
-    const previousQuestions = previous
-      ? this.selectCategoryQuestions(
-          await this.benchmarkQuestions(previous.survey.id),
-          category,
-          previousReferences,
-        )
-      : [];
+    const previousQuestions = this.selectCategoryQuestions(
+      await this.benchmarkQuestions(previous.survey.id),
+      category,
+      previousReferences,
+    );
     const previousByLabel = new Map(
       previousQuestions.map((question) => [question.dataLabel, question]),
     );
-    const [currentRespondents, previousRespondents] = isDummy
-      ? [[], []]
-      : await Promise.all([
-          this.organizationRespondents(current),
-          previous
-            ? this.organizationRespondents(previous)
-            : Promise.resolve([]),
-        ]);
-    const data = currentQuestions.map((question, index) => {
+    const [currentRespondents, previousRespondents] = await Promise.all([
+      this.organizationRespondents(current),
+      this.organizationRespondents(previous),
+    ]);
+    const data = currentQuestions.map((question) => {
       const previousQuestion = previousByLabel.get(question.dataLabel);
       return {
         question: question.caption,
@@ -2773,15 +2255,11 @@ export class CompatibilityReportsService {
         [currentYear]: {
           question: question.caption,
           questionId: question.legacyId ?? question.externalId ?? question.id,
-          responses: isDummy
-            ? this.sampleTrendDistribution(index)
-            : this.trendDistribution(
-                currentRespondents.flatMap(({ responses }) =>
-                  responses.filter(
-                    ({ questionId }) => questionId === question.id,
-                  ),
-                ),
-              ),
+          responses: this.trendDistribution(
+            currentRespondents.flatMap(({ responses }) =>
+              responses.filter(({ questionId }) => questionId === question.id),
+            ),
+          ),
         },
         ...(previousQuestion
           ? {
@@ -2791,27 +2269,16 @@ export class CompatibilityReportsService {
                   previousQuestion.legacyId ??
                   previousQuestion.externalId ??
                   previousQuestion.id,
-                responses: isDummy
-                  ? this.sampleTrendDistribution(index + 2)
-                  : this.trendDistribution(
-                      previousRespondents.flatMap(({ responses }) =>
-                        responses.filter(
-                          ({ questionId }) =>
-                            questionId === previousQuestion.id,
-                        ),
-                      ),
+                responses: this.trendDistribution(
+                  previousRespondents.flatMap(({ responses }) =>
+                    responses.filter(
+                      ({ questionId }) => questionId === previousQuestion.id,
                     ),
+                  ),
+                ),
               },
             }
-          : isDummy
-            ? {
-                [previousYear]: {
-                  question: question.caption,
-                  questionId: `sample-previous-${index + 1}`,
-                  responses: this.sampleTrendDistribution(index + 2),
-                },
-              }
-            : {}),
+          : {}),
       };
     });
     return { success: true, message: "success", data, category };
@@ -2848,7 +2315,9 @@ export class CompatibilityReportsService {
         section: category.category.category,
       };
       for (const year of years) {
-        const snapshot = (category as unknown as Record<string, unknown>)[year] as
+        const snapshot = (category as unknown as Record<string, unknown>)[
+          year
+        ] as
           | {
               data: ReturnType<
                 CompatibilityReportsService["trendDistribution"]
@@ -2870,45 +2339,8 @@ export class CompatibilityReportsService {
     query: ReportQuery,
     queryFilter?: Record<string, unknown>,
   ): Promise<Buffer> {
-    if (isDemoUserReport(principal, query)) {
-      const questions = [
-        "What are the top two or three reasons people like working for this organization? (2000 character limit)",
-        "What two or three things can this organization add or change to improve employee engagement and success? (2000 character limit)",
-      ];
-      const answers = [
-        ["The people, collaborative culture, and meaningful work.", "Supportive colleagues and managers.", "Strong benefits and flexibility."],
-        ["Improve communication between departments.", "Provide clearer career paths.", "Invest in modern tools and training."],
-      ];
-      return createVerbatimWorkbook({
-        metadata: await this.reportWorkbookMetadata(principal, query),
-        demographicTitle: "Department",
-        questions: questions.map((text, index) => ({
-          text,
-          responses: (answers[index] ?? []).map((answer) => ({
-            answer,
-            demographic: "All respondents",
-          })),
-        })),
-      });
-    }
     const context = await this.context(principal, query);
-    const isDummy =
-      query.isDummy || this.requiresDemo(principal, context, "EV_Access");
-    if (isDummy) {
-      return createVerbatimWorkbook({
-        metadata: await this.reportWorkbookMetadata(principal, query, context),
-        demographicTitle: "Department",
-        questions: [
-          {
-            text: "What do you value most?",
-            responses: [
-              { answer: "Supportive colleagues", demographic: "All respondents" },
-              { answer: "Flexible working arrangements", demographic: "All respondents" },
-            ],
-          },
-        ],
-      });
-    }
+    this.requiresDemo(principal, context, "EV_Access");
     const questions = await this.openQuestions(context.survey.id, queryFilter);
     const respondents = await this.prisma.respondent.findMany({
       where: {
@@ -2926,8 +2358,8 @@ export class CompatibilityReportsService {
     });
     return createVerbatimWorkbook({
       metadata: await this.reportWorkbookMetadata(principal, query, context),
-      demographicTitle: "Department",
-      questions: questions.slice(0, 2).map((question) => ({
+      demographicTitle: "All respondents",
+      questions: questions.map((question) => ({
         text: question.caption,
         responses: respondents.flatMap((respondent) => {
           const response = respondent.responses.find(
@@ -2935,7 +2367,12 @@ export class CompatibilityReportsService {
           );
           const answer = response ? responseCaption(response.value) : null;
           return answer
-            ? [{ answer: safeSpreadsheetValue(answer), demographic: "All respondents" }]
+            ? [
+                {
+                  answer: safeSpreadsheetValue(answer),
+                  demographic: "All respondents",
+                },
+              ]
             : [];
         }),
       })),
@@ -3043,7 +2480,7 @@ export class CompatibilityReportsService {
       | "RD_Access"
       | "BBP_Access"
       | "KIA_Access",
-  ): boolean {
+  ): false {
     if (principal.roles.includes("admin")) return false;
     const access = jsonObject(context.reportAccess);
     const aliases = {
@@ -3055,10 +2492,15 @@ export class CompatibilityReportsService {
       KIA_Access: "keyImpactAnalysis",
     } as const;
     const value = access[accessKey] ?? access[aliases[accessKey]];
-    return !(
+    const allowed =
       value === true ||
-      (typeof value === "string" && value.trim().toLowerCase() === "yes")
-    );
+      (typeof value === "string" && value.trim().toLowerCase() === "yes");
+    if (!allowed) {
+      throw new ForbiddenException(
+        "This program does not include access to the requested report",
+      );
+    }
+    return false;
   }
 
   private async benchmarkQuestions(
@@ -3138,18 +2580,7 @@ export class CompatibilityReportsService {
       : open;
   }
 
-  private groups(context: ReportContext, isDummy: boolean): BenchmarkGroup[] {
-    if (isDummy) {
-      return ["All", "Small"].flatMap((size) =>
-        (["Yes", "No"] as const).map((winner) => ({
-          key: `${size}${winner}`,
-          size,
-          winner,
-          organizationIds: [],
-          hidden: false,
-        })),
-      );
-    }
+  private groups(context: ReportContext): BenchmarkGroup[] {
     const categorized = context.organizationPrograms.flatMap((enrollment) => {
       const winner =
         metadataString(
@@ -3566,11 +2997,7 @@ export class CompatibilityReportsService {
     );
   }
 
-  private async annualCategorySnapshot(
-    context: ReportContext,
-    isDummy: boolean,
-    dummyOffset = 0,
-  ): Promise<
+  private async annualCategorySnapshot(context: ReportContext): Promise<
     Map<
       string,
       {
@@ -3581,11 +3008,9 @@ export class CompatibilityReportsService {
   > {
     const questions = await this.benchmarkQuestions(context.survey.id);
     const grouped = this.questionsByCategory(questions);
-    const respondents = isDummy
-      ? []
-      : await this.organizationRespondents(context);
+    const respondents = await this.organizationRespondents(context);
     return new Map(
-      sortedCategories(grouped.keys()).map((category, index) => {
+      sortedCategories(grouped.keys()).map((category) => {
         const categoryQuestions = grouped.get(category) ?? [];
         const responses = respondents.flatMap(({ responses: items }) =>
           items.filter((response) =>
@@ -3595,9 +3020,7 @@ export class CompatibilityReportsService {
         return [
           category,
           {
-            data: isDummy
-              ? this.sampleTrendDistribution(index + dummyOffset)
-              : this.trendDistribution(responses),
+            data: this.trendDistribution(responses),
             questionIds: categoryQuestions.map(
               (question) =>
                 question.legacyId ?? question.externalId ?? question.id,
@@ -3658,45 +3081,8 @@ export class CompatibilityReportsService {
     return this.trendDistribution([]);
   }
 
-  private sampleTrendDistribution(offset: number) {
-    const agree = 76 - (offset % 5);
-    const neutral = 14 + (offset % 3);
-    const disagree = 100 - agree - neutral;
-    return [
-      {
-        ResponseCaption: "Agree" as const,
-        numberOfResponses: agree,
-        percent: agree / 100,
-        percentage: agree,
-        colorCode: responseColor("Agree"),
-      },
-      {
-        ResponseCaption: "Neutral" as const,
-        numberOfResponses: neutral,
-        percent: neutral / 100,
-        percentage: neutral,
-        colorCode: responseColor("Neutral"),
-      },
-      {
-        ResponseCaption: "Disagree" as const,
-        numberOfResponses: disagree,
-        percent: disagree / 100,
-        percentage: disagree,
-        colorCode: responseColor("Disagree"),
-      },
-    ];
-  }
-
   private sectionDistribution(responses: DetailedResponse[]) {
     return this.trendDistribution(responses).map((item) =>
-      item.ResponseCaption === "Agree"
-        ? { ...item, percentOfAgreement: item.percent }
-        : item,
-    );
-  }
-
-  private sampleSectionDistribution(offset: number) {
-    return this.sampleTrendDistribution(offset).map((item) =>
       item.ResponseCaption === "Agree"
         ? { ...item, percentOfAgreement: item.percent }
         : item,
@@ -3788,45 +3174,6 @@ export class CompatibilityReportsService {
       }));
   }
 
-  private sampleDistribution(offset: number) {
-    const strongAgree = 7 + (offset % 3);
-    const agree = 9 - (offset % 2);
-    const neutral = 4;
-    const disagree = 3;
-    const strongDisagree = 25 - strongAgree - agree - neutral - disagree;
-    return [
-      ["Strongly Agree", strongAgree],
-      ["Agree", agree],
-      ["Neither Agree nor Disagree", neutral],
-      ["Disagree", disagree],
-      ["Strongly Disagree", strongDisagree],
-    ].map(([caption, count]) => ({
-      ResponseCaption: String(caption),
-      numberOfResponses: Number(count),
-      percent: Number(count) * 4,
-      colorCode: responseColor(String(caption)),
-    }));
-  }
-
-  private demoResponseBreakdown(questionRange: string[]) {
-    return {
-      success: true as const,
-      message: "success" as const,
-      isConfidential: false,
-      data: questionRange.map((questionId) => {
-        const question = demoUserQuestionById.get(questionId);
-        const values = question
-          ? [question.agreement, question.neutral, question.disagreement]
-          : [0, 0, 0];
-        return {
-          question: question?.question ?? `Question ${questionId}`,
-          questionId,
-          responses: demoTrendDistribution(values as [number, number, number]),
-        };
-      }),
-    };
-  }
-
   private positivePercentage(responses: DetailedResponse[]): number {
     let positive = 0;
     let denominator = 0;
@@ -3871,19 +3218,6 @@ export class CompatibilityReportsService {
     return null;
   }
 
-  private sampleOpenAnswer(id: string, value: string) {
-    return {
-      _id: id,
-      RespondentId: id,
-      responses: {
-        QuestionId: "sample-open-1",
-        DataLabel: "OpenEnded_Sample1",
-        Value: value,
-        ResponseCaption: " ",
-      },
-    };
-  }
-
   private styleWorkbook(worksheet: ExcelJS.Worksheet): void {
     worksheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
     worksheet.getRow(1).fill = {
@@ -3898,9 +3232,7 @@ export class CompatibilityReportsService {
     responses: AgreementResponse[],
     questionIds: string[],
     organizationIds: string[],
-    dummyValue?: number,
   ): number {
-    if (dummyValue !== undefined) return dummyValue;
     if (questionIds.length === 0 || organizationIds.length === 0) return 0;
     const questionSet = new Set(questionIds);
     const organizationSet = new Set(organizationIds);
@@ -3939,12 +3271,76 @@ export class CompatibilityReportsService {
   ): Map<string, BenchmarkQuestion[]> {
     const result = new Map<string, BenchmarkQuestion[]>();
     for (const question of questions) {
-      const category = categoryFromDataLabel(question.dataLabel);
+      const category =
+        metadataString(question.metadata, "categoryLabel") ??
+        categoryFromDataLabel(question.dataLabel);
       const existing = result.get(category) ?? [];
       existing.push(question);
       result.set(category, existing);
     }
     return result;
+  }
+
+  private publishedWorkforce(
+    context: ReportContext,
+  ): PublishedWorkforceSnapshot | null {
+    const published = jsonObject(context.program.metadata).publishedReports;
+    if (
+      published === null ||
+      typeof published !== "object" ||
+      Array.isArray(published)
+    ) {
+      return null;
+    }
+    const snapshot = published.workforceBenchmark;
+    if (
+      snapshot === null ||
+      typeof snapshot !== "object" ||
+      Array.isArray(snapshot)
+    ) {
+      return null;
+    }
+    const candidate = snapshot as unknown as PublishedWorkforceSnapshot;
+    return Array.isArray(candidate.headers) &&
+      Array.isArray(candidate.categories)
+      ? candidate
+      : null;
+  }
+
+  private publishedBenefits(
+    context: ReportContext,
+  ): PublishedBenefitsSnapshot | null {
+    const published = jsonObject(context.program.metadata).publishedReports;
+    if (
+      published === null ||
+      typeof published !== "object" ||
+      Array.isArray(published)
+    ) {
+      return null;
+    }
+    const snapshot = published.benefitsBestPractices;
+    if (
+      snapshot === null ||
+      typeof snapshot !== "object" ||
+      Array.isArray(snapshot)
+    ) {
+      return null;
+    }
+    const candidate = snapshot as unknown as PublishedBenefitsSnapshot;
+    return Array.isArray(candidate.headers) && Array.isArray(candidate.sections)
+      ? candidate
+      : null;
+  }
+
+  private publishedHeaders(headers: PublishedReportHeader[]) {
+    return headers.map((header) => ({
+      ...header,
+      color: headerColors[header.type.endsWith("_No") ? "No" : "Yes"],
+    }));
+  }
+
+  private publishedValue(value: number | string): number | string {
+    return typeof value === "number" ? Math.round(value) : value;
   }
 
   private tableHeaders(
@@ -3964,10 +3360,9 @@ export class CompatibilityReportsService {
     groups: BenchmarkGroup[],
     questions: BenchmarkQuestion[],
     responses: AgreementResponse[],
-    isDummy: boolean,
   ): Array<Record<string, unknown>> {
     const sizes = [...new Set(groups.map(({ size }) => size))];
-    return sizes.map((size, sizeIndex) => {
+    return sizes.map((size) => {
       const result: Record<string, unknown> = {
         title: size === "All" ? "All Size Categories" : `${size} Employers`,
         subTitle: "Survey Average",
@@ -3985,17 +3380,11 @@ export class CompatibilityReportsService {
                   responses,
                   questions.map(({ id }) => id),
                   group.organizationIds,
-                  isDummy ? this.dummyPercentage(group, sizeIndex) : undefined,
                 ),
         };
       }
       return result;
     });
-  }
-
-  private dummyPercentage(group: BenchmarkGroup, offset: number): number {
-    const base = group.winner === "Yes" ? 78 : 63;
-    return base - (offset % 7);
   }
 }
 
@@ -4407,25 +3796,31 @@ export class CompatibilityReportsController {
     const responsePatterns = ranges
       ? [
           ...(ranges.positive
-            ? [{
-                metric: "agreement" as const,
-                minimum: ranges.positive[0],
-                maximum: ranges.positive[1],
-              }]
+            ? [
+                {
+                  metric: "agreement" as const,
+                  minimum: ranges.positive[0],
+                  maximum: ranges.positive[1],
+                },
+              ]
             : []),
           ...(ranges.neutral
-            ? [{
-                metric: "agreement" as const,
-                minimum: ranges.neutral[0],
-                maximum: ranges.neutral[1],
-              }]
+            ? [
+                {
+                  metric: "agreement" as const,
+                  minimum: ranges.neutral[0],
+                  maximum: ranges.neutral[1],
+                },
+              ]
             : []),
           ...(ranges.negative
-            ? [{
-                metric: "disagreement" as const,
-                minimum: ranges.negative[0],
-                maximum: ranges.negative[1],
-              }]
+            ? [
+                {
+                  metric: "disagreement" as const,
+                  minimum: ranges.negative[0],
+                  maximum: ranges.negative[1],
+                },
+              ]
             : []),
         ]
       : undefined;
@@ -4433,9 +3828,7 @@ export class CompatibilityReportsController {
       principal,
       reportQuery,
       false,
-      responsePatterns
-        ? { ...parsedFilter, responsePatterns }
-        : parsedFilter,
+      responsePatterns ? { ...parsedFilter, responsePatterns } : parsedFilter,
       ranges,
     );
     this.sendWorkbook(reply, workbook, "Employee_Feedback_Heatmap.xlsx");
@@ -4549,7 +3942,8 @@ export class CompatibilityReportsController {
   @Get("responseDetailReportExcel")
   async responseDetailWorkbook(
     @CurrentUser() principal: Principal,
-    @Query("selectedProgramId") selectedProgramId: string | string[] | undefined,
+    @Query("selectedProgramId")
+    selectedProgramId: string | string[] | undefined,
     @Query("organizationId") organizationId: string | string[] | undefined,
     @Query("isDummy") isDummy: string | string[] | undefined,
     @Res() reply: FastifyReply,
@@ -4878,6 +4272,11 @@ export class CompatibilityReportsController {
     if (dummy !== undefined && dummy !== "true" && dummy !== "false") {
       throw new BadRequestException("isDummy must be true or false");
     }
+    if (dummy === "true") {
+      throw new BadRequestException(
+        "Preview data must be loaded into PostgreSQL before it can be requested",
+      );
+    }
     const selectedOrganizationId = scalarQuery(
       "organizationId",
       organizationId,
@@ -4895,7 +4294,7 @@ export class CompatibilityReportsController {
       ...(selectedOrganizationId
         ? { organizationId: selectedOrganizationId }
         : {}),
-      isDummy: dummy === "true",
+      isDummy: false,
     };
   }
 }

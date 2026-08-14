@@ -15,16 +15,55 @@ Point `REACT_APP_API_ENDPOINT` at this service the same way you pointed it at `w
 
 1. Copy `.env.example` to `.env` and set the local service credentials.
 2. `docker compose up -d` (Postgres, Redis, MinIO).
-3. `npm run db:deploy && npm run db:seed`.
+3. `npm run db:deploy && npm run db:seed` (roles and permissions only).
 4. `npm run start:dev`.
+
+### Baton Rouge XLSX-backed local data
+
+The Baton Rouge Medallia exports and published report workbooks can be loaded
+into PostgreSQL as deterministic, anonymized local data. Report endpoints never
+substitute in-code examples: all rendered values come from these imported rows
+and program snapshots. Email addresses, passcodes, IP/location fields, direct
+organization identities, and free text are not exposed to the test user.
+
+With the repository's `Baton Rouge 24-26.zip` in the parent directory:
+
+```sh
+npm run db:seed:baton-rouge -- --source "../Baton Rouge 24-26.zip"
+```
+
+To validate the files without connecting to PostgreSQL:
+
+```sh
+npm run db:seed:baton-rouge -- --source "../Baton Rouge 24-26.zip" --dry-run
+```
+
+The Docker Compose one-shot service applies migrations and imports the same file:
+
+```sh
+docker compose --profile baton-rouge run --rm seed-baton-rouge
+```
+
+Use `--report-source <directory>` or `BR_REPORT_SOURCE` when the published
+workbooks are not beside the raw ZIP. Every non-dry run automatically reconciles
+survey/question/response totals, round-trips the published XLSX snapshots, and
+asserts that the report user has exactly one program grant.
+
+The command is idempotent: each run replaces only records in the `seed-br`
+namespace, leaving ordinary application data untouched. The ZIP can instead be
+an extracted directory when passed via `--source` or `BR_SEED_SOURCE`.
+
+The seed creates a client user with access only to the latest Baton Rouge program:
+
+- Username: `test.baton`
+- Email: `test.baton@example.test`
 
 - Nest API: `http://localhost:3000/api/v1` (Swagger at `/docs`)
 - Frontend-compatible routes: `http://localhost:3000/user/login`, `/client/...`, etc.
-- Seed Nest account: `admin@example.test` / `ChangeMe123!` (local-only)
 
 ## Safety
 
-- Integration calls for Nest modules are mocked while `INTEGRATIONS_MOCK=true`.
+- Integration reads return no fabricated provider records while `INTEGRATIONS_MOCK=true`.
 - ETL only reads MongoDB unless both `ETL_ALLOW_WRITE=true` and `--apply` are supplied.
 - No production credentials belong in this repository.
 - To provision the first production administrator, set `ADMIN_USERNAME` (a valid

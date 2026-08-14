@@ -83,10 +83,10 @@ class CreateUserDto {
   @MinLength(8)
   password?: string;
 
-  @ApiPropertyOptional({ type: String })
-  @IsOptional()
+  @ApiProperty({ type: String, example: "example.person" })
   @IsString()
-  username?: string;
+  @MinLength(1)
+  username!: string;
 
   @ApiPropertyOptional({ type: String })
   @IsOptional()
@@ -358,11 +358,14 @@ export class ClientLoginService {
 
     const primaryProject =
       user.organizationProgram?.project ?? user.projects[0]?.project;
-    const organizationPrograms =
-      await this.prisma.organizationProgram.findMany({
+    const organizationPrograms = await this.prisma.organizationProgram.findMany(
+      {
         where: {
           organizationId: user.organization.id,
           ...(primaryProject ? { projectId: primaryProject.id } : {}),
+          programId: {
+            in: user.programs.map(({ program }) => program.id),
+          },
         },
         orderBy: [{ program: { year: "asc" } }, { program: { name: "asc" } }],
         select: {
@@ -387,7 +390,8 @@ export class ClientLoginService {
             },
           },
         },
-      });
+      },
+    );
 
     const salesUser = primaryProject
       ? await this.prisma.user.findFirst({
@@ -487,7 +491,7 @@ export class ClientLoginService {
       fullName: user.fullName,
       mobile: typeof metadata.mobile === "string" ? metadata.mobile : null,
       role: role?.key ?? "client",
-      roleId: role ? role.legacyId ?? role.id : null,
+      roleId: role ? (role.legacyId ?? role.id) : null,
       isActive: true,
       organizationId: {
         _id: user.organization.legacyId ?? user.organization.id,
@@ -500,7 +504,7 @@ export class ClientLoginService {
       projects: user.projects.map(({ project }) => projectData(project)),
       programs: user.programs.map(({ program }) => programData(program)),
       organizationprogramId: user.organizationProgram
-        ? user.organizationProgram.legacyId ?? user.organizationProgram.id
+        ? (user.organizationProgram.legacyId ?? user.organizationProgram.id)
         : user.organizationProgramId,
       dealId: user.organizationProgram?.dealExternalId ?? null,
       organizationProgram: organizationPrograms.map((item) => ({
@@ -545,7 +549,9 @@ export class UserInvitationMailer {
       !this.config.get("SENDGRID_KEY", { infer: true }) ||
       !this.config.get("SENDGRID_DOMAIN", { infer: true })
     ) {
-      throw new ServiceUnavailableException("User invitation email is not configured");
+      throw new ServiceUnavailableException(
+        "User invitation email is not configured",
+      );
     }
   }
 
@@ -562,7 +568,9 @@ export class UserInvitationMailer {
     const apiKey = this.config.get("SENDGRID_KEY", { infer: true });
     const sender = this.config.get("SENDGRID_DOMAIN", { infer: true });
     if (!apiKey || !sender) {
-      throw new ServiceUnavailableException("User invitation email is not configured");
+      throw new ServiceUnavailableException(
+        "User invitation email is not configured",
+      );
     }
     sendGrid.setApiKey(apiKey);
     await sendGrid.send({
@@ -584,10 +592,17 @@ export class UsersService {
   async create(dto: CreateUserDto): Promise<CreateUserResponse> {
     const email = dto.email.trim().toLowerCase();
     const fullName = dto.fullName.trim();
+    const username = dto.username.trim();
     if (!fullName) throw new BadRequestException("Full name is required");
+    if (!username) throw new BadRequestException("Username is required");
     this.mailer.assertConfigured();
 
-    if (await this.prisma.user.findUnique({ where: { email }, select: { id: true } })) {
+    if (
+      await this.prisma.user.findUnique({
+        where: { email },
+        select: { id: true },
+      })
+    ) {
       throw new ConflictException("User already exists");
     }
 
@@ -618,9 +633,7 @@ export class UsersService {
         : await this.prisma.project.findMany({
             where: {
               OR: projectReferences.map((reference) =>
-                isUuid(reference)
-                  ? { id: reference }
-                  : { legacyId: reference },
+                isUuid(reference) ? { id: reference } : { legacyId: reference },
               ),
             },
             select: { id: true, name: true },
@@ -631,7 +644,6 @@ export class UsersService {
 
     const password = dto.password ?? randomBytes(18).toString("base64url");
     const mfa = dto.mfa ?? "email";
-    const normalizedUsername = dto.username?.trim();
     const metadata: Prisma.InputJsonObject = {
       ...(dto.mobile ? { mobile: dto.mobile } : {}),
       mfa,
@@ -641,16 +653,13 @@ export class UsersService {
       const created = await this.prisma.user.create({
         data: {
           email,
-          username:
-            normalizedUsername === "" ? null : normalizedUsername ?? null,
+          username,
           fullName,
           passwordHash: await hash(password),
           status: "INVITED",
           mfaEnabled: false,
           metadata,
-          ...(role
-            ? { roles: { create: [{ roleId: role.id }] } }
-            : {}),
+          ...(role ? { roles: { create: [{ roleId: role.id }] } } : {}),
           ...(projects.length > 0
             ? {
                 projects: {
@@ -752,8 +761,8 @@ export class UsersService {
     if (dto.roleId !== undefined && !role) {
       throw new NotFoundException("Role not found");
     }
-    const currentAdminRole = target.roles.find(({ role: current }) =>
-      current.key === "admin",
+    const currentAdminRole = target.roles.find(
+      ({ role: current }) => current.key === "admin",
     )?.role;
     if (
       role &&
@@ -805,7 +814,7 @@ export class UsersService {
                 username:
                   normalizedUsername === ""
                     ? null
-                    : normalizedUsername ?? null,
+                    : (normalizedUsername ?? null),
               }
             : {}),
           ...(dto.mobile !== undefined || dto.mfa !== undefined
@@ -906,7 +915,9 @@ export class UsersService {
       (selectedFields.length === 0 ||
         selectedFields.some((field) => !listUserFields.has(field)))
     ) {
-      throw new BadRequestException("Select contains an unsupported user field");
+      throw new BadRequestException(
+        "Select contains an unsupported user field",
+      );
     }
 
     const users = await this.prisma.user.findMany({
@@ -961,11 +972,10 @@ export class UsersService {
           id: user.id,
           fullName: user.fullName,
           email: user.email,
-          mobile:
-            typeof metadata.mobile === "string" ? metadata.mobile : null,
+          mobile: typeof metadata.mobile === "string" ? metadata.mobile : null,
           username: user.username,
           role: role?.key ?? null,
-          roleId: role ? role.legacyId ?? role.id : null,
+          roleId: role ? (role.legacyId ?? role.id) : null,
           projects:
             expand === "projects"
               ? user.projects.map(({ project }) => ({
@@ -1025,7 +1035,8 @@ export class UsersService {
 @Controller({ path: "user", version: VERSION_NEUTRAL })
 export class ClientLoginController {
   constructor(
-    @Inject(ClientLoginService) private readonly clientLogin: ClientLoginService,
+    @Inject(ClientLoginService)
+    private readonly clientLogin: ClientLoginService,
   ) {}
 
   @Post("login")
@@ -1044,15 +1055,15 @@ export class ClientLoginController {
 @ApiBearerAuth()
 @Controller({ path: "user", version: VERSION_NEUTRAL })
 export class UsersController {
-  constructor(
-    @Inject(UsersService) private readonly users: UsersService,
-  ) {}
+  constructor(@Inject(UsersService) private readonly users: UsersService) {}
 
   @Post("create")
   @HttpCode(200)
   @UseGuards(JwtAuthGuard, AdminRoleGuard)
   @ApiOkResponse({ description: "The user was created and invited." })
-  create(@BodyDto(CreateUserDto) body: CreateUserDto): Promise<CreateUserResponse> {
+  create(
+    @BodyDto(CreateUserDto) body: CreateUserDto,
+  ): Promise<CreateUserResponse> {
     return this.users.create(body);
   }
 

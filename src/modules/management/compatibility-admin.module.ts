@@ -639,52 +639,67 @@ export class CompatibilityAdminService {
     return {
       success: true,
       message: "success",
-      data: organizations.map((organization) => ({
-        ...jsonObject(organization.metadata),
-        _id: organization.legacyId ?? organization.id,
-        id: organization.externalId ?? organization.id,
-        Account_Name: organization.name,
-        stripeCustomerId: organization.stripeCustomerId,
-        createAt: organization.createdAt,
-        orgPrograms: organization.programs.map((enrollment) => ({
-          orgs: {
-            ...jsonObject(enrollment.metrics),
-            ...jsonObject(enrollment.reportAccess),
-            ...jsonObject(enrollment.paymentDetails),
-            Stage: enrollment.stage,
-            Created_Time: enrollment.createdAt,
-            Last_time_deal_synced: enrollment.updatedAt,
-            _id: enrollment.legacyId ?? enrollment.id,
-            id: enrollment.externalId ?? enrollment.id,
-            DealId: enrollment.dealExternalId,
-            organizationId:
-              organization.legacyId ??
-              organization.externalId ??
-              organization.id,
-            projectId:
-              enrollment.project.legacyId ??
-              enrollment.project.externalId ??
-              enrollment.project.id,
-            programId: [
-              {
-                ...jsonObject(enrollment.program.metadata),
-                _id:
-                  enrollment.program.legacyId ??
-                  enrollment.program.externalId ??
-                  enrollment.program.id,
-                id: enrollment.program.externalId ?? enrollment.program.id,
-                Name: enrollment.program.name,
-                Currency: enrollment.program.currency,
-              },
-            ],
-          },
-        })),
-        users: organization.users.map((user) => ({
-          ...user,
-          _id: user.legacyId ?? user.id,
-          id: user.externalId ?? user.id,
-        })),
-      })),
+      data: organizations.map((organization) => {
+        const metadata = jsonObject(organization.metadata);
+        const selectedEnrollment = organization.programs[0];
+        const selectedMetrics = selectedEnrollment
+          ? jsonObject(selectedEnrollment.metrics)
+          : {};
+        return {
+          ...metadata,
+          _id: organization.legacyId ?? organization.id,
+          id: organization.externalId ?? organization.id,
+          sourceOrganizationId:
+            selectedMetrics.Source_Organization_ID ??
+            metadata.sourceOrganizationId ??
+            null,
+          sourceOrganizationName:
+            selectedMetrics.Source_Organization_Name ??
+            metadata.sourceOrganizationName ??
+            null,
+          Account_Name: organization.name,
+          stripeCustomerId: organization.stripeCustomerId,
+          createAt: organization.createdAt,
+          orgPrograms: organization.programs.map((enrollment) => ({
+            orgs: {
+              ...jsonObject(enrollment.metrics),
+              ...jsonObject(enrollment.reportAccess),
+              ...jsonObject(enrollment.paymentDetails),
+              Stage: enrollment.stage,
+              Created_Time: enrollment.createdAt,
+              Last_time_deal_synced: enrollment.updatedAt,
+              _id: enrollment.legacyId ?? enrollment.id,
+              id: enrollment.externalId ?? enrollment.id,
+              DealId: enrollment.dealExternalId,
+              organizationId:
+                organization.legacyId ??
+                organization.externalId ??
+                organization.id,
+              projectId:
+                enrollment.project.legacyId ??
+                enrollment.project.externalId ??
+                enrollment.project.id,
+              programId: [
+                {
+                  ...jsonObject(enrollment.program.metadata),
+                  _id:
+                    enrollment.program.legacyId ??
+                    enrollment.program.externalId ??
+                    enrollment.program.id,
+                  id: enrollment.program.externalId ?? enrollment.program.id,
+                  Name: enrollment.program.name,
+                  Currency: enrollment.program.currency,
+                },
+              ],
+            },
+          })),
+          users: organization.users.map((user) => ({
+            ...user,
+            _id: user.legacyId ?? user.id,
+            id: user.externalId ?? user.id,
+          })),
+        };
+      }),
     };
   }
 
