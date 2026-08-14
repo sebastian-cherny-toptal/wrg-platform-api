@@ -23,6 +23,7 @@ const responseBatchSize = 2_000;
 const testUsername = "test.baton";
 const testUserEmail = "test.baton@example.test";
 const testUserPassword = "BatonRouge123!";
+const targetOrganizationName = "Commerce Title & Abstract Company";
 
 type SurveyKind = "EA" | "EFS";
 
@@ -922,11 +923,15 @@ async function seedSurvey(
         ) ?? 0;
       return;
     }
-    respondentCount += 1;
     const sourceOrganizationNameValue = firstNonEmptyCell(
       row,
       organizationColumns,
     );
+    const sourceOrganizationName = sourceOrganizationValue(
+      sourceOrganizationNameValue,
+    );
+    if (sourceOrganizationName !== targetOrganizationName) return;
+    respondentCount += 1;
     const sourceOrganizationIdValue = firstNonEmptyCell(
       row,
       organizationIdColumns,
@@ -943,14 +948,8 @@ async function seedSurvey(
       const sourceOrganizationId = sourceOrganizationValue(
         sourceOrganizationIdValue,
       );
-      const sourceOrganizationName = sourceOrganizationValue(
-        sourceOrganizationNameValue,
-      );
       if (sourceOrganizationId) {
         existing.sourceOrganizationId = sourceOrganizationId;
-      }
-      if (sourceOrganizationName) {
-        existing.sourceOrganizationName = sourceOrganizationName;
       }
     }
     existing.count += 1;
@@ -963,6 +962,11 @@ async function seedSurvey(
   if (!organizationColumns.some(Boolean) || !respondentColumn) {
     throw new Error(
       `${source.fileName}: required respondent/organization columns are missing`,
+    );
+  }
+  if (organizationRows.size === 0) {
+    throw new Error(
+      `${source.fileName}: no rows found for organization "${targetOrganizationName}"`,
     );
   }
 
@@ -1152,6 +1156,10 @@ async function seedSurvey(
       row,
       organizationColumns,
     );
+    const sourceOrganizationName = sourceOrganizationValue(
+      sourceOrganizationNameValue,
+    );
+    if (sourceOrganizationName !== targetOrganizationName) return;
     const organization = sourceOrganization(
       organizationKey(
         sourceOrganizationNameValue,
@@ -1159,7 +1167,7 @@ async function seedSurvey(
         row.number,
         firstNonEmptyCell(row, organizationIdColumns),
       ),
-      sourceOrganizationValue(sourceOrganizationNameValue),
+      sourceOrganizationName,
     );
     const sourceRespondent = cellScalar(row.getCell(respondentColumn).value);
     const respondentToken = digest(
