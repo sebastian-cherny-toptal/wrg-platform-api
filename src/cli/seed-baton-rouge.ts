@@ -25,6 +25,12 @@ const testUserEmail = "test.baton@example.test";
 const testUserPassword = "BatonRouge123!";
 const targetOrganizationName = "Commerce Title & Abstract Company";
 const sanitizedTargetOrganizationName = "Synthetic 06f796de0c9331b9";
+const standardOpenQuestionCaptions: Record<string, string> = {
+  q_OpenEnded_1:
+    "What are the top two or three reasons people like working for this organization?",
+  q_OpenEnded_2:
+    "What two or three things can this organization add or change to improve employee engagement and success?",
+};
 
 type SurveyKind = "EA" | "EFS";
 
@@ -411,9 +417,7 @@ function loadSourceWorkbooks(source: string): LoadedSources {
 }
 
 function digest(value: string, length = 16): string {
-  console.log("digest", value, length);
-  return value;
-  // return createHash("sha256").update(value).digest("hex").slice(0, length);
+  return createHash("sha256").update(value).digest("hex").slice(0, length);
 }
 
 function deterministicUuid(value: string): string {
@@ -555,6 +559,9 @@ function sanitizedResponse(
     return `Synthetic date ${digest(question.dataLabel, 8)}`;
   const trimmed = scalar.trim();
   if (!trimmed) return null;
+  if (Object.hasOwn(standardOpenQuestionCaptions, question.dataLabel)) {
+    return trimmed;
+  }
   if (/^-?\d+(?:\.\d+)?$/u.test(trimmed)) return Number(trimmed);
   if (/^(?:yes|no|n\/a|not applicable|true|false)$/iu.test(trimmed)) {
     return trimmed.toLowerCase();
@@ -652,7 +659,8 @@ function questionsForHeaders(
     questions.push({
       column,
       dataLabel,
-      caption: humanizeDataLabel(dataLabel),
+      caption:
+        standardOpenQuestionCaptions[dataLabel] ?? humanizeDataLabel(dataLabel),
       ...(filterLabel ? { filterLabel } : {}),
       id: deterministicUuid(`${surveyId}:question:${dataLabel}`),
       type: questionType(dataLabel),
