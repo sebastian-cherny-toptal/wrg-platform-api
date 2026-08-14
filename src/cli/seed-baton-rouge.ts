@@ -42,6 +42,7 @@ interface LoadedSources {
 interface CliOptions {
   dryRun: boolean;
   reportSource: string;
+  skipIfPresent: boolean;
   source: string;
 }
 
@@ -125,6 +126,7 @@ function parseOptions(argv: string[]): CliOptions {
     ? resolve(process.env.BR_SEED_SOURCE)
     : defaultSource;
   let dryRun = false;
+  let skipIfPresent = false;
   let reportSource = process.env.BR_REPORT_SOURCE
     ? resolve(process.env.BR_REPORT_SOURCE)
     : dirname(source);
@@ -132,6 +134,10 @@ function parseOptions(argv: string[]): CliOptions {
     const argument = argv[index];
     if (argument === "--dry-run") {
       dryRun = true;
+      continue;
+    }
+    if (argument === "--skip-if-present") {
+      skipIfPresent = true;
       continue;
     }
     if (argument === "--source") {
@@ -151,7 +157,7 @@ function parseOptions(argv: string[]): CliOptions {
     }
     throw new Error(`Unknown argument: ${argument}`);
   }
-  return { dryRun, reportSource, source };
+  return { dryRun, reportSource, skipIfPresent, source };
 }
 
 function titleCase(value: string): string {
@@ -1222,6 +1228,28 @@ async function seedSurvey(
 
 async function main(): Promise<void> {
   const options = parseOptions(process.argv.slice(2));
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!options.dryRun && !databaseUrl) {
+    throw new Error("DATABASE_URL is required");
+  }
+  if (options.skipIfPresent && !options.dryRun && databaseUrl) {
+    const inspectionClient = new PrismaClient({
+      adapter: new PrismaPg({ connectionString: databaseUrl }),
+    });
+    try {
+      const existingProgramCount = await inspectionClient.program.count({
+        where: { externalId: { startsWith: `${seedPrefix}-program-` } },
+      });
+      if (existingProgramCount > 0) {
+        console.log(
+          `Skipping Baton Rouge seed: found ${existingProgramCount} existing fixture program(s).`,
+        );
+        return;
+      }
+    } finally {
+      await inspectionClient.$disconnect();
+    }
+  }
   const loadedSources = loadSourceWorkbooks(options.source);
   const sources = loadedSources.workbooks;
   const reportYears = [...new Set(sources.map(({ year }) => year))];
@@ -1241,11 +1269,6 @@ async function main(): Promise<void> {
   console.log(`Published report source: ${reportSource}`);
   console.log(`Found ${sources.length} raw workbooks: ${actual.join(", ")}`);
 
-  const databaseUrl = process.env.DATABASE_URL;
-  if (!options.dryRun && !databaseUrl) {
-    loadedSources.cleanup();
-    throw new Error("DATABASE_URL is required");
-  }
   const prisma =
     options.dryRun || !databaseUrl
       ? null

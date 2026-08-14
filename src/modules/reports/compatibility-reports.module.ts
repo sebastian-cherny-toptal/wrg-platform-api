@@ -2919,11 +2919,13 @@ export class CompatibilityReportsService {
         externalId: true,
         metadata: true,
         responses: {
+          orderBy: { questionId: "asc" },
           select: {
             questionId: true,
             value: true,
             score: true,
             question: {
+              orderBy: { position: "asc" },
               select: {
                 id: true,
                 legacyId: true,
