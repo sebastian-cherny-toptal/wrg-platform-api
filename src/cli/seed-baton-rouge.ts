@@ -474,12 +474,12 @@ function sourceOrganizationValue(value: ExcelJS.CellValue): string | undefined {
   return normalized || undefined;
 }
 
-function syntheticOrganization(key: string) {
+function sourceOrganization(key: string, sourceName?: string) {
   const token = digest(`organization:${key}`, 12);
   return {
     id: deterministicUuid(`${seedPrefix}:organization:${key}`),
     externalId: `${seedPrefix}-org-${token}`,
-    name: `Baton Rouge Organization ${token.slice(0, 8).toUpperCase()}`,
+    name: sourceName?.trim() ?? "Unknown Baton Rouge Organization",
     slug: `br-seed-${token}`,
   };
 }
@@ -1010,7 +1010,10 @@ async function seedSurvey(
       },
     });
     for (const [key, details] of organizationRows) {
-      const organization = syntheticOrganization(key);
+      const organization = sourceOrganization(
+        key,
+        details.sourceOrganizationName,
+      );
       const metadata = {
         anonymized: true,
         seed: seedPrefix,
@@ -1023,12 +1026,15 @@ async function seedSurvey(
       };
       await prisma.organization.upsert({
         where: { id: organization.id },
-        update: { metadata },
+        update: { name: organization.name, metadata },
         create: { ...organization, metadata },
       });
     }
     for (const [key, details] of organizationRows) {
-      const organization = syntheticOrganization(key);
+      const organization = sourceOrganization(
+        key,
+        details.sourceOrganizationName,
+      );
       const sourceIdentity = {
         ...(details.sourceOrganizationId
           ? { Source_Organization_ID: details.sourceOrganizationId }
@@ -1142,13 +1148,18 @@ async function seedSurvey(
 
   await forEachSourceRow(source, async (row) => {
     if (row.number === 1) return;
-    const organization = syntheticOrganization(
+    const sourceOrganizationNameValue = firstNonEmptyCell(
+      row,
+      organizationColumns,
+    );
+    const organization = sourceOrganization(
       organizationKey(
-        firstNonEmptyCell(row, organizationColumns),
+        sourceOrganizationNameValue,
         source.year,
         row.number,
         firstNonEmptyCell(row, organizationIdColumns),
       ),
+      sourceOrganizationValue(sourceOrganizationNameValue),
     );
     const sourceRespondent = cellScalar(row.getCell(respondentColumn).value);
     const respondentToken = digest(

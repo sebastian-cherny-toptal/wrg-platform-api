@@ -21,7 +21,7 @@
     "test:integration": "tsx --test test/integration/**/*.spec.ts",
     "check": "npm run lint && npm run typecheck && npm test && npm run build",
     "precommit": "npm run check",
-    "prepare": "node scripts/install-git-hooks.mjs",
+    "prepare": "node -e \"const { spawnSync } = require('node:child_process'); const repository = spawnSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }); if (repository.status === 0 && repository.stdout.trim()) { const configured = spawnSync('git', ['config', 'core.hooksPath', '.githooks'], { cwd: repository.stdout.trim(), stdio: 'inherit' }); if (configured.error) throw configured.error; if (configured.status !== 0) process.exit(configured.status ?? 1); }\"",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma generate && prisma migrate deploy",
     "db:deploy:production": "prisma migrate deploy && node dist/cli/seed-baton-rouge.js --skip-if-present --source prisma/fixtures/baton-rouge-test-data.zip",
