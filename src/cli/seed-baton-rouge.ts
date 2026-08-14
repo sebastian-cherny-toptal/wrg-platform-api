@@ -35,6 +35,7 @@ interface SourceWorkbook {
 
 interface LoadedSources {
   cleanup: () => void;
+  directory: string;
   workbooks: SourceWorkbook[];
 }
 
@@ -393,6 +394,7 @@ function loadSourceWorkbooks(source: string): LoadedSources {
   }
   return {
     workbooks,
+    directory: sourceDirectory,
     cleanup: () => {
       if (extractionDirectory)
         rmSync(extractionDirectory, { recursive: true, force: true });
@@ -1223,15 +1225,20 @@ async function main(): Promise<void> {
   const loadedSources = loadSourceWorkbooks(options.source);
   const sources = loadedSources.workbooks;
   const reportYears = [...new Set(sources.map(({ year }) => year))];
+  const reportSource =
+    extname(options.source).toLowerCase() === ".zip" &&
+    options.reportSource === dirname(options.source)
+      ? loadedSources.directory
+      : options.reportSource;
   const publishedReports = await loadPublishedReports(
-    options.reportSource,
+    reportSource,
     reportYears,
   );
   const actual = sources.map(
     ({ fileName, year, kind }) => `${year} ${kind} (${fileName})`,
   );
   console.log(`Baton Rouge source: ${options.source}`);
-  console.log(`Published report source: ${options.reportSource}`);
+  console.log(`Published report source: ${reportSource}`);
   console.log(`Found ${sources.length} raw workbooks: ${actual.join(", ")}`);
 
   const databaseUrl = process.env.DATABASE_URL;
