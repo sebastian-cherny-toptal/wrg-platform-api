@@ -5,6 +5,8 @@ import { PrismaClient } from "@prisma/client";
 import { hash } from "argon2";
 
 const projectSlug = "baton-rouge-best-places-to-work";
+const organizationSlug = "baton-rouge-test-organization";
+const programYears = [2026, 2025, 2024] as const;
 const username = "test.baton";
 const email = "test.baton@example.test";
 const defaultPassword = "BatonRouge123!";
@@ -19,7 +21,65 @@ async function main(): Promise<void> {
   });
 
   try {
-    const project = await prisma.project.findUnique({
+    const foundation = await prisma.$transaction(async (transaction) => {
+      const project = await transaction.project.upsert({
+        where: { slug: projectSlug },
+        update: {},
+        create: {
+          externalId: "seed-br-project",
+          name: "Baton Rouge Best Places to Work",
+          slug: projectSlug,
+          metadata: { anonymized: true, seed: "seed-br" },
+        },
+      });
+      const organization = await transaction.organization.upsert({
+        where: { slug: organizationSlug },
+        update: {},
+        create: {
+          externalId: "seed-br-test-organization",
+          name: "Baton Rouge Test Organization",
+          slug: organizationSlug,
+          metadata: { anonymized: true, seed: "seed-br" },
+        },
+      });
+      const programs = [];
+      for (const year of programYears) {
+        const existing = await transaction.program.findFirst({
+          where: { projectId: project.id, year },
+        });
+        const program =
+          existing ??
+          (await transaction.program.create({
+            data: {
+              externalId: `seed-br-program-${year}`,
+              projectId: project.id,
+              name: `Best Places to Work in Baton Rouge ${year}`,
+              year,
+              metadata: { anonymized: true, seed: "seed-br" },
+            },
+          }));
+        programs.push(program);
+        await transaction.organizationProgram.upsert({
+          where: {
+            organizationId_programId: {
+              organizationId: organization.id,
+              programId: program.id,
+            },
+          },
+          update: { projectId: project.id },
+          create: {
+            externalId: `seed-br-test-enrollment-${year}`,
+            organizationId: organization.id,
+            projectId: project.id,
+            programId: program.id,
+            reportAccess: { enabled: true },
+          },
+        });
+      }
+      return { organization, programs, project };
+    });
+
+    const project = await prisma.project.findUniqueOrThrow({
       where: { slug: projectSlug },
       include: {
         programs: {
@@ -28,15 +88,13 @@ async function main(): Promise<void> {
         },
       },
     });
-    if (!project || project.programs.length === 0) {
-      throw new Error(
-        `Cannot create ${username}: project ${projectSlug} has not been imported`,
-      );
-    }
-
     const programIds = project.programs.map(({ id }) => id);
     const enrollments = await prisma.organizationProgram.findMany({
-      where: { projectId: project.id, programId: { in: programIds } },
+      where: {
+        projectId: project.id,
+        organizationId: foundation.organization.id,
+        programId: { in: programIds },
+      },
       orderBy: { organization: { name: "asc" } },
       select: {
         id: true,
@@ -44,29 +102,15 @@ async function main(): Promise<void> {
         programId: true,
       },
     });
-    const enrollmentsByOrganization = new Map<
-      string,
-      (typeof enrollments)[number][]
-    >();
-    for (const enrollment of enrollments) {
-      const grouped = enrollmentsByOrganization.get(enrollment.organizationId);
-      if (grouped) grouped.push(enrollment);
-      else enrollmentsByOrganization.set(enrollment.organizationId, [enrollment]);
-    }
-    const organizationEnrollments = [...enrollmentsByOrganization.values()].find(
-      (items) =>
-        new Set(items.map(({ programId }) => programId)).size ===
-        programIds.length,
-    );
-    if (!organizationEnrollments) {
+    if (new Set(enrollments.map(({ programId }) => programId)).size !== programIds.length) {
       throw new Error(
-        `Cannot create ${username}: no organization is enrolled in every Baton Rouge program`,
+        `Cannot create ${username}: test organization enrollment is incomplete`,
       );
     }
 
     const latestEnrollment = project.programs
       .map(({ id }) =>
-        organizationEnrollments.find(({ programId }) => programId === id),
+        enrollments.find(({ programId }) => programId === id),
       )
       .find((enrollment) => enrollment !== undefined);
     if (!latestEnrollment) throw new Error("Could not select a Baton Rouge enrollment");
