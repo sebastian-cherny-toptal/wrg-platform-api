@@ -25,6 +25,7 @@
     "db:seed": "tsx prisma/seed.ts",
     "db:seed:baton-rouge": "tsx src/cli/seed-baton-rouge.ts",
     "db:seed:baton-rouge:compiled": "node dist/cli/seed-baton-rouge.js",
+    "fixture:baton-rouge": "tsx src/cli/prepare-baton-rouge-test-fixture.ts",
     "db:reset": "prisma migrate reset --force",
     "openapi:generate": "tsx scripts/generate-openapi.ts",
     "client:generate": "openapi-typescript openapi.json -o generated/api.ts",
