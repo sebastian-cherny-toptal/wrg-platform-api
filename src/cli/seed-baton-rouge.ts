@@ -24,6 +24,7 @@ const testUsername = "test.baton";
 const testUserEmail = "test.baton@example.test";
 const testUserPassword = "BatonRouge123!";
 const targetOrganizationName = "Commerce Title & Abstract Company";
+const sanitizedTargetOrganizationName = "Synthetic 06f796de0c9331b9";
 
 type SurveyKind = "EA" | "EFS";
 
@@ -473,6 +474,13 @@ function sourceOrganizationValue(value: ExcelJS.CellValue): string | undefined {
   if (scalar === null) return undefined;
   const normalized = String(scalar).trim();
   return normalized || undefined;
+}
+
+function isTargetOrganization(sourceName: string | undefined): boolean {
+  return (
+    sourceName === targetOrganizationName ||
+    sourceName === sanitizedTargetOrganizationName
+  );
 }
 
 function sourceOrganization(key: string, sourceName?: string) {
@@ -930,21 +938,24 @@ async function seedSurvey(
     const sourceOrganizationName = sourceOrganizationValue(
       sourceOrganizationNameValue,
     );
-    if (sourceOrganizationName !== targetOrganizationName) return;
+    if (!isTargetOrganization(sourceOrganizationName)) return;
     respondentCount += 1;
     const sourceOrganizationIdValue = firstNonEmptyCell(
       row,
       organizationIdColumns,
     );
     const key = organizationKey(
-      sourceOrganizationNameValue,
+      targetOrganizationName,
       source.year,
       row.number,
       sourceOrganizationIdValue,
     );
     let existing = organizationRows.get(key);
     if (!existing) {
-      existing = { count: 0 };
+      existing = {
+        count: 0,
+        sourceOrganizationName: targetOrganizationName,
+      };
       const sourceOrganizationId = sourceOrganizationValue(
         sourceOrganizationIdValue,
       );
@@ -1159,15 +1170,15 @@ async function seedSurvey(
     const sourceOrganizationName = sourceOrganizationValue(
       sourceOrganizationNameValue,
     );
-    if (sourceOrganizationName !== targetOrganizationName) return;
+    if (!isTargetOrganization(sourceOrganizationName)) return;
     const organization = sourceOrganization(
       organizationKey(
-        sourceOrganizationNameValue,
+        targetOrganizationName,
         source.year,
         row.number,
         firstNonEmptyCell(row, organizationIdColumns),
       ),
-      sourceOrganizationName,
+      targetOrganizationName,
     );
     const sourceRespondent = cellScalar(row.getCell(respondentColumn).value);
     const respondentToken = digest(
