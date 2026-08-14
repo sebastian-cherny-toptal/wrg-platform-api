@@ -71,10 +71,12 @@ The generated archive preserves numeric survey inputs and aggregate reports,
 but replaces row-level identifiers, categorical strings, and free text with
 deterministic synthetic values.
 
-That sanitized archive is only a regression/E2E fixture. Production deployment
-does not import it. To seed a deployed environment, provide `BR_SEED_SOURCE`
-and, when needed, `BR_REPORT_SOURCE` as secure mounted paths; otherwise the
-production deployment command applies migrations without creating demo data.
+That sanitized archive is only a regression/E2E fixture. The production image
+bundles the explicitly committed inputs under `secure/`. To seed a deployed
+environment, set `BR_SEED_SOURCE` to
+`/app/secure/seed-data/Baton Rouge 24-26.zip` and `BR_REPORT_SOURCE` to
+`/app/secure/report-data`; otherwise the production deployment command applies
+migrations without creating demo data.
 
 The seed creates a client user with access to every imported Baton Rouge program:
 

@@ -15,5 +15,8 @@ COPY --from=build /app/dist ./dist
 COPY --from=build /app/node_modules/.prisma ./node_modules/.prisma
 COPY prisma ./prisma
 COPY prisma.config.ts ./prisma.config.ts
+# Railway pre-deploy containers cannot access mounted volumes, so keep the
+# explicitly committed production seed inputs in the runtime image.
+COPY secure ./secure
 USER node
 CMD ["node", "--max-old-space-size=3000", "dist/main.js"]
