@@ -65,7 +65,6 @@ export class CompatibilityManagementService {
   async roles(principal: Principal) {
     this.assertAdmin(principal);
     const roles = await this.prisma.role.findMany({
-      where: { key: { notIn: ["admin", "client"] } },
       orderBy: { name: "asc" },
       include: { _count: { select: { users: true } } },
     });

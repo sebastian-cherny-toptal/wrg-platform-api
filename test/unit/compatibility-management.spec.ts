@@ -139,10 +139,12 @@ describe("native management compatibility endpoints", () => {
   });
 
   it("maps normalized roles to the legacy administration projection", async () => {
+    let roleQuery: Record<string, unknown> | undefined;
     const prisma = {
       role: {
-        findMany: () =>
-          Promise.resolve([
+        findMany: (args: Record<string, unknown>) => {
+          roleQuery = args;
+          return Promise.resolve([
             {
               id: "role-id",
               legacyId: "legacy-role",
@@ -150,7 +152,15 @@ describe("native management compatibility endpoints", () => {
               name: "Project Manager",
               _count: { users: 3 },
             },
-          ]),
+            {
+              id: "client-role-id",
+              legacyId: null,
+              key: "client",
+              name: "Client",
+              _count: { users: 9 },
+            },
+          ]);
+        },
       },
     } as unknown as PrismaService;
     const service = new CompatibilityManagementService(prisma);
@@ -167,6 +177,14 @@ describe("native management compatibility endpoints", () => {
         name: "Project Manager",
         userCount: 3,
       },
+      {
+        _id: "client-role-id",
+        role: "client",
+        name: "Client",
+        userCount: 9,
+      },
     ]);
+    assert.ok(roleQuery);
+    assert.equal("where" in roleQuery, false);
   });
 });

@@ -688,9 +688,11 @@ export class CompatibilityAdminService {
                     enrollment.program.id,
                   id: enrollment.program.externalId ?? enrollment.program.id,
                   Name: enrollment.program.name,
+                  Program_Year: enrollment.program.year,
                   Currency: enrollment.program.currency,
                 },
               ],
+              projectName: enrollment.project.name,
             },
           })),
           users: organization.users.map((user) => ({

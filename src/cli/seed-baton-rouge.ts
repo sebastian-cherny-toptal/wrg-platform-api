@@ -685,13 +685,15 @@ async function createReportUser(
   prisma: PrismaClient,
   projectId: string,
 ): Promise<void> {
-  const program = await prisma.program.findFirstOrThrow({
+  const programs = await prisma.program.findMany({
     where: { projectId },
     orderBy: { year: "desc" },
     select: { id: true, year: true },
   });
+  const latestProgram = programs[0];
+  if (!latestProgram) throw new Error("Could not find a Baton Rouge program");
   const enrollments = await prisma.organizationProgram.findMany({
-    where: { projectId, programId: program.id },
+    where: { projectId, programId: latestProgram.id },
     orderBy: { organization: { name: "asc" } },
     select: {
       id: true,
@@ -711,9 +713,22 @@ async function createReportUser(
     enrollments.find(
       ({ organization }) =>
         new Set(organization.programs.map(({ program }) => program.year))
-          .size >= 3,
+          .size >= programs.length,
     ) ?? enrollments[0];
   if (!enrollment) throw new Error("Could not find a Baton Rouge enrollment");
+  const organizationEnrollments = await prisma.organizationProgram.findMany({
+    where: {
+      organizationId: enrollment.organizationId,
+      projectId,
+      programId: { in: programs.map(({ id }) => id) },
+    },
+    select: { id: true, programId: true },
+  });
+  if (organizationEnrollments.length !== programs.length) {
+    throw new Error(
+      "Could not find an organization enrolled in every Baton Rouge program",
+    );
+  }
   const clientRole = await prisma.role.upsert({
     where: { key: "client" },
     update: {},
@@ -739,13 +754,15 @@ async function createReportUser(
     prisma.userProject.create({
       data: { userId: user.id, projectId },
     }),
-    prisma.userProgram.create({
-      data: { userId: user.id, programId: program.id },
-    }),
+    ...programs.map((program) =>
+      prisma.userProgram.create({
+        data: { userId: user.id, programId: program.id },
+      }),
+    ),
   ]);
   console.log(
     `Created client report user ${testUserEmail} for ${enrollment.organization.name} ` +
-      `with access to Baton Rouge ${program.year}.`,
+      `with access to Baton Rouge ${programs.map(({ year }) => year).join(", ")}.`,
   );
 }
 
@@ -803,17 +820,20 @@ async function verifyImportedData(
       );
     }
   }
-  const reportUser = await prisma.user.findUniqueOrThrow({
+  const [reportUser, programCount] = await Promise.all([
+    prisma.user.findUniqueOrThrow({
     where: { email: testUserEmail },
     select: { _count: { select: { programs: true } } },
-  });
-  if (reportUser._count.programs !== 1) {
+    }),
+    prisma.program.count({ where: { projectId } }),
+  ]);
+  if (reportUser._count.programs !== programCount) {
     throw new Error(
-      "Baton Rouge report user must have access to exactly one program",
+      "Baton Rouge report user must have access to every imported program",
     );
   }
   console.log(
-    "Verified all imported survey totals, published XLSX snapshots, and one-program user scope.",
+    "Verified all imported survey totals, published XLSX snapshots, and complete user program scope.",
   );
 }
 

@@ -98,13 +98,13 @@ class CreateUserDto {
   @IsIn(["mobile", "email"])
   mfa?: "mobile" | "email";
 
-  @ApiPropertyOptional({
+  @ApiProperty({
     type: String,
-    description: "A native role ID or a migrated legacy role ID.",
+    description: "A native, migrated, or keyed role reference.",
   })
-  @IsOptional()
   @IsString()
-  roleId?: string;
+  @MinLength(1)
+  roleId!: string;
 
   @ApiPropertyOptional({
     type: [String],
@@ -116,6 +116,27 @@ class CreateUserDto {
   @ArrayMaxSize(100)
   @IsString({ each: true })
   projects?: string[];
+
+  @ApiPropertyOptional({
+    type: String,
+    description:
+      "Required for client users. A native or migrated organization ID.",
+  })
+  @IsOptional()
+  @IsString()
+  organizationId?: string;
+
+  @ApiPropertyOptional({
+    type: [String],
+    description:
+      "Required for client users. Programs enrolled to the selected organization.",
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayUnique()
+  @ArrayMaxSize(100)
+  @IsString({ each: true })
+  programs?: string[];
 }
 
 class UpdateUserDto {
@@ -606,18 +627,22 @@ export class UsersService {
       throw new ConflictException("User already exists");
     }
 
-    const role = dto.roleId
-      ? await this.prisma.role.findFirst({
-          where: isUuid(dto.roleId)
-            ? { id: dto.roleId }
-            : { legacyId: dto.roleId },
-          select: { id: true, key: true, name: true },
-        })
-      : null;
-    if (dto.roleId && !role) throw new NotFoundException("Role not found");
+    const role = await this.prisma.role.findFirst({
+      where: isUuid(dto.roleId)
+        ? { id: dto.roleId }
+        : {
+            OR: [
+              { legacyId: dto.roleId },
+              { externalId: dto.roleId },
+              { key: dto.roleId },
+            ],
+          },
+      select: { id: true, key: true, name: true },
+    });
+    if (!role) throw new NotFoundException("Role not found");
 
     if (
-      role?.key === "admin" &&
+      role.key === "admin" &&
       (await this.prisma.userRole.findFirst({
         where: { roleId: role.id },
         select: { userId: true },
@@ -626,21 +651,112 @@ export class UsersService {
       throw new ForbiddenException("Admin user already exists");
     }
 
+    const isClient = role.key === "client";
     const projectReferences = dto.projects ?? [];
-    const projects =
+    const programReferences = dto.programs ?? [];
+    if (isClient && !dto.organizationId) {
+      throw new BadRequestException("Organization is required for client users");
+    }
+    if (isClient && programReferences.length === 0) {
+      throw new BadRequestException(
+        "At least one program is required for client users",
+      );
+    }
+    if (!isClient && (dto.organizationId || programReferences.length > 0)) {
+      throw new BadRequestException(
+        "Organization and programs can only be assigned to client users",
+      );
+    }
+
+    const organization = dto.organizationId
+      ? await this.prisma.organization.findFirst({
+          where: isUuid(dto.organizationId)
+            ? { id: dto.organizationId }
+            : {
+                OR: [
+                  { legacyId: dto.organizationId },
+                  { externalId: dto.organizationId },
+                ],
+              },
+          select: { id: true },
+        })
+      : null;
+    if (dto.organizationId && !organization) {
+      throw new NotFoundException("Organization not found");
+    }
+
+    const selectedPrograms =
+      programReferences.length === 0
+        ? []
+        : await this.prisma.program.findMany({
+            where: {
+              OR: programReferences.map((reference) =>
+                isUuid(reference)
+                  ? { id: reference }
+                  : {
+                      OR: [
+                        { legacyId: reference },
+                        { externalId: reference },
+                      ],
+                    },
+              ),
+            },
+            select: { id: true, name: true, projectId: true },
+          });
+    if (selectedPrograms.length !== programReferences.length) {
+      throw new NotFoundException("One or more programs were not found");
+    }
+
+    const enrollments = organization
+      ? await this.prisma.organizationProgram.findMany({
+          where: {
+            organizationId: organization.id,
+            programId: { in: selectedPrograms.map(({ id }) => id) },
+          },
+          select: {
+            id: true,
+            programId: true,
+            projectId: true,
+            project: { select: { id: true, name: true } },
+          },
+        })
+      : [];
+    if (isClient && enrollments.length !== selectedPrograms.length) {
+      throw new BadRequestException(
+        "One or more programs are not available to the selected organization",
+      );
+    }
+    if (new Set(enrollments.map(({ projectId }) => projectId)).size > 1) {
+      throw new BadRequestException(
+        "Client programs must belong to the same project",
+      );
+    }
+
+    const managementProjects =
       projectReferences.length === 0
         ? []
         : await this.prisma.project.findMany({
             where: {
               OR: projectReferences.map((reference) =>
-                isUuid(reference) ? { id: reference } : { legacyId: reference },
+                isUuid(reference)
+                  ? { id: reference }
+                  : {
+                      OR: [
+                        { legacyId: reference },
+                        { externalId: reference },
+                      ],
+                    },
               ),
             },
             select: { id: true, name: true },
           });
-    if (projects.length !== projectReferences.length) {
+    if (managementProjects.length !== projectReferences.length) {
       throw new NotFoundException("One or more projects were not found");
     }
+    const projects = isClient
+      ? [...new Map(enrollments.map(({ project }) => [project.id, project])).values()]
+      : managementProjects;
+    const primaryEnrollment = enrollments[0] ?? null;
 
     const password = dto.password ?? randomBytes(18).toString("base64url");
     const mfa = dto.mfa ?? "email";
@@ -655,16 +771,29 @@ export class UsersService {
           email,
           username,
           fullName,
+          ...(organization ? { organizationId: organization.id } : {}),
+          ...(primaryEnrollment
+            ? { organizationProgramId: primaryEnrollment.id }
+            : {}),
           passwordHash: await hash(password),
           status: "INVITED",
           mfaEnabled: false,
           metadata,
-          ...(role ? { roles: { create: [{ roleId: role.id }] } } : {}),
+          roles: { create: [{ roleId: role.id }] },
           ...(projects.length > 0
             ? {
                 projects: {
                   create: projects.map((project) => ({
                     projectId: project.id,
+                  })),
+                },
+              }
+            : {}),
+          ...(selectedPrograms.length > 0
+            ? {
+                programs: {
+                  create: selectedPrograms.map((program) => ({
+                    programId: program.id,
                   })),
                 },
               }

@@ -3387,10 +3387,21 @@
           },
           "roleId": {
             "type": "string",
-            "description": "A native role ID or a migrated legacy role ID."
+            "description": "A native, migrated, or keyed role reference."
           },
           "projects": {
             "description": "Native project IDs or migrated legacy project IDs.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "organizationId": {
+            "type": "string",
+            "description": "Required for client users. A native or migrated organization ID."
+          },
+          "programs": {
+            "description": "Required for client users. Programs enrolled to the selected organization.",
             "type": "array",
             "items": {
               "type": "string"
@@ -3400,7 +3411,8 @@
         "required": [
           "email",
           "fullName",
-          "username"
+          "username",
+          "roleId"
         ]
       },
       "UpdateUserDto": {
