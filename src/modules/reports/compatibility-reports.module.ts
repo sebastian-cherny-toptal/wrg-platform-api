@@ -381,6 +381,14 @@ function responseCaption(value: Prisma.JsonValue): string | null {
 }
 
 const standardDemographicOptions: Record<string, string[]> = {
+  f_personaldemographics_agegeneration: [
+    "The Silent Generation (Born 1928 to 1945)",
+    "Baby Boomers (Born 1946 to 1964)",
+    "Generation X (Born 1965 to 1980)",
+    "Millennials (Born 1981 to 1996)",
+    "Generation Z (Born 1997 or later)",
+    "Prefer not to answer",
+  ],
   f_personaldemographics_gender: [
     "Male",
     "Female",
@@ -544,6 +552,55 @@ function ageGenerationCaption(rawCaption: string, programYear?: number | null) {
   if (birthYear >= 1965) return "Generation X (Born 1965 to 1980)";
   if (birthYear >= 1946) return "Baby Boomers (Born 1946 to 1964)";
   return "The Silent Generation (Born 1928 to 1945)";
+}
+
+function demographicOptionOrder(
+  question: Pick<DetailedResponse["question"], "dataLabel" | "metadata">,
+  programYear?: number | null,
+): string[] {
+  const dataLabel = question.dataLabel.toLowerCase();
+  const standardOptions =
+    dataLabel === "f_personaldemographics_ethnicorigin"
+      ? programYear && programYear <= 2024
+        ? legacyEthnicityOptions
+        : currentEthnicityOptions
+      : standardDemographicOptions[dataLabel];
+  if (standardOptions) return standardOptions;
+
+  const configured = jsonObject(question.metadata).QuestionResponses;
+  if (!Array.isArray(configured)) return [];
+  return configured.flatMap((option) => {
+    if (option !== null && typeof option === "object" && !Array.isArray(option)) {
+      const caption = optionScalar(
+        option.Caption ?? option.caption ?? option.Label ?? option.label,
+      );
+      return caption ? [caption] : [];
+    }
+    const caption = optionScalar(option);
+    return caption ? [caption] : [];
+  });
+}
+
+export function demographicResponsePosition(
+  caption: string,
+  question: Pick<DetailedResponse["question"], "dataLabel" | "metadata">,
+  programYear?: number | null,
+): number {
+  const position = demographicOptionOrder(question, programYear).indexOf(caption);
+  return position === -1 ? Number.MAX_SAFE_INTEGER : position + 1;
+}
+
+function compareDemographicOptions(
+  left: string,
+  right: string,
+  question: Pick<DetailedResponse["question"], "dataLabel" | "metadata">,
+  programYear?: number | null,
+): number {
+  return (
+    demographicResponsePosition(left, question, programYear) -
+      demographicResponsePosition(right, question, programYear) ||
+    left.localeCompare(right)
+  );
 }
 
 export function demographicResponseCaption(
@@ -1815,7 +1872,9 @@ export class CompatibilityReportsService {
       .map(([questionId, question]) => ({
         title: this.demographicLabel(question),
         options: [...(counts.get(questionId) ?? new Map<string, number>())]
-          .sort(([left], [right]) => left.localeCompare(right))
+          .sort(([left], [right]) =>
+            compareDemographicOptions(left, right, question, programYear),
+          )
           .map(([label, count]) => ({ label, count })),
       }));
   }
@@ -2075,8 +2134,20 @@ export class CompatibilityReportsService {
           category: this.demographicCategory(categoryLabel),
           categoryLabel,
           options: [...(counts.get(questionId) ?? new Map<string, number>())]
-            .sort(([left], [right]) => left.localeCompare(right))
-            .map(([Caption, Count]) => ({ Caption, Count })),
+            .map(([Caption, Count]) => ({
+              Caption,
+              Count,
+              Position: demographicResponsePosition(
+                Caption,
+                question,
+                context.program.year,
+              ),
+            }))
+            .sort(
+              (left, right) =>
+                left.Position - right.Position ||
+                left.Caption.localeCompare(right.Caption),
+            ),
         };
       });
     return { success: true, message: "success", data };

@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { demographicResponseCaption } from "../../src/modules/reports/compatibility-reports.module.js";
+import {
+  demographicResponseCaption,
+  demographicResponsePosition,
+} from "../../src/modules/reports/compatibility-reports.module.js";
 
 describe("demographic response labels", () => {
   it("returns the WRG standard gender captions for imported numeric codes", () => {
@@ -73,6 +76,24 @@ describe("demographic response labels", () => {
     assert.equal(
       demographicResponseCaption(86, question, 2025),
       "Prefer not to answer",
+    );
+    assert.deepEqual(
+      [
+        "Baby Boomers (Born 1946 to 1964)",
+        "Generation X (Born 1965 to 1980)",
+        "Generation Z (Born 1997 or later)",
+        "Millennials (Born 1981 to 1996)",
+      ].sort(
+        (left, right) =>
+          demographicResponsePosition(left, question, 2025) -
+          demographicResponsePosition(right, question, 2025),
+      ),
+      [
+        "Baby Boomers (Born 1946 to 1964)",
+        "Generation X (Born 1965 to 1980)",
+        "Millennials (Born 1981 to 1996)",
+        "Generation Z (Born 1997 or later)",
+      ],
     );
   });
 
