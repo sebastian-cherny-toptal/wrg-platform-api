@@ -21,10 +21,11 @@ Point `REACT_APP_API_ENDPOINT` at this service the same way you pointed it at `w
 ### Baton Rouge XLSX-backed local data
 
 The Baton Rouge Medallia exports and published report workbooks can be loaded
-into PostgreSQL as deterministic, anonymized local data. Report endpoints never
-substitute in-code examples: all rendered values come from these imported rows
-and program snapshots. Email addresses, passcodes, IP/location fields, direct
-organization identities, and free text are not exposed to the test user.
+into PostgreSQL as deterministic local data. Report endpoints never substitute
+in-code examples: all rendered values come from these imported rows and program
+snapshots. Administrative and identity columns before `Score %` are excluded;
+report questions and answers after it, including employee verbatims, are
+preserved exactly.
 
 With the repository's `Baton Rouge 24-26.zip` in the parent directory:
 
@@ -51,7 +52,10 @@ asserts that the report user has every imported program grant.
 
 The command is idempotent: each run replaces only records in the `seed-br`
 namespace, leaving ordinary application data untouched. The ZIP can instead be
-an extracted directory when passed via `--source` or `BR_SEED_SOURCE`.
+an extracted directory when passed via `--source` or `BR_SEED_SOURCE`. The
+reusable parser lives in `src/modules/imports/xlsx-survey-importer.ts`; a future
+multipart endpoint can save an upload to a temporary path and use the same
+definition/row iteration API as the seed CLI.
 
 To regenerate the sanitized web E2E fixture without copying raw survey data
 into Git, run:
@@ -66,6 +70,11 @@ npm run fixture:baton-rouge -- \
 The generated archive preserves numeric survey inputs and aggregate reports,
 but replaces row-level identifiers, categorical strings, and free text with
 deterministic synthetic values.
+
+That sanitized archive is only a regression/E2E fixture. Production deployment
+does not import it. To seed a deployed environment, provide `BR_SEED_SOURCE`
+and, when needed, `BR_REPORT_SOURCE` as secure mounted paths; otherwise the
+production deployment command applies migrations without creating demo data.
 
 The seed creates a client user with access to every imported Baton Rouge program:
 

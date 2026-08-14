@@ -52,7 +52,7 @@ services:
     command:
       - sh
       - -c
-      - npm run db:deploy:production && npm run db:seed:baton-rouge:compiled
+      - npm run db:deploy:production
 
 volumes:
   postgres-data:

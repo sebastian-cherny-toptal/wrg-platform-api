@@ -205,7 +205,7 @@ interface ReportContext {
   }>;
 }
 
-interface BenchmarkQuestion {
+export interface BenchmarkQuestion {
   id: string;
   legacyId: string | null;
   externalId: string | null;
@@ -223,7 +223,7 @@ interface AgreementResponse {
   respondent: { organizationId: string | null };
 }
 
-interface DetailedResponse {
+export interface DetailedResponse {
   questionId: string;
   value: Prisma.JsonValue;
   score: Prisma.Decimal | null;
@@ -239,7 +239,7 @@ interface DetailedResponse {
   };
 }
 
-interface DetailedRespondent {
+export interface DetailedRespondent {
   id: string;
   legacyId: string | null;
   externalId: string | null;
@@ -570,7 +570,11 @@ function demographicOptionOrder(
   const configured = jsonObject(question.metadata).QuestionResponses;
   if (!Array.isArray(configured)) return [];
   return configured.flatMap((option) => {
-    if (option !== null && typeof option === "object" && !Array.isArray(option)) {
+    if (
+      option !== null &&
+      typeof option === "object" &&
+      !Array.isArray(option)
+    ) {
       const caption = optionScalar(
         option.Caption ?? option.caption ?? option.Label ?? option.label,
       );
@@ -586,7 +590,9 @@ export function demographicResponsePosition(
   question: Pick<DetailedResponse["question"], "dataLabel" | "metadata">,
   programYear?: number | null,
 ): number {
-  const position = demographicOptionOrder(question, programYear).indexOf(caption);
+  const position = demographicOptionOrder(question, programYear).indexOf(
+    caption,
+  );
   return position === -1 ? Number.MAX_SAFE_INTEGER : position + 1;
 }
 
@@ -627,6 +633,146 @@ export function demographicResponseCaption(
   return Number.isInteger(optionId) && optionId >= 1
     ? (options?.[optionId - 1] ?? rawCaption)
     : rawCaption;
+}
+
+export const responseDetailOptions = [
+  "Strongly Disagree",
+  "Disagree",
+  "Neutral",
+  "Agree",
+  "Strongly Agree",
+  "N/A",
+] as const;
+
+function isLikertQuestion(
+  question: Pick<DetailedResponse["question"], "metadata" | "type">,
+): boolean {
+  const type = question.type.trim().toLowerCase();
+  const typeId = jsonObject(question.metadata).QuestionTypeId;
+  return (
+    ["5", "likert", "scale", "rating", "agreement"].includes(type) ||
+    typeId === 5 ||
+    typeId === "5"
+  );
+}
+
+export function reportResponseCaption(
+  value: Prisma.JsonValue,
+  question: Pick<
+    DetailedResponse["question"],
+    "dataLabel" | "metadata" | "type"
+  >,
+  programYear?: number | null,
+): string | null {
+  const mapped = demographicResponseCaption(value, question, programYear);
+  if (!mapped || !isLikertQuestion(question)) return mapped;
+  const numeric = Number(mapped);
+  if (Number.isInteger(numeric) && numeric >= 1 && numeric <= 6) {
+    return responseDetailOptions[numeric - 1] ?? null;
+  }
+  const normalized = mapped.trim().toLowerCase();
+  if (
+    normalized === "neither agree nor disagree" ||
+    normalized === "neither disagree nor agree"
+  ) {
+    return "Neutral";
+  }
+  if (
+    normalized === "not applicable" ||
+    normalized === "not applicable / prefer not to answer" ||
+    normalized === "n/a" ||
+    normalized === "na"
+  ) {
+    return "N/A";
+  }
+  return (
+    responseDetailOptions.find(
+      (option) => option.toLowerCase() === normalized,
+    ) ?? mapped
+  );
+}
+
+export type ResponseDetailTableCell =
+  number | string | { percentile: string; respondentCount: number };
+
+function responseDetailPercentage(count: number, denominator: number): string {
+  if (denominator === 0) return "0%";
+  const percentage = Math.round((count * 10_000) / denominator) / 100;
+  return `${percentage}%`;
+}
+
+export function buildResponseDetailTable(
+  question: BenchmarkQuestion,
+  filterQuestion: BenchmarkQuestion,
+  respondents: DetailedRespondent[],
+  programYear?: number | null,
+  version = "1",
+): ResponseDetailTableCell[][] {
+  const groups = new Map<string, DetailedRespondent[]>();
+  for (const respondent of respondents) {
+    const filterResponse = respondent.responses.find(
+      ({ questionId }) => questionId === filterQuestion.id,
+    );
+    const caption = filterResponse
+      ? demographicResponseCaption(
+          filterResponse.value,
+          filterQuestion,
+          programYear,
+        )
+      : null;
+    if (!caption) continue;
+    const existing = groups.get(caption) ?? [];
+    existing.push(respondent);
+    groups.set(caption, existing);
+  }
+  const headers = [...groups.keys()].sort((left, right) =>
+    compareDemographicOptions(left, right, filterQuestion, programYear),
+  );
+  const data: ResponseDetailTableCell[][] = [["", ...headers]];
+  for (const option of responseDetailOptions) {
+    const row: ResponseDetailTableCell[] = [option];
+    for (const header of headers) {
+      const group = groups.get(header) ?? [];
+      if (group.length < privacyThreshold) {
+        row.push("x");
+        continue;
+      }
+      const answers = group.flatMap((respondent) => {
+        const answer = respondent.responses.find(
+          ({ questionId }) => questionId === question.id,
+        );
+        const caption = answer
+          ? reportResponseCaption(answer.value, question, programYear)
+          : null;
+        return caption ? [caption] : [];
+      });
+      const count = answers.filter((answer) => answer === option).length;
+      const percentile = responseDetailPercentage(count, answers.length);
+      row.push(
+        version === "1" ? { percentile, respondentCount: count } : percentile,
+      );
+    }
+    data.push(row);
+  }
+  const totalRow: ResponseDetailTableCell[] = ["Question Total"];
+  for (const header of headers) {
+    const group = groups.get(header) ?? [];
+    if (group.length < privacyThreshold) {
+      totalRow.push("x");
+      continue;
+    }
+    totalRow.push(
+      group.filter((respondent) =>
+        respondent.responses.some(
+          ({ questionId, value }) =>
+            questionId === question.id &&
+            Boolean(reportResponseCaption(value, question, programYear)),
+        ),
+      ).length,
+    );
+  }
+  data.push(totalRow);
+  return data;
 }
 
 function safeSpreadsheetValue(value: string): string {
@@ -1232,7 +1378,7 @@ export class CompatibilityReportsService {
                 QuestionId:
                   question.legacyId ?? question.externalId ?? question.id,
                 DataLabel: question.dataLabel,
-                Value: value.charAt(0).toUpperCase() + value.slice(1),
+                Value: value,
                 ResponseCaption: " ",
               },
             },
@@ -1460,12 +1606,21 @@ export class CompatibilityReportsService {
       data: [...options.values()]
         .map(({ question, values }) => ({
           QuestionId: question.legacyId ?? question.externalId ?? question.id,
-          filterLabel: categoryFromDataLabel(question.dataLabel)
-            .replace(/^Demographics\s*/u, "")
-            .trim(),
+          filterLabel:
+            metadataString(question.metadata, "filterLabel") ??
+            categoryFromDataLabel(question.dataLabel)
+              .replace(/^Demographics\s*/u, "")
+              .trim(),
           type: "Demographics",
           filterOption: [...values]
-            .sort((left, right) => left.localeCompare(right))
+            .sort((left, right) =>
+              compareDemographicOptions(
+                left,
+                right,
+                question,
+                context.program.year,
+              ),
+            )
             .map((Caption) => ({ Caption })),
         }))
         .sort((left, right) =>
@@ -1998,78 +2153,13 @@ export class CompatibilityReportsService {
         data: [],
       };
     }
-    const groups = new Map<string, DetailedRespondent[]>();
-    for (const respondent of respondents) {
-      const filterResponse = respondent.responses.find(
-        ({ questionId }) => questionId === filterQuestion.id,
-      );
-      const caption = filterResponse
-        ? demographicResponseCaption(
-            filterResponse.value,
-            filterQuestion,
-            context.program.year,
-          )
-        : null;
-      if (!caption) continue;
-      const existing = groups.get(caption) ?? [];
-      existing.push(respondent);
-      groups.set(caption, existing);
-    }
-    const headers = [...groups.keys()].sort((left, right) =>
-      left.localeCompare(right),
-    );
-    const answerOptions = this.questionOptions(
+    const data = buildResponseDetailTable(
       question,
+      filterQuestion,
       respondents,
       context.program.year,
+      version,
     );
-    const data: unknown[][] = [["", ...headers]];
-    for (const option of answerOptions) {
-      const row: unknown[] = [option];
-      for (const header of headers) {
-        const group = groups.get(header) ?? [];
-        const count = group.filter((respondent) => {
-          const answer = respondent.responses.find(
-            ({ questionId }) => questionId === question.id,
-          );
-          return (
-            demographicResponseCaption(
-              answer?.value ?? null,
-              question,
-              context.program.year,
-            ) === option
-          );
-        }).length;
-        if (group.length < privacyThreshold || count < privacyThreshold) {
-          row.push("x");
-          continue;
-        }
-        const percentile = `${Math.round((count * 100) / group.length)}%`;
-        row.push(
-          version === "1" ? { percentile, respondentCount: count } : percentile,
-        );
-      }
-      data.push(row);
-    }
-    const totalRow: unknown[] = ["Question Total"];
-    for (const header of headers) {
-      const group = groups.get(header) ?? [];
-      const answered = group.filter((respondent) =>
-        respondent.responses.some(
-          ({ questionId, value }) =>
-            questionId === question.id && Boolean(responseCaption(value)),
-        ),
-      ).length;
-      if (group.length < privacyThreshold || answered < privacyThreshold) {
-        totalRow.push("x");
-      } else {
-        const average = `${Math.round((answered * 100) / respondents.length)}%`;
-        totalRow.push(
-          version === "1" ? { average, respondentCount: answered } : average,
-        );
-      }
-    }
-    data.push(totalRow);
     return { success: true, message: "success", data };
   }
 
@@ -2844,6 +2934,8 @@ export class CompatibilityReportsService {
       },
     });
     const open = questions.filter((question) => {
+      const reportRole = metadataString(question.metadata, "reportRole");
+      if (reportRole) return reportRole === "verbatim";
       const type = question.type.toLowerCase();
       const questionTypeId = jsonObject(question.metadata).QuestionTypeId;
       return (
@@ -3041,39 +3133,6 @@ export class CompatibilityReportsService {
           );
         });
       }),
-    );
-  }
-
-  private questionOptions(
-    question: BenchmarkQuestion,
-    respondents: DetailedRespondent[],
-    programYear?: number | null,
-  ): string[] {
-    const configured = jsonObject(question.metadata).QuestionResponses;
-    const metadataOptions = Array.isArray(configured)
-      ? configured.flatMap((option) => {
-          if (
-            option !== null &&
-            typeof option === "object" &&
-            !Array.isArray(option)
-          ) {
-            const caption = option.Caption ?? option.caption;
-            return typeof caption === "string" ? [caption] : [];
-          }
-          return typeof option === "string" ? [option] : [];
-        })
-      : [];
-    const observed = respondents.flatMap((respondent) => {
-      const response = respondent.responses.find(
-        ({ questionId }) => questionId === question.id,
-      );
-      const caption = response
-        ? demographicResponseCaption(response.value, question, programYear)
-        : null;
-      return caption ? [caption] : [];
-    });
-    return [...new Set([...metadataOptions, ...observed])].sort((left, right) =>
-      left.localeCompare(right),
     );
   }
 

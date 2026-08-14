@@ -16,6 +16,12 @@ import type { Prisma } from "@prisma/client";
 import { hash } from "argon2";
 import AdmZip from "adm-zip";
 import ExcelJS from "exceljs";
+import {
+  cellScalar,
+  forEachXlsxSurveyRow,
+  readXlsxSurveyDefinition,
+  type XlsxQuestionDefinition,
+} from "../modules/imports/xlsx-survey-importer.js";
 
 const seedPrefix = "seed-br";
 const defaultSource = resolve(process.cwd(), "..", "Baton Rouge 24-26.zip");
@@ -49,6 +55,7 @@ interface LoadedSources {
 
 interface CliOptions {
   dryRun: boolean;
+  reportSourceExplicit: boolean;
   reportSource: string;
   skipIfPresent: boolean;
   source: string;
@@ -104,16 +111,7 @@ interface PublishedReports {
   workforceBenchmark: WorkforceSnapshot;
 }
 
-interface ParsedQuestion {
-  benchmarkValues?: Array<number | string>;
-  categoryLabel?: string;
-  column: number;
-  dataLabel: string;
-  caption: string;
-  filterLabel?: string;
-  id: string;
-  type: string;
-}
+type ParsedQuestion = XlsxQuestionDefinition;
 
 interface SurveyStats {
   organizations: number;
@@ -135,6 +133,7 @@ function parseOptions(argv: string[]): CliOptions {
     : defaultSource;
   let dryRun = false;
   let skipIfPresent = false;
+  let reportSourceExplicit = Boolean(process.env.BR_REPORT_SOURCE);
   let reportSource = process.env.BR_REPORT_SOURCE
     ? resolve(process.env.BR_REPORT_SOURCE)
     : dirname(source);
@@ -152,7 +151,7 @@ function parseOptions(argv: string[]): CliOptions {
       const value = argv[index + 1];
       if (!value) throw new Error("--source requires a file or directory path");
       source = resolve(value);
-      reportSource = dirname(source);
+      if (!reportSourceExplicit) reportSource = dirname(source);
       index += 1;
       continue;
     }
@@ -160,12 +159,19 @@ function parseOptions(argv: string[]): CliOptions {
       const value = argv[index + 1];
       if (!value) throw new Error("--report-source requires a directory path");
       reportSource = resolve(value);
+      reportSourceExplicit = true;
       index += 1;
       continue;
     }
     throw new Error(`Unknown argument: ${argument}`);
   }
-  return { dryRun, reportSource, skipIfPresent, source };
+  return {
+    dryRun,
+    reportSource,
+    reportSourceExplicit,
+    skipIfPresent,
+    source,
+  };
 }
 
 function titleCase(value: string): string {
@@ -428,31 +434,6 @@ function deterministicUuid(value: string): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
-function cellScalar(
-  value: ExcelJS.CellValue,
-): string | number | boolean | Date | null {
-  if (value === null || value === undefined) return null;
-  if (
-    typeof value === "string" ||
-    typeof value === "number" ||
-    typeof value === "boolean"
-  ) {
-    return value;
-  }
-  if (value instanceof Date) return value;
-  if ("result" in value) return cellScalar(value.result ?? null);
-  if ("text" in value && typeof value.text === "string") return value.text;
-  if ("richText" in value && Array.isArray(value.richText)) {
-    return value.richText.map((part) => part.text).join("");
-  }
-  return String(value);
-}
-
-function headerValue(row: ExcelJS.Row, column: number): string {
-  const value = cellScalar(row.getCell(column).value);
-  return value === null ? "" : String(value).trim();
-}
-
 function organizationKey(
   value: ExcelJS.CellValue,
   year: number,
@@ -475,13 +456,6 @@ function organizationKey(
     : `organization id ${year} ${String(fallback).trim()}`;
 }
 
-function sourceOrganizationValue(value: ExcelJS.CellValue): string | undefined {
-  const scalar = cellScalar(value);
-  if (scalar === null) return undefined;
-  const normalized = String(scalar).trim();
-  return normalized || undefined;
-}
-
 function isTargetOrganization(sourceName: string | undefined): boolean {
   return (
     sourceName === targetOrganizationName ||
@@ -499,46 +473,6 @@ function sourceOrganization(key: string, sourceName?: string) {
   };
 }
 
-function humanizeDataLabel(dataLabel: string): string {
-  return dataLabel
-    .replace(/^[qf]_/u, "")
-    .replace(/_ORGID.*$/iu, "")
-    .replace(/_/gu, " / ")
-    .replace(/([a-z])([A-Z])/gu, "$1 $2")
-    .replace(/\s+/gu, " ")
-    .trim();
-}
-
-function demographicFilterLabel(dataLabel: string): string | undefined {
-  const match = /^f_(?:Personal|Workplace)Demographics_([^_]+)/u.exec(
-    dataLabel,
-  );
-  if (!match?.[1]) return undefined;
-  return match[1]
-    .replace(/([a-z])([A-Z])/gu, "$1 $2")
-    .replace(/^./u, (letter) => letter.toUpperCase());
-}
-
-function questionType(dataLabel: string): string {
-  if (
-    /^q_(?:CoreEmployeeExperience|YourJob|CommunicationWorkplaceCulture|RelationshipManager|TrainingTechnologyProfessionalDevelopment|DiversityInclusion|Leadership|EmployeeBenefits|WorkLifeBalance)_/u.test(
-      dataLabel,
-    )
-  ) {
-    return "likert";
-  }
-  if (/^f_|Company Size|Sample size/iu.test(dataLabel)) return "demographic";
-  if (
-    /OpenEnded|Describe|AnythingElse|WinnerProfile|ContactInfo|Email|Phone|Address|Photo|Logo/iu.test(
-      dataLabel,
-    )
-  ) {
-    return "open-text";
-  }
-  if (dataLabel.startsWith("q_")) return "choice";
-  return "text";
-}
-
 function questionTypeId(type: string): number {
   if (type === "likert") return 5;
   if (type === "demographic") return 2;
@@ -546,56 +480,21 @@ function questionTypeId(type: string): number {
   return 1;
 }
 
-function sanitizedResponse(
-  value: ExcelJS.CellValue,
-  question: ParsedQuestion,
-): Prisma.InputJsonValue | null {
-  const scalar = cellScalar(value);
-  if (scalar === null || scalar === "") return null;
-  if (typeof scalar === "number")
-    return Number.isFinite(scalar) ? scalar : null;
-  if (typeof scalar === "boolean") return scalar;
-  if (scalar instanceof Date)
-    return `Synthetic date ${digest(question.dataLabel, 8)}`;
-  const trimmed = scalar.trim();
-  if (!trimmed) return null;
-  if (Object.hasOwn(standardOpenQuestionCaptions, question.dataLabel)) {
-    return trimmed;
-  }
-  if (/^-?\d+(?:\.\d+)?$/u.test(trimmed)) return Number(trimmed);
-  if (/^(?:yes|no|n\/a|not applicable|true|false)$/iu.test(trimmed)) {
-    return trimmed.toLowerCase();
-  }
-  const label =
-    question.type === "choice" || question.type === "demographic"
-      ? "Synthetic option"
-      : "Synthetic text";
-  return `${label} ${digest(`${question.dataLabel}:${trimmed}`, 10)}`;
+function questionReportRole(type: string): string {
+  if (type === "likert") return "core";
+  if (type === "demographic") return "demographic";
+  if (type === "open-text") return "verbatim";
+  return "other";
 }
 
-function parsedDate(value: ExcelJS.CellValue): Date | null {
-  const scalar = cellScalar(value);
-  if (scalar instanceof Date) return scalar;
-  if (typeof scalar !== "string" || !scalar.trim()) return null;
-  const timestamp = Date.parse(
-    scalar.includes("T") ? scalar : scalar.replace(" ", "T") + "Z",
-  );
-  return Number.isNaN(timestamp) ? null : new Date(timestamp);
-}
-
-function isCompleted(
-  value: ExcelJS.CellValue,
-  respondedAt: Date | null,
-): boolean {
-  const scalar = cellScalar(value);
-  if (respondedAt) return true;
-  if (typeof scalar === "number") return scalar > 0;
-  if (typeof scalar === "boolean") return scalar;
-  return (
-    typeof scalar === "string" &&
-    /^(?:1|yes|true|complete|completed)$/iu.test(scalar.trim())
-  );
-}
+const likertQuestionResponses = [
+  { Id: 1, Caption: "Strongly Disagree" },
+  { Id: 2, Caption: "Disagree" },
+  { Id: 3, Caption: "Neutral" },
+  { Id: 4, Caption: "Agree" },
+  { Id: 5, Caption: "Strongly Agree" },
+  { Id: 6, Caption: "N/A" },
+];
 
 function categoryFromOrdinal(
   value: number | undefined,
@@ -607,87 +506,6 @@ function categoryFromOrdinal(
   if (respondentCount < 50) return "Small";
   if (respondentCount < 250) return "Medium";
   return "Large";
-}
-
-function metadataColumn(headers: ExcelJS.Row, name: string): number {
-  for (let column = 1; column <= headers.cellCount; column += 1) {
-    if (headerValue(headers, column).toLowerCase() === name.toLowerCase())
-      return column;
-  }
-  return 0;
-}
-
-function firstNonEmptyCell(
-  row: ExcelJS.Row,
-  columns: number[],
-): ExcelJS.CellValue {
-  for (const column of columns) {
-    if (!column) continue;
-    const value = row.getCell(column).value;
-    const scalar = cellScalar(value);
-    if (scalar !== null && String(scalar).trim() !== "") return value;
-  }
-  return null;
-}
-
-function questionsForHeaders(
-  headers: ExcelJS.Row,
-  columnCount: number,
-  surveyId: string,
-): ParsedQuestion[] {
-  const scorePercentColumn = metadataColumn(headers, "Score %");
-  if (scorePercentColumn === 0) throw new Error('Missing "Score %" column');
-  const questions: ParsedQuestion[] = [];
-  const seen = new Set<string>();
-  for (
-    let column = scorePercentColumn + 1;
-    column <= columnCount;
-    column += 1
-  ) {
-    const original = headerValue(headers, column);
-    if (
-      !original ||
-      /^(?:organization_ID|organization_name)$/iu.test(original) ||
-      /_ORGID(?:_|$)/iu.test(original)
-    )
-      continue;
-    const dataLabel = seen.has(original)
-      ? `${original}__column_${column}`
-      : original;
-    const filterLabel = demographicFilterLabel(dataLabel);
-    seen.add(dataLabel);
-    questions.push({
-      column,
-      dataLabel,
-      caption:
-        standardOpenQuestionCaptions[dataLabel] ?? humanizeDataLabel(dataLabel),
-      ...(filterLabel ? { filterLabel } : {}),
-      id: deterministicUuid(`${surveyId}:question:${dataLabel}`),
-      type: questionType(dataLabel),
-    });
-  }
-  return questions;
-}
-
-async function forEachSourceRow(
-  source: SourceWorkbook,
-  callback: (row: ExcelJS.Row) => Promise<void> | void,
-): Promise<void> {
-  const reader = new ExcelJS.stream.xlsx.WorkbookReader(source.filePath, {
-    entries: "emit",
-    hyperlinks: "ignore",
-    sharedStrings: "cache",
-    styles: "ignore",
-    worksheets: "emit",
-  });
-  let found = false;
-  for await (const worksheet of reader) {
-    found = true;
-    for await (const row of worksheet) await callback(row);
-    break;
-  }
-  if (!found)
-    throw new Error(`${source.fileName}: workbook contains no worksheets`);
 }
 
 async function clearPreviousSeed(prisma: PrismaClient): Promise<void> {
@@ -884,107 +702,70 @@ async function seedSurvey(
     `${seedPrefix}:survey:${source.year}:${source.kind}`,
   );
   const programId = deterministicUuid(`${seedPrefix}:program:${source.year}`);
-  let questions: ParsedQuestion[] = [];
-  let organizationColumns: number[] = [];
-  let organizationIdColumns: number[] = [];
-  let respondentColumn = 0;
-  let languageColumn = 0;
-  let dateRespondedColumn = 0;
-  let reachedEndColumn = 0;
-  let companySizeColumn = 0;
+  const definition = await readXlsxSurveyDefinition({
+    fileName: source.fileName,
+    filePath: source.filePath,
+    questionId: (dataLabel) =>
+      deterministicUuid(`${surveyId}:question:${dataLabel}`),
+  });
+  const questions: ParsedQuestion[] = definition.questions;
+  for (const question of questions) {
+    question.caption =
+      standardOpenQuestionCaptions[question.dataLabel] ?? question.caption;
+  }
+  if (source.kind === "EFS") {
+    const publishedQuestions = reports.workforceBenchmark.categories.flatMap(
+      (category) =>
+        category.questions.map((question) => ({
+          ...question,
+          categoryLabel: category.title,
+        })),
+    );
+    const likertQuestions = questions.filter(
+      (question) => question.type === "likert",
+    );
+    if (likertQuestions.length !== publishedQuestions.length) {
+      throw new Error(
+        `${source.fileName}: ${likertQuestions.length} Likert questions do not match ` +
+          `${publishedQuestions.length} questions in ${reports.workforceBenchmark.sourceFile}`,
+      );
+    }
+    likertQuestions.forEach((question, index) => {
+      const published = publishedQuestions[index];
+      if (!published) return;
+      question.caption = published.text;
+      question.categoryLabel = published.categoryLabel;
+      question.benchmarkValues = published.dataValues;
+    });
+  }
   let respondentCount = 0;
   const organizationRows = new Map<string, OrganizationSourceDetails>();
-  await forEachSourceRow(source, (row) => {
-    if (row.number === 1) {
-      questions = questionsForHeaders(row, row.cellCount, surveyId);
-      if (source.kind === "EFS") {
-        const publishedQuestions =
-          reports.workforceBenchmark.categories.flatMap((category) =>
-            category.questions.map((question) => ({
-              ...question,
-              categoryLabel: category.title,
-            })),
-          );
-        const likertQuestions = questions.filter(
-          (question) => question.type === "likert",
-        );
-        if (likertQuestions.length !== publishedQuestions.length) {
-          throw new Error(
-            `${source.fileName}: ${likertQuestions.length} Likert questions do not match ` +
-              `${publishedQuestions.length} questions in ${reports.workforceBenchmark.sourceFile}`,
-          );
-        }
-        likertQuestions.forEach((question, index) => {
-          const published = publishedQuestions[index];
-          if (!published) return;
-          question.caption = published.text;
-          question.categoryLabel = published.categoryLabel;
-          question.benchmarkValues = published.dataValues;
-        });
-      }
-      organizationColumns = [
-        metadataColumn(row, "organization name"),
-        metadataColumn(row, "organization_name"),
-      ];
-      organizationIdColumns = [
-        metadataColumn(row, "organization ID2"),
-        metadataColumn(row, "organization ID"),
-        metadataColumn(row, "organization_ID"),
-      ];
-      respondentColumn = metadataColumn(row, "Respondent");
-      languageColumn = metadataColumn(row, "Language");
-      dateRespondedColumn = metadataColumn(row, "Date responded");
-      reachedEndColumn = metadataColumn(row, "Reached end");
-      companySizeColumn =
-        Array.from({ length: row.cellCount }, (_, index) => index + 1).find(
-          (column) => /Company Size/iu.test(headerValue(row, column)),
-        ) ?? 0;
-      return;
-    }
-    const sourceOrganizationNameValue = firstNonEmptyCell(
-      row,
-      organizationColumns,
-    );
-    const sourceOrganizationName = sourceOrganizationValue(
-      sourceOrganizationNameValue,
-    );
-    if (!isTargetOrganization(sourceOrganizationName)) return;
-    respondentCount += 1;
-    const sourceOrganizationIdValue = firstNonEmptyCell(
-      row,
-      organizationIdColumns,
-    );
-    const key = organizationKey(
-      targetOrganizationName,
-      source.year,
-      row.number,
-      sourceOrganizationIdValue,
-    );
-    let existing = organizationRows.get(key);
-    if (!existing) {
-      existing = {
-        count: 0,
-        sourceOrganizationName: targetOrganizationName,
-      };
-      const sourceOrganizationId = sourceOrganizationValue(
-        sourceOrganizationIdValue,
+  await forEachXlsxSurveyRow(
+    definition,
+    { includeOrganization: isTargetOrganization },
+    (row) => {
+      respondentCount += 1;
+      const key = organizationKey(
+        targetOrganizationName,
+        source.year,
+        row.rowNumber,
+        row.organizationId,
       );
-      if (sourceOrganizationId) {
-        existing.sourceOrganizationId = sourceOrganizationId;
+      let existing = organizationRows.get(key);
+      if (!existing) {
+        existing = {
+          count: 0,
+          sourceOrganizationName: targetOrganizationName,
+        };
+        if (row.organizationId) {
+          existing.sourceOrganizationId = row.organizationId;
+        }
       }
-    }
-    existing.count += 1;
-    const size = companySizeColumn
-      ? cellScalar(row.getCell(companySizeColumn).value)
-      : null;
-    if (typeof size === "number") existing.size = size;
-    organizationRows.set(key, existing);
-  });
-  if (!organizationColumns.some(Boolean) || !respondentColumn) {
-    throw new Error(
-      `${source.fileName}: required respondent/organization columns are missing`,
-    );
-  }
+      existing.count += 1;
+      if (row.companySize !== undefined) existing.size = row.companySize;
+      organizationRows.set(key, existing);
+    },
+  );
   if (organizationRows.size === 0) {
     throw new Error(
       `${source.fileName}: no rows found for organization "${targetOrganizationName}"`,
@@ -1134,7 +915,11 @@ async function seedSurvey(
         position: index + 1,
         metadata: {
           QuestionTypeId: questionTypeId(question.type),
+          reportRole: questionReportRole(question.type),
           anonymized: true,
+          ...(question.type === "likert"
+            ? { QuestionResponses: likertQuestionResponses }
+            : {}),
           ...(question.categoryLabel
             ? { categoryLabel: question.categoryLabel }
             : {}),
@@ -1171,92 +956,64 @@ async function seedSurvey(
     }
   };
 
-  await forEachSourceRow(source, async (row) => {
-    if (row.number === 1) return;
-    const sourceOrganizationNameValue = firstNonEmptyCell(
-      row,
-      organizationColumns,
-    );
-    const sourceOrganizationName = sourceOrganizationValue(
-      sourceOrganizationNameValue,
-    );
-    if (!isTargetOrganization(sourceOrganizationName)) return;
-    const organization = sourceOrganization(
-      organizationKey(
+  await forEachXlsxSurveyRow(
+    definition,
+    { includeOrganization: isTargetOrganization },
+    async (row) => {
+      const organization = sourceOrganization(
+        organizationKey(
+          targetOrganizationName,
+          source.year,
+          row.rowNumber,
+          row.organizationId,
+        ),
         targetOrganizationName,
-        source.year,
-        row.number,
-        firstNonEmptyCell(row, organizationIdColumns),
-      ),
-      targetOrganizationName,
-    );
-    const sourceRespondent = cellScalar(row.getCell(respondentColumn).value);
-    const respondentToken = digest(
-      `${source.year}:${source.kind}:${String(sourceRespondent ?? row.number)}`,
-      32,
-    );
-    const respondentId = deterministicUuid(
-      `${surveyId}:respondent:${respondentToken}`,
-    );
-    const respondedAt = dateRespondedColumn
-      ? parsedDate(row.getCell(dateRespondedColumn).value)
-      : null;
-    const completed = isCompleted(
-      reachedEndColumn ? row.getCell(reachedEndColumn).value : null,
-      respondedAt,
-    );
-    respondentBatch.push({
-      id: respondentId,
-      externalId: `${seedPrefix}-respondent-${respondentToken}`,
-      surveyId,
-      organizationId: organization.id,
-      status: completed ? "COMPLETED" : "INCOMPLETE",
-      locale: languageColumn
-        ? String(cellScalar(row.getCell(languageColumn).value) ?? "en").slice(
-            0,
-            12,
-          )
-        : "en",
-      respondentHash: digest(`respondent:${respondentToken}`, 64),
-      completedAt: completed
-        ? (respondedAt ?? new Date(`${source.year}-06-30T12:00:00.000Z`))
-        : null,
-      metadata: {
-        anonymized: true,
-        seed: seedPrefix,
-        sourceRow: row.number,
-        surveyKind: source.kind,
-      },
-    });
-    for (const question of questions) {
-      const value = sanitizedResponse(
-        row.getCell(question.column).value,
-        question,
       );
-      if (value === null) continue;
-      const score =
-        question.type === "likert" &&
-        typeof value === "number" &&
-        value >= 1 &&
-        value <= 5
-          ? value
-          : null;
-      responseBatch.push({
-        id: deterministicUuid(`${respondentId}:response:${question.id}`),
-        respondentId,
-        questionId: question.id,
-        value,
-        score,
+      const respondentToken = digest(
+        `${source.year}:${source.kind}:${String(row.respondent ?? row.rowNumber)}`,
+        32,
+      );
+      const respondentId = deterministicUuid(
+        `${surveyId}:respondent:${respondentToken}`,
+      );
+      respondentBatch.push({
+        id: respondentId,
+        externalId: `${seedPrefix}-respondent-${respondentToken}`,
+        surveyId,
+        organizationId: organization.id,
+        status: row.completed ? "COMPLETED" : "INCOMPLETE",
+        locale: row.language,
+        respondentHash: digest(`respondent:${respondentToken}`, 64),
+        completedAt: row.completed
+          ? (row.completedAt ?? new Date(`${source.year}-06-30T12:00:00.000Z`))
+          : null,
+        metadata: {
+          anonymized: true,
+          seed: seedPrefix,
+          sourceRow: row.rowNumber,
+          surveyKind: source.kind,
+        },
       });
-      responseCount += 1;
-    }
-    if (
-      respondentBatch.length >= 500 ||
-      responseBatch.length >= responseBatchSize
-    ) {
-      await flush();
-    }
-  });
+      for (const response of row.responses) {
+        responseBatch.push({
+          id: deterministicUuid(
+            `${respondentId}:response:${response.question.id}`,
+          ),
+          respondentId,
+          questionId: response.question.id,
+          value: response.value,
+          score: response.score,
+        });
+        responseCount += 1;
+      }
+      if (
+        respondentBatch.length >= 500 ||
+        responseBatch.length >= responseBatchSize
+      ) {
+        await flush();
+      }
+    },
+  );
   await flush();
   return {
     organizations: organizationRows.size,
@@ -1293,15 +1050,34 @@ async function main(): Promise<void> {
   const loadedSources = loadSourceWorkbooks(options.source);
   const sources = loadedSources.workbooks;
   const reportYears = [...new Set(sources.map(({ year }) => year))];
-  const reportSource =
+  let reportSource =
     extname(options.source).toLowerCase() === ".zip" &&
-    options.reportSource === dirname(options.source)
+    !options.reportSourceExplicit
       ? loadedSources.directory
       : options.reportSource;
-  const publishedReports = await loadPublishedReports(
-    reportSource,
-    reportYears,
-  );
+  let publishedReports: Map<number, PublishedReports>;
+  try {
+    publishedReports = await loadPublishedReports(reportSource, reportYears);
+  } catch (error) {
+    const canFallBackBesideArchive =
+      reportSource === loadedSources.directory &&
+      reportSource !== options.reportSource &&
+      error instanceof Error &&
+      error.message.startsWith(
+        "Published Baton Rouge report workbooks are missing",
+      );
+    if (!canFallBackBesideArchive) {
+      loadedSources.cleanup();
+      throw error;
+    }
+    reportSource = options.reportSource;
+    try {
+      publishedReports = await loadPublishedReports(reportSource, reportYears);
+    } catch (fallbackError) {
+      loadedSources.cleanup();
+      throw fallbackError;
+    }
+  }
   const actual = sources.map(
     ({ fileName, year, kind }) => `${year} ${kind} (${fileName})`,
   );
@@ -1318,9 +1094,7 @@ async function main(): Promise<void> {
   const projectId = deterministicUuid(`${seedPrefix}:project`);
   try {
     if (prisma) {
-      console.log(
-        "Replacing the previous Baton Rouge synthetic seed namespace...",
-      );
+      console.log("Replacing the previous Baton Rouge seed namespace...");
       await clearPreviousSeed(prisma);
       await prisma.project.create({
         data: {
