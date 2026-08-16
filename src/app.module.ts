@@ -33,6 +33,7 @@ import { UsersModule } from "./modules/users/users.module.js";
 import { AccountAccessModule } from "./modules/users/account-access.module.js";
 import { CompatibilityManagementModule } from "./modules/management/compatibility-management.module.js";
 import { CompatibilityAdminModule } from "./modules/management/compatibility-admin.module.js";
+import { HistoricalImportModule } from "./modules/imports/historical-import.module.js";
 import { BootstrapAdminService } from "./bootstrap-admin.service.js";
 
 @Module({
@@ -111,6 +112,7 @@ import { BootstrapAdminService } from "./bootstrap-admin.service.js";
     CompatibilityReportsModule,
     CompatibilityManagementModule,
     CompatibilityAdminModule,
+    HistoricalImportModule,
     CommerceModule,
     CompatibilityPaymentModule,
     IntegrationsModule,
