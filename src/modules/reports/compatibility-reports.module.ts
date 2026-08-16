@@ -61,6 +61,8 @@ const categoryOrder = [
   "Your Job",
   "Communication and Workplace",
   "Communication and Workplace Culture",
+  "Communication And Workplace",
+  "Communication And Workplace Culture",
   "Relationship With Your Manager",
   "Training, Technology and Professional Development",
   "Diversity and Inclusion",

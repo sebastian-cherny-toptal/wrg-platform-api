@@ -19,6 +19,8 @@
     "test": "tsx --test test/**/*.spec.ts",
     "test:unit": "tsx --test test/unit/**/*.spec.ts",
     "test:integration": "tsx --test test/integration/**/*.spec.ts",
+    "test:unit:compatibility1": "tsx --test test/unit/compatibility-reports.spec.ts",
+    "test:unit:compatibility2": "tsx --test test/unit/compatibility-heatmap.spec.ts",
     "check": "npm run lint && npm run typecheck && npm test && npm run build",
     "precommit": "npm run check",
     "prepare": "node -e \"const { spawnSync } = require('node:child_process'); const repository = spawnSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }); if (repository.status === 0 && repository.stdout.trim()) { const configured = spawnSync('git', ['config', 'core.hooksPath', '.githooks'], { cwd: repository.stdout.trim(), stdio: 'inherit' }); if (configured.error) throw configured.error; if (configured.status !== 0) process.exit(configured.status ?? 1); }\"",
