@@ -271,3 +271,259 @@ describe("compatibility heat-map endpoint", () => {
     }
   });
 });
+
+describe("CompatibilityReportsService.feedbackSections", () => {
+  it("groups the 2026 sample report into ordered sections", async () => {
+    const prisma = await fixturePrisma();
+    const service = new CompatibilityReportsService(prisma);
+    const fixture = prisma as unknown as {
+      question: { findMany: () => BenchmarkQuestion[] };
+      respondent: { findMany: () => DetailedRespondent[] };
+    };
+    const sections = (
+      service as unknown as {
+        feedbackSections: (
+          questions: BenchmarkQuestion[],
+          respondents: DetailedRespondent[],
+          programYear?: number | null,
+        ) => Array<{
+          title: string;
+          questions: Array<{
+            text: string;
+            agreement: number;
+            neutral: number;
+            disagreement: number;
+            demographicAgreement?: Record<string, number>;
+          }>;
+        }>;
+      }
+    ).feedbackSections(
+      fixture.question
+        .findMany()
+        .filter((question) => question.type === "likert"),
+      fixture.respondent.findMany(),
+      2026,
+    );
+    assert.deepEqual(
+      sections.map(({ title, questions }) => {
+        const summarize = (question: (typeof questions)[number] | undefined) =>
+          question && {
+            text: question.text,
+            agreement: question.agreement,
+            neutral: question.neutral,
+            disagreement: question.disagreement,
+          };
+        return {
+          title,
+          count: questions.length,
+          first: summarize(questions[0]),
+          last: summarize(questions.at(-1)),
+        };
+      }),
+      [
+        {
+          title: "Core Employee Experience",
+          count: 9,
+          first: {
+            text: "This organization's culture allows me to do my best work",
+            agreement: 87.5,
+            neutral: 12.5,
+            disagreement: 0,
+          },
+          last: {
+            text: "I find purpose in my work",
+            agreement: 100,
+            neutral: 0,
+            disagreement: 0,
+          },
+        },
+        {
+          title: "Your Job",
+          count: 12,
+          first: {
+            text: "I understand what is expected of me",
+            agreement: 100,
+            neutral: 0,
+            disagreement: 0,
+          },
+          last: {
+            text: "I understand how my work impacts organizational success",
+            agreement: 100,
+            neutral: 0,
+            disagreement: 0,
+          },
+        },
+        {
+          title: "Communication And Workplace Culture",
+          count: 11,
+          first: {
+            text: "This organization treats me with dignity, not as just a number",
+            agreement: 93.75,
+            neutral: 6.25,
+            disagreement: 0,
+          },
+          last: {
+            text: "I am kept aware of this organization's financial status",
+            agreement: 75,
+            neutral: 18.75,
+            disagreement: 6.25,
+          },
+        },
+        {
+          title: "Relationship With Your Manager",
+          count: 9,
+          first: {
+            text: "My manager lets me know when I need to improve my work",
+            agreement: 87.5,
+            neutral: 12.5,
+            disagreement: 0,
+          },
+          last: {
+            text: "My manager wants me to reach my full potential",
+            agreement: 87.5,
+            neutral: 12.5,
+            disagreement: 0,
+          },
+        },
+        {
+          title: "Employee Benefits",
+          count: 12,
+          first: {
+            text: "This organization's benefits package is satisfactory",
+            agreement: 100,
+            neutral: 0,
+            disagreement: 0,
+          },
+          last: {
+            text: "I like this organization's disability plan",
+            agreement: 93.75,
+            neutral: 6.25,
+            disagreement: 0,
+          },
+        },
+        {
+          title: "Work-Life Balance",
+          count: 6,
+          first: {
+            text: "I am satisfied with the number of hours I work each week",
+            agreement: 87.5,
+            neutral: 6.25,
+            disagreement: 6.25,
+          },
+          last: {
+            text: "My organization encourages me to take time off",
+            agreement: 93.75,
+            neutral: 6.25,
+            disagreement: 0,
+          },
+        },
+        {
+          title: "Diversity And Inclusion",
+          count: 6,
+          first: {
+            text: "This organization does not differentiate based on backgrounds, beliefs, or identities",
+            agreement: 100,
+            neutral: 0,
+            disagreement: 0,
+          },
+          last: {
+            text: "Discrimination is not tolerated in this organization",
+            agreement: 93.75,
+            neutral: 6.25,
+            disagreement: 0,
+          },
+        },
+        {
+          title: "Leadership Of This Organization",
+          count: 5,
+          first: {
+            text: "I believe in this organization's leadership",
+            agreement: 100,
+            neutral: 0,
+            disagreement: 0,
+          },
+          last: {
+            text: "This organization's long-term plans seem sensible",
+            agreement: 93.75,
+            neutral: 6.25,
+            disagreement: 0,
+          },
+        },
+        {
+          title: "Training, Technology And Professional Development",
+          count: 7,
+          first: {
+            text: "This organization assists me in following a well-aligned career path",
+            agreement: 75,
+            neutral: 25,
+            disagreement: 0,
+          },
+          last: {
+            text: "I have the software necessary to do my job efficiently",
+            agreement: 100,
+            neutral: 0,
+            disagreement: 0,
+          },
+        },
+      ],
+    );
+    const firstSection = sections[0];
+    assert.ok(firstSection);
+    const firstQuestion = firstSection.questions[0];
+    assert.ok(firstQuestion);
+    assert.ok(firstQuestion.demographicAgreement);
+    assert.equal(firstQuestion.demographicAgreement.Female, 85.71428571428571);
+    assert.equal(firstQuestion.demographicAgreement.Male, 100);
+  });
+});
+
+describe("CompatibilityReportsService.workbookDemographicsFromRespondents", () => {
+  it("groups gender and age generation values from the 2026 sample report", async () => {
+    const prisma = await fixturePrisma();
+    const service = new CompatibilityReportsService(prisma);
+    const fixture = prisma as unknown as {
+      respondent: { findMany: () => DetailedRespondent[] };
+    };
+    const respondents = fixture.respondent.findMany();
+    const demographics = (
+      service as unknown as {
+        workbookDemographicsFromRespondents: (
+          respondents: DetailedRespondent[],
+          programYear?: number | null,
+        ) => Array<{
+          title: string;
+          options: Array<{ label: string; count: number }>;
+        }>;
+      }
+    ).workbookDemographicsFromRespondents(respondents, 2026);
+
+    assert.deepEqual(
+      demographics.find(({ options }) =>
+        options.some(({ label }) => label === "Female"),
+      ),
+      {
+        title: "Personal Demographics",
+        options: [
+          { label: "Female", count: 14 },
+          { label: "Male", count: 2 },
+        ],
+      },
+    );
+    assert.deepEqual(
+      demographics.find(({ options }) =>
+        options.some(
+          ({ label }) => label === "Generation X (Born 1965 to 1980)",
+        ),
+      ),
+      {
+        title: "Personal Demographics",
+        options: [
+          { label: "Baby Boomers (Born 1946 to 1964)", count: 4 },
+          { label: "Generation X (Born 1965 to 1980)", count: 6 },
+          { label: "Millennials (Born 1981 to 1996)", count: 5 },
+          { label: "Generation Z (Born 1997 or later)", count: 1 },
+        ],
+      },
+    );
+  });
+});

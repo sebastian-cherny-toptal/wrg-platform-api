@@ -852,9 +852,9 @@ export class CompatibilityReportsService {
       );
       if (typeof response?.percentage === "number") return response.percentage;
       if (typeof response?.percent === "number") {
-        return Math.round(
-          response.percent <= 1 ? response.percent * 100 : response.percent,
-        );
+        return response.percent <= 1
+          ? response.percent * 100
+          : response.percent;
       }
       return 0;
     };
@@ -1678,9 +1678,7 @@ export class CompatibilityReportsService {
           this.numericMetadata(metrics, "National_EE_Count") ?? 0,
         responseRate:
           this.numericMetadata(metrics, "response_rate", "Response_Rate") ??
-          (sendSurvey === 0
-            ? 0
-            : Math.round((completedSurvey * 100) / sendSurvey)),
+          (sendSurvey === 0 ? 0 : (completedSurvey * 100) / sendSurvey),
       },
     };
   }
@@ -1751,7 +1749,7 @@ export class CompatibilityReportsService {
       data: {
         percentage: String(percentage),
         negativePercentage: String(
-          denominator === 0 ? 0 : Math.round((negative * 100) / denominator),
+          denominator === 0 ? 0 : (negative * 100) / denominator,
         ),
         totalRespondents,
         StartDate: context.survey.startsAt,
@@ -1867,7 +1865,7 @@ export class CompatibilityReportsService {
       respondents.length < privacyThreshold;
     const sourceSections = confidential
       ? []
-      : this.feedbackSections(questions, respondents);
+      : this.feedbackSections(questions, respondents, context.program.year);
     const demographics = this.workbookDemographicsFromRespondents(
       respondents,
       context.program.year,
@@ -1899,7 +1897,7 @@ export class CompatibilityReportsService {
     const isConfidential = respondents.length < privacyThreshold;
     const sections = isConfidential
       ? []
-      : this.feedbackSections(questions, respondents);
+      : this.feedbackSections(questions, respondents, context.program.year);
     const isFallback = false;
 
     const cells: Array<{
@@ -1952,7 +1950,7 @@ export class CompatibilityReportsService {
     }
 
     const percentage = (count: number) =>
-      total === 0 ? 0 : Math.round((count * 10_000) / total) / 100;
+      total === 0 ? 0 : (count * 100) / total;
     const positivePercentage = percentage(positive);
     const neutralPercentage = percentage(neutral);
     const negativePercentage = percentage(negative);
@@ -1979,6 +1977,7 @@ export class CompatibilityReportsService {
   private feedbackSections(
     questions: BenchmarkQuestion[],
     respondents: DetailedRespondent[],
+    programYear?: number | null,
   ): FeedbackWorkbookSection[] {
     const grouped = this.questionsByCategory(questions);
     return sortedCategories(grouped.keys()).map((title) => ({
@@ -1997,9 +1996,56 @@ export class CompatibilityReportsService {
           agreement: percentage("Agree"),
           neutral: percentage("Neutral"),
           disagreement: percentage("Disagree"),
+          demographicAgreement: this.demographicAgreementByQuestion(
+            question,
+            respondents,
+            programYear,
+          ),
         };
       }),
     }));
+  }
+
+  private demographicAgreementByQuestion(
+    question: BenchmarkQuestion,
+    respondents: DetailedRespondent[],
+    programYear?: number | null,
+  ): Record<string, number> {
+    const grouped = new Map<string, DetailedResponse[]>();
+    for (const respondent of respondents) {
+      const labels = new Set(
+        respondent.responses.flatMap((response) => {
+          if (
+            !/^f_/iu.test(response.question.dataLabel) ||
+            !this.isDemographicQuestion(response.question)
+          ) {
+            return [];
+          }
+          const label = demographicResponseCaption(
+            response.value,
+            response.question,
+            programYear,
+          );
+          return label ? [label] : [];
+        }),
+      );
+      const answer = respondent.responses.find(
+        (response) => response.questionId === question.id,
+      );
+      for (const label of labels) {
+        const responses = grouped.get(label) ?? [];
+        if (answer) responses.push(answer);
+        grouped.set(label, responses);
+      }
+    }
+    return Object.fromEntries(
+      [...grouped].map(([label, responses]) => [
+        label,
+        this.trendDistribution(responses).find(
+          (item) => item.ResponseCaption === "Agree",
+        )?.percentage ?? 0,
+      ]),
+    );
   }
 
   private workbookDemographicsFromRespondents(
@@ -3264,9 +3310,7 @@ export class CompatibilityReportsService {
     const matching = scoped.filter(
       (response) => responseCaption(response.value) === option,
     ).length;
-    return scoped.length === 0
-      ? 0
-      : Math.round((matching * 100) / scoped.length);
+    return scoped.length === 0 ? 0 : (matching * 100) / scoped.length;
   }
 
   private assertAdmin(principal: Principal): void {
@@ -3426,8 +3470,7 @@ export class CompatibilityReportsService {
     return (["Agree", "Neutral", "Disagree"] as const).map(
       (ResponseCaption) => {
         const numberOfResponses = counts[ResponseCaption];
-        const percentage =
-          total === 0 ? 0 : Math.round((numberOfResponses * 100) / total);
+        const percentage = total === 0 ? 0 : (numberOfResponses * 100) / total;
         return {
           ResponseCaption,
           numberOfResponses,
@@ -3528,10 +3571,7 @@ export class CompatibilityReportsService {
       .map(({ caption, count }) => ({
         ResponseCaption: caption,
         numberOfResponses: count,
-        percent:
-          denominator === 0
-            ? 0
-            : Math.round((count * 10000) / denominator) / 100,
+        percent: denominator === 0 ? 0 : (count * 100) / denominator,
         colorCode: responseColor(caption),
       }));
   }
@@ -3559,7 +3599,7 @@ export class CompatibilityReportsService {
         positive += 1;
       }
     }
-    return denominator === 0 ? 0 : Math.round((positive * 100) / denominator);
+    return denominator === 0 ? 0 : (positive * 100) / denominator;
   }
 
   private numericMetadata(
@@ -3625,7 +3665,7 @@ export class CompatibilityReportsService {
         positive += 1;
       }
     }
-    return denominator === 0 ? 0 : Math.round((positive * 100) / denominator);
+    return denominator === 0 ? 0 : (positive * 100) / denominator;
   }
 
   private questionsByCategory(
@@ -3702,7 +3742,7 @@ export class CompatibilityReportsService {
   }
 
   private publishedValue(value: number | string): number | string {
-    return typeof value === "number" ? Math.round(value) : value;
+    return typeof value === "number" ? value : value; // Do not round numbers
   }
 
   private tableHeaders(

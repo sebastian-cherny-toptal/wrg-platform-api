@@ -19,6 +19,7 @@ export interface FeedbackWorkbookSection {
     agreement: number;
     neutral: number;
     disagreement: number;
+    demographicAgreement?: Record<string, number>;
   }>;
 }
 
@@ -133,12 +134,30 @@ function demographicValue(
   demographics: ReportWorkbookDemographic[],
   cell: ExcelJS.Cell,
   baseValue: number,
+  demographicAgreement?: Record<string, number>,
 ): number | string {
   const label = cell.worksheet.getCell(3, cell.col).value;
   if (typeof label !== "string") return "x";
   const count = demographicCount(demographics, label);
   if (count === undefined || count < 5) return "x";
-  return baseValue;
+  return demographicAgreement?.[label] ?? baseValue;
+}
+
+function demographicAverageValue(
+  demographics: ReportWorkbookDemographic[],
+  cell: ExcelJS.Cell,
+  baseValue: number,
+  demographicAgreements: Array<Record<string, number> | undefined>,
+): number | string {
+  const label = cell.worksheet.getCell(3, cell.col).value;
+  if (typeof label !== "string") return "x";
+  const count = demographicCount(demographics, label);
+  if (count === undefined || count < 5) return "x";
+  const values = demographicAgreements.flatMap((agreement) => {
+    const value = agreement?.[label];
+    return typeof value === "number" ? [value] : [];
+  });
+  return values.length ? roundedAverage(values) : baseValue;
 }
 
 function roundedAverage(values: number[]): number {
@@ -278,7 +297,12 @@ export async function createWorkforceFeedbackWorkbook(input: {
       );
       if (valueIndex === 1) return agreement;
       if (valueIndex === 2) return disagreement;
-      return demographicValue(input.demographics, cell, agreement);
+      return demographicAverageValue(
+        input.demographics,
+        cell,
+        agreement,
+        section.questions.map((item) => item.demographicAgreement),
+      );
     }
     const questionValueMatch = /^QUESTION_(\d+)_VALUE_(\d+)$/u.exec(name);
     if (questionValueMatch) {
@@ -287,7 +311,12 @@ export async function createWorkforceFeedbackWorkbook(input: {
       const valueIndex = Number(questionValueMatch[2]);
       if (valueIndex === 1) return question.agreement;
       if (valueIndex === 2) return question.disagreement;
-      return demographicValue(input.demographics, cell, question.agreement);
+      return demographicValue(
+        input.demographics,
+        cell,
+        question.agreement,
+        question.demographicAgreement,
+      );
     }
     const surveyAverageMatch = /^SURVEY_AVERAGE_VALUE_(\d+)$/u.exec(name);
     if (surveyAverageMatch) {
@@ -298,7 +327,12 @@ export async function createWorkforceFeedbackWorkbook(input: {
       );
       if (valueIndex === 1) return agreement;
       if (valueIndex === 2) return disagreement;
-      return demographicValue(input.demographics, cell, agreement);
+      return demographicAverageValue(
+        input.demographics,
+        cell,
+        agreement,
+        questions.map((question) => question.demographicAgreement),
+      );
     }
     return null;
   });
