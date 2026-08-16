@@ -227,7 +227,7 @@ describe("reusable XLSX survey import", () => {
         2026,
       ),
       [
-        ["", "Male", "Female"],
+        ["", "Female", "Male"],
         ["Strongly Disagree", { percentile: "0%", respondentCount: 0 }, "x"],
         ["Disagree", { percentile: "0%", respondentCount: 0 }, "x"],
         ["Neutral", { percentile: "14.29%", respondentCount: 2 }, "x"],

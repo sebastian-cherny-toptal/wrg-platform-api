@@ -12,8 +12,8 @@ describe("demographic response labels", () => {
       metadata: { QuestionTypeId: 2 },
     };
 
-    assert.equal(demographicResponseCaption(1, question, 2025), "Male");
-    assert.equal(demographicResponseCaption(2, question, 2025), "Female");
+    assert.equal(demographicResponseCaption(1, question, 2025), "Female");
+    assert.equal(demographicResponseCaption(2, question, 2025), "Male");
     assert.equal(demographicResponseCaption(3, question, 2025), "Non-Binary");
     assert.equal(
       demographicResponseCaption(4, question, 2025),
