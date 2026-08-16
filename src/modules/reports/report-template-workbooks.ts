@@ -9,6 +9,7 @@ export interface ReportWorkbookMetadata {
 
 export interface ReportWorkbookDemographic {
   title: string;
+  groupLabel: string;
   options: Array<{ label: string; count: number }>;
 }
 
@@ -19,7 +20,7 @@ export interface FeedbackWorkbookSection {
     agreement: number;
     neutral: number;
     disagreement: number;
-    demographicAgreement?: Record<string, number>;
+    demographicAgreement?: Record<string, Record<string, number>>;
   }>;
 }
 
@@ -122,39 +123,71 @@ async function workbookBuffer(workbook: ExcelJS.Workbook): Promise<Buffer> {
 function demographicCount(
   demographics: ReportWorkbookDemographic[],
   label: string,
+  groupLabel?: string,
 ): number | undefined {
+  const normalizedGroupLabel = groupLabel?.trim().toLowerCase();
   for (const demographic of demographics) {
+    if (
+      normalizedGroupLabel &&
+      demographic.groupLabel.trim().toLowerCase() !== normalizedGroupLabel
+    ) {
+      continue;
+    }
     const option = demographic.options.find((item) => item.label === label);
     if (option) return option.count;
   }
   return undefined;
 }
 
+function demographicGroupLabel(cell: ExcelJS.Cell): string | undefined {
+  const value = cell.worksheet.getCell(2, cell.col).value;
+  return typeof value === "string" ? value : undefined;
+}
+
+function subgroupAgreement(
+  demographicAgreement: Record<string, Record<string, number>> | undefined,
+  groupLabel: string | undefined,
+  label: string,
+): number | undefined {
+  if (!demographicAgreement || !groupLabel) return undefined;
+  const normalizedGroupLabel = groupLabel.trim().toLowerCase();
+  const group = Object.entries(demographicAgreement).find(
+    ([key]) => key.trim().toLowerCase() === normalizedGroupLabel,
+  )?.[1];
+  return group?.[label];
+}
+
 function demographicValue(
   demographics: ReportWorkbookDemographic[],
   cell: ExcelJS.Cell,
   baseValue: number,
-  demographicAgreement?: Record<string, number>,
+  demographicAgreement?: Record<string, Record<string, number>>,
 ): number | string {
   const label = cell.worksheet.getCell(3, cell.col).value;
   if (typeof label !== "string") return "x";
-  const count = demographicCount(demographics, label);
+  const groupLabel = demographicGroupLabel(cell);
+  const count = demographicCount(demographics, label, groupLabel);
   if (count === undefined || count < 5) return "x";
-  return demographicAgreement?.[label] ?? baseValue;
+  return (
+    subgroupAgreement(demographicAgreement, groupLabel, label) ?? baseValue
+  );
 }
 
 function demographicAverageValue(
   demographics: ReportWorkbookDemographic[],
   cell: ExcelJS.Cell,
   baseValue: number,
-  demographicAgreements: Array<Record<string, number> | undefined>,
+  demographicAgreements: Array<
+    Record<string, Record<string, number>> | undefined
+  >,
 ): number | string {
   const label = cell.worksheet.getCell(3, cell.col).value;
   if (typeof label !== "string") return "x";
-  const count = demographicCount(demographics, label);
+  const groupLabel = demographicGroupLabel(cell);
+  const count = demographicCount(demographics, label, groupLabel);
   if (count === undefined || count < 5) return "x";
   const values = demographicAgreements.flatMap((agreement) => {
-    const value = agreement?.[label];
+    const value = subgroupAgreement(agreement, groupLabel, label);
     return typeof value === "number" ? [value] : [];
   });
   return values.length ? roundedAverage(values) : baseValue;
@@ -263,7 +296,12 @@ export async function createWorkforceFeedbackWorkbook(input: {
       if (cell.fullAddress.col === 4) return input.totalResponses;
       const label = cell.worksheet.getCell(3, cell.fullAddress.col).value;
       if (typeof label !== "string") return 0;
-      const count = demographicCount(input.demographics, label) ?? 0;
+      const count =
+        demographicCount(
+          input.demographics,
+          label,
+          demographicGroupLabel(cell),
+        ) ?? 0;
       return count;
     }
     const categoryMatch = /^CATEGORY_(\d+)_TITLE$/u.exec(name);

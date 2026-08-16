@@ -452,6 +452,22 @@ const standardDemographicOptions: Record<string, string[]> = {
   ],
 };
 
+function demographicGroupFromDataLabel(dataLabel: string): string {
+  const normalized = dataLabel.trim().toLowerCase();
+  const groups: Array<[string, string]> = [
+    ["gender", "Gender"],
+    ["agegeneration", "Age Generation"],
+    ["ethnicorigin", "Race/Ethnicity"],
+    ["race", "Race/Ethnicity"],
+    ["employmentlength", "Employment Length"],
+    ["jobstatus", "Job Status"],
+    ["workplacesetting", "Workplace Setting"],
+    ["joblevel", "Job Level"],
+    ["department", "Department"],
+  ];
+  return groups.find(([key]) => normalized.includes(key))?.[1] ?? dataLabel;
+}
+
 const legacyEthnicityOptions = [
   "Asian",
   "Bi-Racial or Multi-Racial",
@@ -831,6 +847,7 @@ export class CompatibilityReportsService {
     const response = await this.demographicResponseCounts(principal, query);
     return response.data.map((demographic) => ({
       title: demographic.categoryLabel,
+      groupLabel: demographic.categoryLabel,
       options: demographic.options.map((option) => ({
         label: option.Caption,
         count: option.Count,
@@ -2010,40 +2027,55 @@ export class CompatibilityReportsService {
     question: BenchmarkQuestion,
     respondents: DetailedRespondent[],
     programYear?: number | null,
-  ): Record<string, number> {
-    const grouped = new Map<string, DetailedResponse[]>();
+  ): Record<string, Record<string, number>> {
+    const grouped = new Map<string, Map<string, DetailedResponse[]>>();
     for (const respondent of respondents) {
-      const labels = new Set(
-        respondent.responses.flatMap((response) => {
-          if (
-            !/^f_/iu.test(response.question.dataLabel) ||
-            !this.isDemographicQuestion(response.question)
-          ) {
-            return [];
-          }
-          const label = demographicResponseCaption(
-            response.value,
-            response.question,
-            programYear,
-          );
-          return label ? [label] : [];
-        }),
-      );
+      const labels = new Map<string, Set<string>>();
+      for (const response of respondent.responses) {
+        if (
+          !/^f_/iu.test(response.question.dataLabel) ||
+          !this.isDemographicQuestion(response.question)
+        ) {
+          continue;
+        }
+        const label = demographicResponseCaption(
+          response.value,
+          response.question,
+          programYear,
+        );
+        if (!label) continue;
+        const group = demographicGroupFromDataLabel(
+          response.question.dataLabel,
+        );
+        const groupLabels = labels.get(group) ?? new Set<string>();
+        groupLabels.add(label);
+        labels.set(group, groupLabels);
+      }
       const answer = respondent.responses.find(
         (response) => response.questionId === question.id,
       );
-      for (const label of labels) {
-        const responses = grouped.get(label) ?? [];
-        if (answer) responses.push(answer);
-        grouped.set(label, responses);
+      for (const [group, groupLabels] of labels) {
+        const groupedByLabel =
+          grouped.get(group) ?? new Map<string, DetailedResponse[]>();
+        for (const label of groupLabels) {
+          const responses = groupedByLabel.get(label) ?? [];
+          if (answer) responses.push(answer);
+          groupedByLabel.set(label, responses);
+        }
+        grouped.set(group, groupedByLabel);
       }
     }
     return Object.fromEntries(
-      [...grouped].map(([label, responses]) => [
-        label,
-        this.trendDistribution(responses).find(
-          (item) => item.ResponseCaption === "Agree",
-        )?.percentage ?? 0,
+      [...grouped].map(([group, labels]) => [
+        group,
+        Object.fromEntries(
+          [...labels].map(([label, responses]) => [
+            label,
+            this.trendDistribution(responses).find(
+              (item) => item.ResponseCaption === "Agree",
+            )?.percentage ?? 0,
+          ]),
+        ),
       ]),
     );
   }
@@ -2074,6 +2106,7 @@ export class CompatibilityReportsService {
       .sort(([, left], [, right]) => left.position - right.position)
       .map(([questionId, question]) => ({
         title: this.demographicLabel(question),
+        groupLabel: demographicGroupFromDataLabel(question.dataLabel),
         options: [...(counts.get(questionId) ?? new Map<string, number>())]
           .sort(([left], [right]) =>
             compareDemographicOptions(left, right, question, programYear),

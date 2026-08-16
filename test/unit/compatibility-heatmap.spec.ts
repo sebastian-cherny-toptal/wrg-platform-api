@@ -293,7 +293,7 @@ describe("CompatibilityReportsService.feedbackSections", () => {
             agreement: number;
             neutral: number;
             disagreement: number;
-            demographicAgreement?: Record<string, number>;
+            demographicAgreement?: Record<string, Record<string, number>>;
           }>;
         }>;
       }
@@ -467,13 +467,875 @@ describe("CompatibilityReportsService.feedbackSections", () => {
         },
       ],
     );
+    assert.deepEqual(
+      sections.map(({ title, questions }) => ({
+        title,
+        first: questions[0]?.demographicAgreement,
+        last: questions.at(-1)?.demographicAgreement,
+      })),
+      [
+        {
+          title: "Core Employee Experience",
+          first: {
+            Gender: {
+              Female: 85.71428571428571,
+              Male: 100,
+            },
+            "Age Generation": {
+              "Generation Z (Born 1997 or later)": 100,
+              "Millennials (Born 1981 to 1996)": 80,
+              "Baby Boomers (Born 1946 to 1964)": 100,
+              "Generation X (Born 1965 to 1980)": 83.33333333333333,
+            },
+            "Race/Ethnicity": {
+              White: 87.5,
+            },
+            "Employment Length": {
+              "One year to less than two years": 100,
+              "Two years to less than five years": 100,
+              "Five years to less than ten years": 85.71428571428571,
+              "Less than one year": 100,
+              "Ten years or more": 75,
+            },
+            "Job Status": {
+              "Full-Time": 86.66666666666667,
+              "Part-Time": 100,
+            },
+            "Workplace Setting": {
+              "Hybrid (a blend of on-site and remote)": 90,
+              "Fully on-site": 100,
+              "Fully remote": 0,
+            },
+            "Job Level": {
+              Other: 100,
+              "Administrative/Clerical": 80,
+              "Department Manager/Supervisor": 100,
+              "Production/Service": 75,
+            },
+            Department: {
+              "Business Development/Sales": 100,
+              "Customer Service/Care/Support": 75,
+              "Human Resources": 100,
+              Other: 100,
+              Production: 80,
+              "Public Relations/Marketing": 100,
+            },
+          },
+          last: {
+            Gender: {
+              Female: 100,
+              Male: 100,
+            },
+            "Age Generation": {
+              "Generation Z (Born 1997 or later)": 100,
+              "Millennials (Born 1981 to 1996)": 100,
+              "Baby Boomers (Born 1946 to 1964)": 100,
+              "Generation X (Born 1965 to 1980)": 100,
+            },
+            "Race/Ethnicity": {
+              White: 100,
+            },
+            "Employment Length": {
+              "One year to less than two years": 100,
+              "Two years to less than five years": 100,
+              "Five years to less than ten years": 100,
+              "Less than one year": 100,
+              "Ten years or more": 100,
+            },
+            "Job Status": {
+              "Full-Time": 100,
+              "Part-Time": 100,
+            },
+            "Workplace Setting": {
+              "Hybrid (a blend of on-site and remote)": 100,
+              "Fully on-site": 100,
+              "Fully remote": 100,
+            },
+            "Job Level": {
+              Other: 100,
+              "Administrative/Clerical": 100,
+              "Department Manager/Supervisor": 100,
+              "Production/Service": 100,
+            },
+            Department: {
+              "Business Development/Sales": 100,
+              "Customer Service/Care/Support": 100,
+              "Human Resources": 100,
+              Other: 100,
+              Production: 100,
+              "Public Relations/Marketing": 100,
+            },
+          },
+        },
+        {
+          title: "Your Job",
+          first: {
+            Gender: {
+              Female: 100,
+              Male: 100,
+            },
+            "Age Generation": {
+              "Generation Z (Born 1997 or later)": 100,
+              "Millennials (Born 1981 to 1996)": 100,
+              "Baby Boomers (Born 1946 to 1964)": 100,
+              "Generation X (Born 1965 to 1980)": 100,
+            },
+            "Race/Ethnicity": {
+              White: 100,
+            },
+            "Employment Length": {
+              "One year to less than two years": 100,
+              "Two years to less than five years": 100,
+              "Five years to less than ten years": 100,
+              "Less than one year": 100,
+              "Ten years or more": 100,
+            },
+            "Job Status": {
+              "Full-Time": 100,
+              "Part-Time": 100,
+            },
+            "Workplace Setting": {
+              "Hybrid (a blend of on-site and remote)": 100,
+              "Fully on-site": 100,
+              "Fully remote": 100,
+            },
+            "Job Level": {
+              Other: 100,
+              "Administrative/Clerical": 100,
+              "Department Manager/Supervisor": 100,
+              "Production/Service": 100,
+            },
+            Department: {
+              "Business Development/Sales": 100,
+              "Customer Service/Care/Support": 100,
+              "Human Resources": 100,
+              Other: 100,
+              Production: 100,
+              "Public Relations/Marketing": 100,
+            },
+          },
+          last: {
+            Gender: {
+              Female: 100,
+              Male: 100,
+            },
+            "Age Generation": {
+              "Generation Z (Born 1997 or later)": 100,
+              "Millennials (Born 1981 to 1996)": 100,
+              "Baby Boomers (Born 1946 to 1964)": 100,
+              "Generation X (Born 1965 to 1980)": 100,
+            },
+            "Race/Ethnicity": {
+              White: 100,
+            },
+            "Employment Length": {
+              "One year to less than two years": 100,
+              "Two years to less than five years": 100,
+              "Five years to less than ten years": 100,
+              "Less than one year": 100,
+              "Ten years or more": 100,
+            },
+            "Job Status": {
+              "Full-Time": 100,
+              "Part-Time": 100,
+            },
+            "Workplace Setting": {
+              "Hybrid (a blend of on-site and remote)": 100,
+              "Fully on-site": 100,
+              "Fully remote": 100,
+            },
+            "Job Level": {
+              Other: 100,
+              "Administrative/Clerical": 100,
+              "Department Manager/Supervisor": 100,
+              "Production/Service": 100,
+            },
+            Department: {
+              "Business Development/Sales": 100,
+              "Customer Service/Care/Support": 100,
+              "Human Resources": 100,
+              Other: 100,
+              Production: 100,
+              "Public Relations/Marketing": 100,
+            },
+          },
+        },
+        {
+          title: "Communication And Workplace Culture",
+          first: {
+            Gender: {
+              Female: 92.85714285714286,
+              Male: 100,
+            },
+            "Age Generation": {
+              "Generation Z (Born 1997 or later)": 100,
+              "Millennials (Born 1981 to 1996)": 100,
+              "Baby Boomers (Born 1946 to 1964)": 100,
+              "Generation X (Born 1965 to 1980)": 83.33333333333333,
+            },
+            "Race/Ethnicity": {
+              White: 93.75,
+            },
+            "Employment Length": {
+              "One year to less than two years": 100,
+              "Two years to less than five years": 100,
+              "Five years to less than ten years": 85.71428571428571,
+              "Less than one year": 100,
+              "Ten years or more": 100,
+            },
+            "Job Status": {
+              "Full-Time": 93.33333333333333,
+              "Part-Time": 100,
+            },
+            "Workplace Setting": {
+              "Hybrid (a blend of on-site and remote)": 100,
+              "Fully on-site": 100,
+              "Fully remote": 0,
+            },
+            "Job Level": {
+              Other: 100,
+              "Administrative/Clerical": 80,
+              "Department Manager/Supervisor": 100,
+              "Production/Service": 100,
+            },
+            Department: {
+              "Business Development/Sales": 100,
+              "Customer Service/Care/Support": 75,
+              "Human Resources": 100,
+              Other: 100,
+              Production: 100,
+              "Public Relations/Marketing": 100,
+            },
+          },
+          last: {
+            Gender: {
+              Female: 71.42857142857143,
+              Male: 100,
+            },
+            "Age Generation": {
+              "Generation Z (Born 1997 or later)": 100,
+              "Millennials (Born 1981 to 1996)": 80,
+              "Baby Boomers (Born 1946 to 1964)": 75,
+              "Generation X (Born 1965 to 1980)": 66.66666666666667,
+            },
+            "Race/Ethnicity": {
+              White: 75,
+            },
+            "Employment Length": {
+              "One year to less than two years": 100,
+              "Two years to less than five years": 33.333333333333336,
+              "Five years to less than ten years": 85.71428571428571,
+              "Less than one year": 100,
+              "Ten years or more": 75,
+            },
+            "Job Status": {
+              "Full-Time": 73.33333333333333,
+              "Part-Time": 100,
+            },
+            "Workplace Setting": {
+              "Hybrid (a blend of on-site and remote)": 80,
+              "Fully on-site": 80,
+              "Fully remote": 0,
+            },
+            "Job Level": {
+              Other: 100,
+              "Administrative/Clerical": 60,
+              "Department Manager/Supervisor": 100,
+              "Production/Service": 50,
+            },
+            Department: {
+              "Business Development/Sales": 100,
+              "Customer Service/Care/Support": 75,
+              "Human Resources": 100,
+              Other: 75,
+              Production: 60,
+              "Public Relations/Marketing": 100,
+            },
+          },
+        },
+        {
+          title: "Relationship With Your Manager",
+          first: {
+            Gender: {
+              Female: 85.71428571428571,
+              Male: 100,
+            },
+            "Age Generation": {
+              "Generation Z (Born 1997 or later)": 100,
+              "Millennials (Born 1981 to 1996)": 100,
+              "Baby Boomers (Born 1946 to 1964)": 75,
+              "Generation X (Born 1965 to 1980)": 83.33333333333333,
+            },
+            "Race/Ethnicity": {
+              White: 87.5,
+            },
+            "Employment Length": {
+              "One year to less than two years": 100,
+              "Two years to less than five years": 100,
+              "Five years to less than ten years": 71.42857142857143,
+              "Less than one year": 100,
+              "Ten years or more": 100,
+            },
+            "Job Status": {
+              "Full-Time": 86.66666666666667,
+              "Part-Time": 100,
+            },
+            "Workplace Setting": {
+              "Hybrid (a blend of on-site and remote)": 100,
+              "Fully on-site": 80,
+              "Fully remote": 0,
+            },
+            "Job Level": {
+              Other: 66.66666666666667,
+              "Administrative/Clerical": 80,
+              "Department Manager/Supervisor": 100,
+              "Production/Service": 100,
+            },
+            Department: {
+              "Business Development/Sales": 100,
+              "Customer Service/Care/Support": 75,
+              "Human Resources": 100,
+              Other: 75,
+              Production: 100,
+              "Public Relations/Marketing": 100,
+            },
+          },
+          last: {
+            Gender: {
+              Female: 85.71428571428571,
+              Male: 100,
+            },
+            "Age Generation": {
+              "Generation Z (Born 1997 or later)": 100,
+              "Millennials (Born 1981 to 1996)": 100,
+              "Baby Boomers (Born 1946 to 1964)": 75,
+              "Generation X (Born 1965 to 1980)": 83.33333333333333,
+            },
+            "Race/Ethnicity": {
+              White: 87.5,
+            },
+            "Employment Length": {
+              "One year to less than two years": 100,
+              "Two years to less than five years": 100,
+              "Five years to less than ten years": 71.42857142857143,
+              "Less than one year": 100,
+              "Ten years or more": 100,
+            },
+            "Job Status": {
+              "Full-Time": 86.66666666666667,
+              "Part-Time": 100,
+            },
+            "Workplace Setting": {
+              "Hybrid (a blend of on-site and remote)": 100,
+              "Fully on-site": 80,
+              "Fully remote": 0,
+            },
+            "Job Level": {
+              Other: 66.66666666666667,
+              "Administrative/Clerical": 80,
+              "Department Manager/Supervisor": 100,
+              "Production/Service": 100,
+            },
+            Department: {
+              "Business Development/Sales": 100,
+              "Customer Service/Care/Support": 75,
+              "Human Resources": 100,
+              Other: 75,
+              Production: 100,
+              "Public Relations/Marketing": 100,
+            },
+          },
+        },
+        {
+          title: "Employee Benefits",
+          first: {
+            Gender: {
+              Female: 100,
+              Male: 100,
+            },
+            "Age Generation": {
+              "Generation Z (Born 1997 or later)": 100,
+              "Millennials (Born 1981 to 1996)": 100,
+              "Baby Boomers (Born 1946 to 1964)": 100,
+              "Generation X (Born 1965 to 1980)": 100,
+            },
+            "Race/Ethnicity": {
+              White: 100,
+            },
+            "Employment Length": {
+              "One year to less than two years": 100,
+              "Two years to less than five years": 100,
+              "Five years to less than ten years": 100,
+              "Less than one year": 100,
+              "Ten years or more": 100,
+            },
+            "Job Status": {
+              "Full-Time": 100,
+              "Part-Time": 100,
+            },
+            "Workplace Setting": {
+              "Hybrid (a blend of on-site and remote)": 100,
+              "Fully on-site": 100,
+              "Fully remote": 100,
+            },
+            "Job Level": {
+              Other: 100,
+              "Administrative/Clerical": 100,
+              "Department Manager/Supervisor": 100,
+              "Production/Service": 100,
+            },
+            Department: {
+              "Business Development/Sales": 100,
+              "Customer Service/Care/Support": 100,
+              "Human Resources": 100,
+              Other: 100,
+              Production: 100,
+              "Public Relations/Marketing": 100,
+            },
+          },
+          last: {
+            Gender: {
+              Female: 92.85714285714286,
+              Male: 100,
+            },
+            "Age Generation": {
+              "Generation Z (Born 1997 or later)": 100,
+              "Millennials (Born 1981 to 1996)": 100,
+              "Baby Boomers (Born 1946 to 1964)": 75,
+              "Generation X (Born 1965 to 1980)": 100,
+            },
+            "Race/Ethnicity": {
+              White: 93.75,
+            },
+            "Employment Length": {
+              "One year to less than two years": 100,
+              "Two years to less than five years": 66.66666666666667,
+              "Five years to less than ten years": 100,
+              "Less than one year": 100,
+              "Ten years or more": 100,
+            },
+            "Job Status": {
+              "Full-Time": 93.33333333333333,
+              "Part-Time": 100,
+            },
+            "Workplace Setting": {
+              "Hybrid (a blend of on-site and remote)": 90,
+              "Fully on-site": 100,
+              "Fully remote": 100,
+            },
+            "Job Level": {
+              Other: 100,
+              "Administrative/Clerical": 100,
+              "Department Manager/Supervisor": 100,
+              "Production/Service": 75,
+            },
+            Department: {
+              "Business Development/Sales": 100,
+              "Customer Service/Care/Support": 100,
+              "Human Resources": 100,
+              Other: 100,
+              Production: 80,
+              "Public Relations/Marketing": 100,
+            },
+          },
+        },
+        {
+          title: "Work-Life Balance",
+          first: {
+            Gender: {
+              Female: 85.71428571428571,
+              Male: 100,
+            },
+            "Age Generation": {
+              "Generation Z (Born 1997 or later)": 100,
+              "Millennials (Born 1981 to 1996)": 80,
+              "Baby Boomers (Born 1946 to 1964)": 100,
+              "Generation X (Born 1965 to 1980)": 83.33333333333333,
+            },
+            "Race/Ethnicity": {
+              White: 87.5,
+            },
+            "Employment Length": {
+              "One year to less than two years": 100,
+              "Two years to less than five years": 100,
+              "Five years to less than ten years": 85.71428571428571,
+              "Less than one year": 100,
+              "Ten years or more": 75,
+            },
+            "Job Status": {
+              "Full-Time": 86.66666666666667,
+              "Part-Time": 100,
+            },
+            "Workplace Setting": {
+              "Hybrid (a blend of on-site and remote)": 90,
+              "Fully on-site": 100,
+              "Fully remote": 0,
+            },
+            "Job Level": {
+              Other: 100,
+              "Administrative/Clerical": 80,
+              "Department Manager/Supervisor": 100,
+              "Production/Service": 75,
+            },
+            Department: {
+              "Business Development/Sales": 100,
+              "Customer Service/Care/Support": 75,
+              "Human Resources": 100,
+              Other: 100,
+              Production: 80,
+              "Public Relations/Marketing": 100,
+            },
+          },
+          last: {
+            Gender: {
+              Female: 92.85714285714286,
+              Male: 100,
+            },
+            "Age Generation": {
+              "Generation Z (Born 1997 or later)": 100,
+              "Millennials (Born 1981 to 1996)": 100,
+              "Baby Boomers (Born 1946 to 1964)": 100,
+              "Generation X (Born 1965 to 1980)": 83.33333333333333,
+            },
+            "Race/Ethnicity": {
+              White: 93.75,
+            },
+            "Employment Length": {
+              "One year to less than two years": 100,
+              "Two years to less than five years": 100,
+              "Five years to less than ten years": 85.71428571428571,
+              "Less than one year": 100,
+              "Ten years or more": 100,
+            },
+            "Job Status": {
+              "Full-Time": 93.33333333333333,
+              "Part-Time": 100,
+            },
+            "Workplace Setting": {
+              "Hybrid (a blend of on-site and remote)": 100,
+              "Fully on-site": 100,
+              "Fully remote": 0,
+            },
+            "Job Level": {
+              Other: 100,
+              "Administrative/Clerical": 80,
+              "Department Manager/Supervisor": 100,
+              "Production/Service": 100,
+            },
+            Department: {
+              "Business Development/Sales": 100,
+              "Customer Service/Care/Support": 75,
+              "Human Resources": 100,
+              Other: 100,
+              Production: 100,
+              "Public Relations/Marketing": 100,
+            },
+          },
+        },
+        {
+          title: "Diversity And Inclusion",
+          first: {
+            Gender: {
+              Female: 100,
+              Male: 100,
+            },
+            "Age Generation": {
+              "Generation Z (Born 1997 or later)": 100,
+              "Millennials (Born 1981 to 1996)": 100,
+              "Baby Boomers (Born 1946 to 1964)": 100,
+              "Generation X (Born 1965 to 1980)": 100,
+            },
+            "Race/Ethnicity": {
+              White: 100,
+            },
+            "Employment Length": {
+              "One year to less than two years": 100,
+              "Two years to less than five years": 100,
+              "Five years to less than ten years": 100,
+              "Less than one year": 100,
+              "Ten years or more": 100,
+            },
+            "Job Status": {
+              "Full-Time": 100,
+              "Part-Time": 100,
+            },
+            "Workplace Setting": {
+              "Hybrid (a blend of on-site and remote)": 100,
+              "Fully on-site": 100,
+              "Fully remote": 100,
+            },
+            "Job Level": {
+              Other: 100,
+              "Administrative/Clerical": 100,
+              "Department Manager/Supervisor": 100,
+              "Production/Service": 100,
+            },
+            Department: {
+              "Business Development/Sales": 100,
+              "Customer Service/Care/Support": 100,
+              "Human Resources": 100,
+              Other: 100,
+              Production: 100,
+              "Public Relations/Marketing": 100,
+            },
+          },
+          last: {
+            Gender: {
+              Female: 92.85714285714286,
+              Male: 100,
+            },
+            "Age Generation": {
+              "Generation Z (Born 1997 or later)": 100,
+              "Millennials (Born 1981 to 1996)": 100,
+              "Baby Boomers (Born 1946 to 1964)": 75,
+              "Generation X (Born 1965 to 1980)": 100,
+            },
+            "Race/Ethnicity": {
+              White: 93.75,
+            },
+            "Employment Length": {
+              "One year to less than two years": 100,
+              "Two years to less than five years": 66.66666666666667,
+              "Five years to less than ten years": 100,
+              "Less than one year": 100,
+              "Ten years or more": 100,
+            },
+            "Job Status": {
+              "Full-Time": 93.33333333333333,
+              "Part-Time": 100,
+            },
+            "Workplace Setting": {
+              "Hybrid (a blend of on-site and remote)": 90,
+              "Fully on-site": 100,
+              "Fully remote": 100,
+            },
+            "Job Level": {
+              Other: 100,
+              "Administrative/Clerical": 100,
+              "Department Manager/Supervisor": 100,
+              "Production/Service": 75,
+            },
+            Department: {
+              "Business Development/Sales": 100,
+              "Customer Service/Care/Support": 100,
+              "Human Resources": 100,
+              Other: 100,
+              Production: 80,
+              "Public Relations/Marketing": 100,
+            },
+          },
+        },
+        {
+          title: "Leadership Of This Organization",
+          first: {
+            Gender: {
+              Female: 100,
+              Male: 100,
+            },
+            "Age Generation": {
+              "Generation Z (Born 1997 or later)": 100,
+              "Millennials (Born 1981 to 1996)": 100,
+              "Baby Boomers (Born 1946 to 1964)": 100,
+              "Generation X (Born 1965 to 1980)": 100,
+            },
+            "Race/Ethnicity": {
+              White: 100,
+            },
+            "Employment Length": {
+              "One year to less than two years": 100,
+              "Two years to less than five years": 100,
+              "Five years to less than ten years": 100,
+              "Less than one year": 100,
+              "Ten years or more": 100,
+            },
+            "Job Status": {
+              "Full-Time": 100,
+              "Part-Time": 100,
+            },
+            "Workplace Setting": {
+              "Hybrid (a blend of on-site and remote)": 100,
+              "Fully on-site": 100,
+              "Fully remote": 100,
+            },
+            "Job Level": {
+              Other: 100,
+              "Administrative/Clerical": 100,
+              "Department Manager/Supervisor": 100,
+              "Production/Service": 100,
+            },
+            Department: {
+              "Business Development/Sales": 100,
+              "Customer Service/Care/Support": 100,
+              "Human Resources": 100,
+              Other: 100,
+              Production: 100,
+              "Public Relations/Marketing": 100,
+            },
+          },
+          last: {
+            Gender: {
+              Female: 92.85714285714286,
+              Male: 100,
+            },
+            "Age Generation": {
+              "Generation Z (Born 1997 or later)": 100,
+              "Millennials (Born 1981 to 1996)": 100,
+              "Baby Boomers (Born 1946 to 1964)": 75,
+              "Generation X (Born 1965 to 1980)": 100,
+            },
+            "Race/Ethnicity": {
+              White: 93.75,
+            },
+            "Employment Length": {
+              "One year to less than two years": 100,
+              "Two years to less than five years": 100,
+              "Five years to less than ten years": 85.71428571428571,
+              "Less than one year": 100,
+              "Ten years or more": 100,
+            },
+            "Job Status": {
+              "Full-Time": 93.33333333333333,
+              "Part-Time": 100,
+            },
+            "Workplace Setting": {
+              "Hybrid (a blend of on-site and remote)": 100,
+              "Fully on-site": 80,
+              "Fully remote": 100,
+            },
+            "Job Level": {
+              Other: 66.66666666666667,
+              "Administrative/Clerical": 100,
+              "Department Manager/Supervisor": 100,
+              "Production/Service": 100,
+            },
+            Department: {
+              "Business Development/Sales": 100,
+              "Customer Service/Care/Support": 100,
+              "Human Resources": 100,
+              Other: 75,
+              Production: 100,
+              "Public Relations/Marketing": 100,
+            },
+          },
+        },
+        {
+          title: "Training, Technology And Professional Development",
+          first: {
+            Gender: {
+              Female: 71.42857142857143,
+              Male: 100,
+            },
+            "Age Generation": {
+              "Generation Z (Born 1997 or later)": 100,
+              "Millennials (Born 1981 to 1996)": 80,
+              "Baby Boomers (Born 1946 to 1964)": 50,
+              "Generation X (Born 1965 to 1980)": 83.33333333333333,
+            },
+            "Race/Ethnicity": {
+              White: 75,
+            },
+            "Employment Length": {
+              "One year to less than two years": 100,
+              "Two years to less than five years": 66.66666666666667,
+              "Five years to less than ten years": 71.42857142857143,
+              "Less than one year": 100,
+              "Ten years or more": 75,
+            },
+            "Job Status": {
+              "Full-Time": 73.33333333333333,
+              "Part-Time": 100,
+            },
+            "Workplace Setting": {
+              "Hybrid (a blend of on-site and remote)": 80,
+              "Fully on-site": 80,
+              "Fully remote": 0,
+            },
+            "Job Level": {
+              Other: 66.66666666666667,
+              "Administrative/Clerical": 80,
+              "Department Manager/Supervisor": 100,
+              "Production/Service": 50,
+            },
+            Department: {
+              "Business Development/Sales": 100,
+              "Customer Service/Care/Support": 75,
+              "Human Resources": 100,
+              Other: 75,
+              Production: 60,
+              "Public Relations/Marketing": 100,
+            },
+          },
+          last: {
+            Gender: {
+              Female: 100,
+              Male: 100,
+            },
+            "Age Generation": {
+              "Generation Z (Born 1997 or later)": 100,
+              "Millennials (Born 1981 to 1996)": 100,
+              "Baby Boomers (Born 1946 to 1964)": 100,
+              "Generation X (Born 1965 to 1980)": 100,
+            },
+            "Race/Ethnicity": {
+              White: 100,
+            },
+            "Employment Length": {
+              "One year to less than two years": 100,
+              "Two years to less than five years": 100,
+              "Five years to less than ten years": 100,
+              "Less than one year": 100,
+              "Ten years or more": 100,
+            },
+            "Job Status": {
+              "Full-Time": 100,
+              "Part-Time": 100,
+            },
+            "Workplace Setting": {
+              "Hybrid (a blend of on-site and remote)": 100,
+              "Fully on-site": 100,
+              "Fully remote": 100,
+            },
+            "Job Level": {
+              Other: 100,
+              "Administrative/Clerical": 100,
+              "Department Manager/Supervisor": 100,
+              "Production/Service": 100,
+            },
+            Department: {
+              "Business Development/Sales": 100,
+              "Customer Service/Care/Support": 100,
+              "Human Resources": 100,
+              Other: 100,
+              Production: 100,
+              "Public Relations/Marketing": 100,
+            },
+          },
+        },
+      ],
+    );
     const firstSection = sections[0];
     assert.ok(firstSection);
     const firstQuestion = firstSection.questions[0];
     assert.ok(firstQuestion);
     assert.ok(firstQuestion.demographicAgreement);
-    assert.equal(firstQuestion.demographicAgreement.Female, 85.71428571428571);
-    assert.equal(firstQuestion.demographicAgreement.Male, 100);
+    assert.ok(firstQuestion.demographicAgreement.Gender);
+    const subgroupLabels = Object.keys(
+      firstQuestion.demographicAgreement,
+    ).sort();
+    for (const section of sections) {
+      for (const question of section.questions) {
+        assert.ok(question.demographicAgreement);
+        assert.deepEqual(
+          Object.keys(question.demographicAgreement).sort(),
+          subgroupLabels,
+        );
+      }
+    }
+    assert.equal(
+      firstQuestion.demographicAgreement.Gender.Female,
+      85.71428571428571,
+    );
+    assert.equal(firstQuestion.demographicAgreement.Gender.Male, 100);
   });
 });
 
@@ -492,6 +1354,7 @@ describe("CompatibilityReportsService.workbookDemographicsFromRespondents", () =
           programYear?: number | null,
         ) => Array<{
           title: string;
+          groupLabel: string;
           options: Array<{ label: string; count: number }>;
         }>;
       }
@@ -503,6 +1366,7 @@ describe("CompatibilityReportsService.workbookDemographicsFromRespondents", () =
       ),
       {
         title: "Personal Demographics",
+        groupLabel: "Gender",
         options: [
           { label: "Female", count: 14 },
           { label: "Male", count: 2 },
@@ -517,6 +1381,7 @@ describe("CompatibilityReportsService.workbookDemographicsFromRespondents", () =
       ),
       {
         title: "Personal Demographics",
+        groupLabel: "Age Generation",
         options: [
           { label: "Baby Boomers (Born 1946 to 1964)", count: 4 },
           { label: "Generation X (Born 1965 to 1980)", count: 6 },
