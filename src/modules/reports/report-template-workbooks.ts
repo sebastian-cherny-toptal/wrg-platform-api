@@ -278,6 +278,26 @@ function applyResponsePatternFills(
   });
 }
 
+function rotateWorkforceFeedbackHeaders(workbook: ExcelJS.Workbook): void {
+  const sheet = workbook.getWorksheet("Workforce Feedback Results");
+  if (!sheet) return;
+
+  sheet.getRow(3).eachCell({ includeEmpty: false }, (cell) => {
+    // Column B is the report title. The remaining non-separator cells are the
+    // demographic headers that should read vertically in generated reports.
+    if (
+      cell.fullAddress.col < 4 ||
+      cell.value === 0 ||
+      cell.value === "0"
+    )
+      return;
+    cell.alignment = {
+      ...cell.alignment,
+      textRotation: 90,
+    };
+  });
+}
+
 export async function createWorkforceFeedbackWorkbook(input: {
   metadata: ReportWorkbookMetadata;
   demographics: ReportWorkbookDemographic[];
@@ -286,6 +306,7 @@ export async function createWorkforceFeedbackWorkbook(input: {
   responsePatternRanges?: ResponsePatternRanges;
 }): Promise<Buffer> {
   const workbook = await loadTemplate("workforce-feedback-results.xlsx");
+  rotateWorkforceFeedbackHeaders(workbook);
   const questions = input.sections.flatMap((section) => section.questions);
   fillTokens(workbook, (name, cell) => {
     if (name === "ORGANIZATION_NAME") return input.metadata.organizationName;

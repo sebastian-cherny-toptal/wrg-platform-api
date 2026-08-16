@@ -483,9 +483,9 @@ describe("CompatibilityReportsService.feedbackSections", () => {
             },
             "Age Generation": {
               "Generation Z (Born 1997 or later)": 100,
-              "Millennials (Born 1981 to 1996)": 80,
+              "Millennials (Born 1981 to 1996)": 83.33333333333333,
               "Baby Boomers (Born 1946 to 1964)": 100,
-              "Generation X (Born 1965 to 1980)": 83.33333333333333,
+              "Generation X (Born 1965 to 1980)": 85.71428571428571,
             },
             "Race/Ethnicity": {
               White: 87.5,
@@ -671,7 +671,7 @@ describe("CompatibilityReportsService.feedbackSections", () => {
               "Generation Z (Born 1997 or later)": 100,
               "Millennials (Born 1981 to 1996)": 100,
               "Baby Boomers (Born 1946 to 1964)": 100,
-              "Generation X (Born 1965 to 1980)": 83.33333333333333,
+              "Generation X (Born 1965 to 1980)": 85.71428571428571,
             },
             "Race/Ethnicity": {
               White: 93.75,
@@ -714,9 +714,9 @@ describe("CompatibilityReportsService.feedbackSections", () => {
             },
             "Age Generation": {
               "Generation Z (Born 1997 or later)": 100,
-              "Millennials (Born 1981 to 1996)": 80,
-              "Baby Boomers (Born 1946 to 1964)": 75,
-              "Generation X (Born 1965 to 1980)": 66.66666666666667,
+              "Millennials (Born 1981 to 1996)": 66.66666666666667,
+              "Baby Boomers (Born 1946 to 1964)": 50,
+              "Generation X (Born 1965 to 1980)": 85.71428571428571,
             },
             "Race/Ethnicity": {
               White: 75,
@@ -763,8 +763,8 @@ describe("CompatibilityReportsService.feedbackSections", () => {
             "Age Generation": {
               "Generation Z (Born 1997 or later)": 100,
               "Millennials (Born 1981 to 1996)": 100,
-              "Baby Boomers (Born 1946 to 1964)": 75,
-              "Generation X (Born 1965 to 1980)": 83.33333333333333,
+              "Baby Boomers (Born 1946 to 1964)": 100,
+              "Generation X (Born 1965 to 1980)": 71.42857142857143,
             },
             "Race/Ethnicity": {
               White: 87.5,
@@ -808,8 +808,8 @@ describe("CompatibilityReportsService.feedbackSections", () => {
             "Age Generation": {
               "Generation Z (Born 1997 or later)": 100,
               "Millennials (Born 1981 to 1996)": 100,
-              "Baby Boomers (Born 1946 to 1964)": 75,
-              "Generation X (Born 1965 to 1980)": 83.33333333333333,
+              "Baby Boomers (Born 1946 to 1964)": 100,
+              "Generation X (Born 1965 to 1980)": 71.42857142857143,
             },
             "Race/Ethnicity": {
               White: 87.5,
@@ -901,7 +901,7 @@ describe("CompatibilityReportsService.feedbackSections", () => {
             "Age Generation": {
               "Generation Z (Born 1997 or later)": 100,
               "Millennials (Born 1981 to 1996)": 100,
-              "Baby Boomers (Born 1946 to 1964)": 75,
+              "Baby Boomers (Born 1946 to 1964)": 50,
               "Generation X (Born 1965 to 1980)": 100,
             },
             "Race/Ethnicity": {
@@ -948,9 +948,9 @@ describe("CompatibilityReportsService.feedbackSections", () => {
             },
             "Age Generation": {
               "Generation Z (Born 1997 or later)": 100,
-              "Millennials (Born 1981 to 1996)": 80,
+              "Millennials (Born 1981 to 1996)": 83.33333333333333,
               "Baby Boomers (Born 1946 to 1964)": 100,
-              "Generation X (Born 1965 to 1980)": 83.33333333333333,
+              "Generation X (Born 1965 to 1980)": 85.71428571428571,
             },
             "Race/Ethnicity": {
               White: 87.5,
@@ -995,7 +995,7 @@ describe("CompatibilityReportsService.feedbackSections", () => {
               "Generation Z (Born 1997 or later)": 100,
               "Millennials (Born 1981 to 1996)": 100,
               "Baby Boomers (Born 1946 to 1964)": 100,
-              "Generation X (Born 1965 to 1980)": 83.33333333333333,
+              "Generation X (Born 1965 to 1980)": 85.71428571428571,
             },
             "Race/Ethnicity": {
               White: 93.75,
@@ -1087,7 +1087,7 @@ describe("CompatibilityReportsService.feedbackSections", () => {
             "Age Generation": {
               "Generation Z (Born 1997 or later)": 100,
               "Millennials (Born 1981 to 1996)": 100,
-              "Baby Boomers (Born 1946 to 1964)": 75,
+              "Baby Boomers (Born 1946 to 1964)": 50,
               "Generation X (Born 1965 to 1980)": 100,
             },
             "Race/Ethnicity": {
@@ -1180,8 +1180,8 @@ describe("CompatibilityReportsService.feedbackSections", () => {
             "Age Generation": {
               "Generation Z (Born 1997 or later)": 100,
               "Millennials (Born 1981 to 1996)": 100,
-              "Baby Boomers (Born 1946 to 1964)": 75,
-              "Generation X (Born 1965 to 1980)": 100,
+              "Baby Boomers (Born 1946 to 1964)": 100,
+              "Generation X (Born 1965 to 1980)": 85.71428571428571,
             },
             "Race/Ethnicity": {
               White: 93.75,
@@ -1227,9 +1227,9 @@ describe("CompatibilityReportsService.feedbackSections", () => {
             },
             "Age Generation": {
               "Generation Z (Born 1997 or later)": 100,
-              "Millennials (Born 1981 to 1996)": 80,
+              "Millennials (Born 1981 to 1996)": 83.33333333333333,
               "Baby Boomers (Born 1946 to 1964)": 50,
-              "Generation X (Born 1965 to 1980)": 83.33333333333333,
+              "Generation X (Born 1965 to 1980)": 71.42857142857143,
             },
             "Race/Ethnicity": {
               White: 75,
@@ -1383,9 +1383,9 @@ describe("CompatibilityReportsService.workbookDemographicsFromRespondents", () =
         title: "Personal Demographics",
         groupLabel: "Age Generation",
         options: [
-          { label: "Baby Boomers (Born 1946 to 1964)", count: 4 },
-          { label: "Generation X (Born 1965 to 1980)", count: 6 },
-          { label: "Millennials (Born 1981 to 1996)", count: 5 },
+          { label: "Baby Boomers (Born 1946 to 1964)", count: 2 },
+          { label: "Generation X (Born 1965 to 1980)", count: 7 },
+          { label: "Millennials (Born 1981 to 1996)", count: 6 },
           { label: "Generation Z (Born 1997 or later)", count: 1 },
         ],
       },

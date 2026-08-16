@@ -66,11 +66,11 @@ describe("demographic response labels", () => {
     };
 
     assert.equal(
-      demographicResponseCaption(20, question, 2025),
+      demographicResponseCaption(19, question, 2025),
       "Millennials (Born 1981 to 1996)",
     );
     assert.equal(
-      demographicResponseCaption(29, question, 2025),
+      demographicResponseCaption(48, question, 2025),
       "Generation X (Born 1965 to 1980)",
     );
     assert.equal(

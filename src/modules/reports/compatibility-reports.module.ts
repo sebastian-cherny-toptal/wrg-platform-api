@@ -564,7 +564,8 @@ function ageGenerationCaption(rawCaption: string, programYear?: number | null) {
   if (!Number.isInteger(optionId) || optionId < 1 || optionId > 86) return null;
   if (optionId === 86) return "Prefer not to answer";
   if (!programYear) return null;
-  const birthYear = programYear - optionId - 17;
+  // const birthYear = programYear - optionId - 17;
+  const birthYear = 2013 - optionId;
   if (birthYear >= 1997) return "Generation Z (Born 1997 or later)";
   if (birthYear >= 1981) return "Millennials (Born 1981 to 1996)";
   if (birthYear >= 1965) return "Generation X (Born 1965 to 1980)";
