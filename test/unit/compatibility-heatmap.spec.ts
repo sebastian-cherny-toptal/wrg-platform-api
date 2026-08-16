@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
-import { existsSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
+import AdmZip from "adm-zip";
 import { Injectable, Module, VersioningType } from "@nestjs/common";
 import { JwtModule, JwtService } from "@nestjs/jwt";
 import { NestFactory } from "@nestjs/core";
@@ -11,7 +13,7 @@ import {
 } from "@nestjs/platform-fastify";
 import type { Prisma } from "@prisma/client";
 import { ExtractJwt, Strategy } from "passport-jwt";
-import { describe, it } from "node:test";
+import { after, before, describe, it } from "node:test";
 import ExcelJS from "exceljs";
 import {
   forEachXlsxSurveyRow,
@@ -32,18 +34,43 @@ import expectedHeatMapTable from "../fixtures/compatibility-heatmap-2026.json" w
 
 const testJwtSecret = "test-secret-that-is-at-least-32-characters";
 const selectedProgramId = "c0cfe468-d239-5ffe-812e-45ac21f92e91";
-const organizationName = "Commerce Title & Abstract Company";
-const sourceWorkbook = join(
-  process.cwd(),
-  "..",
-  "Baton Rouge 24-26",
-  "BR 2026 - EFS ORD.xlsx",
-);
-const publishedWorkbook = join(
-  process.cwd(),
-  "..",
-  "BR 2026 - Workforce Benchmark Comparisons.xlsx",
-);
+const organizationName = "Synthetic 06f796de0c9331b9";
+const sourceWorkbookName = "BR 2026 - EFS ORD.xlsx";
+const publishedWorkbookName = "BR 2026 - Workforce Benchmark Comparisons.xlsx";
+let fixtureDirectory = "";
+let sourceWorkbook = "";
+let publishedWorkbook = "";
+
+before(() => {
+  const archive = new AdmZip(
+    join(process.cwd(), "prisma/fixtures/baton-rouge-test-data.zip"),
+  );
+  assert.ok(
+    archive.getEntry(sourceWorkbookName),
+    `${sourceWorkbookName} is missing from the committed fixture`,
+  );
+  assert.ok(
+    archive.getEntry(publishedWorkbookName),
+    `${publishedWorkbookName} is missing from the committed fixture`,
+  );
+  fixtureDirectory = mkdtempSync(join(tmpdir(), "wrg-compatibility-heatmap-"));
+  for (const workbookEntry of archive
+    .getEntries()
+    .filter((candidate) => !candidate.isDirectory)) {
+    writeFileSync(
+      join(fixtureDirectory, workbookEntry.entryName),
+      workbookEntry.getData(),
+    );
+  }
+  sourceWorkbook = join(fixtureDirectory, sourceWorkbookName);
+  publishedWorkbook = join(fixtureDirectory, publishedWorkbookName);
+});
+
+after(() => {
+  if (fixtureDirectory) {
+    rmSync(fixtureDirectory, { recursive: true, force: true });
+  }
+});
 
 interface PublishedQuestion {
   categoryLabel: string;
@@ -236,7 +263,7 @@ async function createTestApp(
 }
 
 describe("compatibility heat-map endpoint", () => {
-  it("downloads the complete 2026 Commerce Title & Abstract Company table", async () => {
+  it("downloads the complete 2026 sample organization heat-map table", async () => {
     const app = await createTestApp(await fixturePrisma());
     const token = app.get(JwtService).sign({
       sub: "user-1",
