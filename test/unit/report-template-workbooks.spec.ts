@@ -38,5 +38,10 @@ describe("workforce feedback workbook generation", () => {
     }
     assert.notEqual(sheet.getCell("F3").alignment.textRotation, 90);
     assert.notEqual(sheet.getCell("B3").alignment.textRotation, 90);
+    for (let column = 1; column <= sheet.columnCount; column += 1) {
+      assert.equal(sheet.getCell(1, column).value, null);
+    }
+    assert.equal(sheet.getCell("B2").value, null);
+    assert.equal(sheet.getCell("G4").value, 0);
   });
 });

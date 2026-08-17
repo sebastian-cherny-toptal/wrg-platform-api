@@ -298,6 +298,15 @@ function rotateWorkforceFeedbackHeaders(workbook: ExcelJS.Workbook): void {
   });
 }
 
+function clearWorkforceFeedbackPlaceholders(workbook: ExcelJS.Workbook): void {
+  const sheet = workbook.getWorksheet("Workforce Feedback Results");
+  if (!sheet) return;
+  sheet.getRow(1).eachCell({ includeEmpty: true }, (cell) => {
+    cell.value = null;
+  });
+  sheet.getCell("B2").value = null;
+}
+
 export async function createWorkforceFeedbackWorkbook(input: {
   metadata: ReportWorkbookMetadata;
   demographics: ReportWorkbookDemographic[];
@@ -306,6 +315,7 @@ export async function createWorkforceFeedbackWorkbook(input: {
   responsePatternRanges?: ResponsePatternRanges;
 }): Promise<Buffer> {
   const workbook = await loadTemplate("workforce-feedback-results.xlsx");
+  clearWorkforceFeedbackPlaceholders(workbook);
   rotateWorkforceFeedbackHeaders(workbook);
   const questions = input.sections.flatMap((section) => section.questions);
   fillTokens(workbook, (name, cell) => {

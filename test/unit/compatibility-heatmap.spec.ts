@@ -292,7 +292,14 @@ describe("compatibility heat-map endpoint", () => {
       >[0];
       await workbook.xlsx.load(payload);
       const actualTable = workbookTable(workbook);
-      assert.deepEqual(actualTable, expectedHeatMapTable);
+      const expectedTable = expectedHeatMapTable.map((row) => [...row]);
+      const firstRow = expectedTable[0];
+      const secondRow = expectedTable[1];
+      assert.ok(firstRow);
+      assert.ok(secondRow);
+      firstRow.fill(null);
+      secondRow[1] = null;
+      assert.deepEqual(actualTable, expectedTable);
     } finally {
       await app.close();
     }
