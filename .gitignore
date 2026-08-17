@@ -6,5 +6,5 @@ openapi.json
 *.log
 .DS_Store
 .env
-
+var/
 

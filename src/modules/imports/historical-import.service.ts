@@ -4,17 +4,18 @@ import {
   ForbiddenException,
   Inject,
   Injectable,
+  InternalServerErrorException,
   NotFoundException,
 } from "@nestjs/common";
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
+import type { PrismaClient } from "@prisma/client";
 import { createHash, randomUUID } from "node:crypto";
 import {
   existsSync,
-  mkdtempSync,
+  mkdirSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { basename, extname, join } from "node:path";
 import { PrismaService } from "../../database/prisma.service.js";
 import type { Principal } from "../auth/auth.module.js";
@@ -28,6 +29,7 @@ import {
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
 const XLSX_SIGNATURE = Buffer.from([0x50, 0x4b, 0x03, 0x04]);
 const responseBatchSize = 2_000;
+const stagingRoot = join(process.cwd(), "var", "historical-imports");
 const standardOpenQuestionCaptions: Record<string, string> = {
   q_OpenEnded_1:
     "What are the top two or three reasons people like working for this organization?",
@@ -142,6 +144,58 @@ function deterministicUuid(value: string): string {
   bytes[8] = ((bytes[8] ?? 0) & 0x3f) | 0x80;
   const hex = bytes.toString("hex");
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+function importPrefixFor(importId: string): string {
+  return `historical-import:${importId}`;
+}
+
+function stagingDirectory(importId: string): string {
+  return join(stagingRoot, importId);
+}
+
+function ensureStagingDirectory(importId: string): string {
+  const directory = stagingDirectory(importId);
+  mkdirSync(directory, { recursive: true });
+  return directory;
+}
+
+function assertStoredWorkbooksReady(
+  draft: HistoricalImportDraft,
+): asserts draft is HistoricalImportDraft & {
+  eaFile: StoredWorkbook;
+  efsFile: StoredWorkbook;
+} {
+  if (!draft.eaFile || !draft.efsFile) {
+    throw new BadRequestException("Upload both EA and EFS workbooks before continuing");
+  }
+  for (const workbook of [draft.eaFile, draft.efsFile]) {
+    if (!existsSync(workbook.filePath)) {
+      throw new BadRequestException(
+        `Workbook "${workbook.fileName}" is no longer available. Upload both files again before committing.`,
+      );
+    }
+  }
+}
+
+function toHttpException(error: unknown): Error {
+  if (
+    error instanceof BadRequestException ||
+    error instanceof ConflictException ||
+    error instanceof ForbiddenException ||
+    error instanceof NotFoundException
+  ) {
+    return error;
+  }
+  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    return new InternalServerErrorException(
+      `Historical import failed while writing ${error.meta?.modelName ?? "data"} (${error.code}).`,
+    );
+  }
+  if (error instanceof Error) {
+    return new InternalServerErrorException(error.message);
+  }
+  return new InternalServerErrorException("Historical import failed");
 }
 
 function slugify(value: string): string {
@@ -347,6 +401,7 @@ export class HistoricalImportService {
     file: UploadedWorkbookFile,
   ): StoredWorkbook {
     assertXlsxFile(file);
+    ensureStagingDirectory(draft.importId);
     const fileName = basename(file.filename);
     const filePath = join(draft.stagingDir, `${kind.toLowerCase()}-${fileName}`);
     writeFileSync(filePath, file.buffer);
@@ -511,7 +566,7 @@ export class HistoricalImportService {
     this.assertAccess(principal);
     const metadata = validateMetadata(body);
     const importId = randomUUID();
-    const stagingDir = mkdtempSync(join(tmpdir(), "wrg-historical-import-"));
+    const stagingDir = ensureStagingDirectory(importId);
     const draft: HistoricalImportDraft = {
       ...metadata,
       importId,
@@ -586,13 +641,12 @@ export class HistoricalImportService {
   ): Promise<HistoricalImportValidationSummary> {
     this.assertAccess(principal);
     const draft = await this.loadDraft(importId);
-    if (!draft.eaFile || !draft.efsFile) {
-      throw new BadRequestException("Upload both EA and EFS workbooks before validating");
-    }
-    const [eaAnalysis, efsAnalysis] = await Promise.all([
-      this.analyzeWorkbook(draft, draft.eaFile),
-      this.analyzeWorkbook(draft, draft.efsFile),
-    ]);
+    assertStoredWorkbooksReady(draft);
+    try {
+      const [eaAnalysis, efsAnalysis] = await Promise.all([
+        this.analyzeWorkbook(draft, draft.eaFile),
+        this.analyzeWorkbook(draft, draft.efsFile),
+      ]);
     const organizations = this.buildOrganizationSummary(
       eaAnalysis.organizations,
       efsAnalysis.organizations,
@@ -625,6 +679,9 @@ export class HistoricalImportService {
       { output: summary as unknown as Prisma.InputJsonValue },
     );
     return summary;
+    } catch (error) {
+      throw toHttpException(error);
+    }
   }
 
   async getStatus(
@@ -670,22 +727,52 @@ export class HistoricalImportService {
     };
   }
 
+  private async cleanupFailedImport(
+    importPrefix: string,
+    projectId: string,
+  ): Promise<void> {
+    await this.prisma.project.deleteMany({ where: { id: projectId } }).catch(() => undefined);
+    await this.prisma.organization
+      .deleteMany({
+        where: { externalId: { startsWith: `${importPrefix}:org:` } },
+      })
+      .catch(() => undefined);
+  }
+
   async commit(principal: Principal, importId: string): Promise<HistoricalImportStatus> {
     this.assertAccess(principal);
     const draft = await this.loadDraft(importId);
-    if (!draft.eaFile || !draft.efsFile) {
-      throw new BadRequestException("Upload both EA and EFS workbooks before committing");
+    assertStoredWorkbooksReady(draft);
+    const eaFile = draft.eaFile;
+    const efsFile = draft.efsFile;
+
+    let validation: HistoricalImportValidationSummary;
+    const record = await this.prisma.syncJob.findFirst({
+      where: { provider: "historical-import", externalId: importId },
+      select: { output: true },
+    });
+    const cachedValidation =
+      record?.output && typeof record.output === "object"
+        ? (record.output as unknown as HistoricalImportValidationSummary)
+        : undefined;
+    if (
+      draft.status === "validated" &&
+      cachedValidation?.blockingErrorCount === 0
+    ) {
+      validation = cachedValidation;
+    } else {
+      validation = await this.validate(principal, importId);
     }
-    const validation = await this.validate(principal, importId);
     if (validation.blockingErrorCount > 0) {
       throw new BadRequestException("Resolve validation errors before committing");
     }
     if (draft.status === "succeeded" && draft.projectId) {
       return this.getStatus(principal, importId);
     }
+
     const commitIdempotencyKey =
       draft.commitIdempotencyKey ?? `historical-import-commit:${importId}`;
-    const importPrefix = `historical-import:${importId}`;
+    const importPrefix = importPrefixFor(importId);
     const projectId = deterministicUuid(`${importPrefix}:project`);
     const programId = deterministicUuid(`${importPrefix}:program`);
     const projectSlugBase = slugify(draft.projectName);
@@ -700,6 +787,7 @@ export class HistoricalImportService {
       projectSlug = `${projectSlugBase}-${slugSuffix}`;
       slugSuffix += 1;
     }
+
     await this.saveDraft(
       {
         ...draft,
@@ -709,52 +797,50 @@ export class HistoricalImportService {
       },
       { error: null },
     );
-    const eaFile = draft.eaFile;
-    const efsFile = draft.efsFile;
+
     try {
-      await this.prisma.$transaction(async (tx) => {
-        await tx.project.create({
-          data: {
-            id: projectId,
-            externalId: `${importPrefix}:project`,
-            name: draft.projectName,
-            slug: projectSlug,
-            metadata: {
-              historicalImportId: importId,
-              importStatus: "READY",
-              projectAbbreviation: draft.projectAbbreviation ?? null,
-            },
+      await this.prisma.project.create({
+        data: {
+          id: projectId,
+          externalId: `${importPrefix}:project`,
+          name: draft.projectName,
+          slug: projectSlug,
+          metadata: {
+            historicalImportId: importId,
+            importStatus: "READY",
+            projectAbbreviation: draft.projectAbbreviation ?? null,
           },
-        });
-        await tx.program.create({
-          data: {
-            id: programId,
-            externalId: `${importPrefix}:program`,
-            projectId,
-            name: draft.programName,
-            year: draft.programYear,
-            currency: "USD",
-            startsAt: new Date(`${draft.programYear}-01-01T00:00:00.000Z`),
-            endsAt: new Date(`${draft.programYear}-12-31T23:59:59.999Z`),
-            metadata: {
-              historicalImportId: importId,
-              employeeSurveyId: draft.employeeSurveyId ?? null,
-              employerSurveyId: draft.employerSurveyId ?? null,
-            },
-          },
-        });
-        const organizationRows = await this.collectOrganizationRows(eaFile, efsFile);
-        await this.createOrganizationsAndEnrollments(
-          tx,
-          draft,
-          organizationRows,
+        },
+      });
+      await this.prisma.program.create({
+        data: {
+          id: programId,
+          externalId: `${importPrefix}:program`,
           projectId,
-          programId,
-          projectSlug,
-        );
-        await this.importSurvey(tx, draft, "EA", eaFile, programId);
-        await this.importSurvey(tx, draft, "EFS", efsFile, programId);
-      }, { timeout: 120_000 });
+          name: draft.programName,
+          year: draft.programYear,
+          currency: "USD",
+          startsAt: new Date(`${draft.programYear}-01-01T00:00:00.000Z`),
+          endsAt: new Date(`${draft.programYear}-12-31T23:59:59.999Z`),
+          metadata: {
+            historicalImportId: importId,
+            employeeSurveyId: draft.employeeSurveyId ?? null,
+            employerSurveyId: draft.employerSurveyId ?? null,
+          },
+        },
+      });
+      const organizationRows = await this.collectOrganizationRows(eaFile, efsFile);
+      await this.createOrganizationsAndEnrollments(
+        this.prisma,
+        draft,
+        organizationRows,
+        projectId,
+        programId,
+        projectSlug,
+      );
+      await this.importSurvey(this.prisma, draft, "EA", eaFile, programId);
+      await this.importSurvey(this.prisma, draft, "EFS", efsFile, programId);
+
       await this.saveDraft(
         {
           ...draft,
@@ -773,7 +859,7 @@ export class HistoricalImportService {
       }
       return await this.getStatus(principal, importId);
     } catch (error) {
-      await this.prisma.project.deleteMany({ where: { id: projectId } }).catch(() => undefined);
+      await this.cleanupFailedImport(importPrefix, projectId);
       await this.saveDraft(
         { ...draft, status: "failed", commitIdempotencyKey, projectId },
         {
@@ -781,7 +867,7 @@ export class HistoricalImportService {
           error: error instanceof Error ? error.message : "Historical import failed",
         },
       );
-      throw error;
+      throw toHttpException(error);
     }
   }
 
@@ -844,7 +930,7 @@ export class HistoricalImportService {
   }
 
   private async createOrganizationsAndEnrollments(
-    tx: Prisma.TransactionClient,
+    prisma: PrismaClient,
     draft: HistoricalImportDraft,
     organizationRows: Map<
       string,
@@ -860,25 +946,56 @@ export class HistoricalImportService {
     programId: string,
     projectSlug: string,
   ): Promise<void> {
-    const importPrefix = `historical-import:${draft.importId}`;
+    const importPrefix = importPrefixFor(draft.importId);
     for (const [key, details] of organizationRows) {
       const organizationId = deterministicUuid(`${importPrefix}:organization:${key}`);
       const token = digest(`${importPrefix}:organization:${key}`, 12);
-      await tx.organization.create({
-        data: {
+      const organizationData = {
+        name: details.displayName,
+        slug: `${projectSlug}-${token}`,
+        metadata: {
+          historicalImportId: draft.importId,
+          sourceOrganizationId: details.workbookOrganizationId ?? null,
+          sourceOrganizationName: details.displayName,
+        },
+      };
+      await prisma.organization.upsert({
+        where: { id: organizationId },
+        update: organizationData,
+        create: {
           id: organizationId,
           externalId: `${importPrefix}:org:${token}`,
-          name: details.displayName,
-          slug: `${projectSlug}-${token}`,
-          metadata: {
-            historicalImportId: draft.importId,
-            sourceOrganizationId: details.workbookOrganizationId ?? null,
-            sourceOrganizationName: details.displayName,
-          },
+          ...organizationData,
         },
       });
-      await tx.organizationProgram.create({
-        data: {
+      await prisma.organizationProgram.upsert({
+        where: {
+          organizationId_programId: {
+            organizationId,
+            programId,
+          },
+        },
+        update: {
+          stage: "Closed",
+          reportAccess: {
+            WFR_Access: "no",
+            WBC_Access: "no",
+            BBP_Access: "no",
+            EV_Access: "no",
+            RD_Access: "no",
+            KIA_Access: "no",
+            CR_Access: "no",
+          },
+          metrics: {
+            Surveys_Sent: details.eaRespondents + details.efsRespondents,
+            Source_Organization_ID: details.workbookOrganizationId ?? null,
+            Source_Organization_Name: details.displayName,
+            ...(details.companySize !== undefined
+              ? { Company_Size: details.companySize }
+              : {}),
+          },
+        },
+        create: {
           organizationId,
           projectId,
           programId,
@@ -907,13 +1024,13 @@ export class HistoricalImportService {
   }
 
   private async importSurvey(
-    tx: Prisma.TransactionClient,
+    prisma: PrismaClient,
     draft: HistoricalImportDraft,
     kind: HistoricalSurveyKind,
     workbook: StoredWorkbook,
     programId: string,
   ): Promise<void> {
-    const importPrefix = `historical-import:${draft.importId}`;
+    const importPrefix = importPrefixFor(draft.importId);
     const surveyId = deterministicUuid(`${importPrefix}:survey:${kind}`);
     const definition = await readXlsxSurveyDefinition({
       fileName: workbook.fileName,
@@ -928,7 +1045,7 @@ export class HistoricalImportService {
           standardOpenQuestionCaptions[question.dataLabel] ?? question.caption,
       }),
     );
-    await tx.survey.create({
+    await prisma.survey.create({
       data: {
         id: surveyId,
         externalId: `${importPrefix}:survey:${kind.toLowerCase()}`,
@@ -950,7 +1067,7 @@ export class HistoricalImportService {
         },
       },
     });
-    await tx.question.createMany({
+    await prisma.question.createMany({
       data: questions.map((question, index) => ({
         id: question.id,
         externalId: `${importPrefix}:question:${kind.toLowerCase()}:${digest(question.dataLabel, 12)}`,
@@ -975,12 +1092,12 @@ export class HistoricalImportService {
     const responseBatch: Prisma.ResponseCreateManyInput[] = [];
     const flush = async (): Promise<void> => {
       if (respondentBatch.length > 0) {
-        await tx.respondent.createMany({ data: respondentBatch });
+        await prisma.respondent.createMany({ data: respondentBatch });
         respondentBatch.length = 0;
       }
       if (responseBatch.length > 0) {
         await insertBatches(responseBatch, (data) =>
-          tx.response.createMany({ data }),
+          prisma.response.createMany({ data }),
         );
         responseBatch.length = 0;
       }
