@@ -143,7 +143,6 @@ export class CompatibilityPaymentService {
     organizationReference?: string,
   ) {
     const body = objectBody(rawBody);
-    const amountMinor = Math.round(money(body.amount, "amount") * 100);
     const selectedCurrency = currency(body.currency);
     const context = await this.context(
       principal,
@@ -151,6 +150,8 @@ export class CompatibilityPaymentService {
       organizationReference,
       false,
     );
+    const amountMinor = this.catalogAmountMinor(body.items, context) ??
+      Math.round(money(body.amount, "amount") * 100);
     const intent = await this.createIntent(
       context.organization,
       amountMinor,
@@ -173,6 +174,37 @@ export class CompatibilityPaymentService {
       },
     });
     return intent;
+  }
+
+  private catalogAmountMinor(
+    rawItems: unknown,
+    context: Awaited<ReturnType<CompatibilityPaymentService["context"]>>,
+  ): number | null {
+    if (!Array.isArray(rawItems) || !context.program) return null;
+    const ids: string[] = [];
+    for (const entry of rawItems) {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+        return null;
+      }
+      const keys = (entry as JsonRecord).keys;
+      if (!keys || typeof keys !== "object" || Array.isArray(keys)) return null;
+      const productId = optionalString((keys as JsonRecord).productId);
+      if (!productId) return null;
+      ids.push(productId);
+    }
+    const metadata = jsonObject(context.program.metadata);
+    const catalog = Array.isArray(metadata.reportCatalog) ? metadata.reportCatalog : [];
+    const programFees = jsonObject(context.program.fees);
+    const organizationFees = jsonObject(context.enrollment.fees);
+    return ids.reduce((sum, id) => {
+      const product = catalog.find((entry) => entry && typeof entry === "object" && !Array.isArray(entry) && (entry as JsonRecord).id === id) as JsonRecord | undefined;
+      if (!product) throw new BadRequestException(`Unknown report product: ${id}`);
+      const configured = organizationFees[id] ?? programFees[id] ?? product.priceCents;
+      if (typeof configured !== "number" || !Number.isInteger(configured) || configured <= 0) {
+        throw new BadRequestException(`Report price is unavailable: ${id}`);
+      }
+      return sum + configured;
+    }, 0);
   }
 
   async checkout(

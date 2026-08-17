@@ -92,13 +92,18 @@ class ReportCatalogController {
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
   @Get("catalog")
-  async catalog(@CurrentUser() principal: Principal) {
+  async catalog(
+    @CurrentUser() principal: Principal,
+    @Query("programId") programId?: string,
+  ) {
     const programs = await this.prisma.userProgram.findMany({
-      where: { userId: principal.sub },
+      where: { userId: principal.sub, ...(programId ? { programId } : {}) },
       orderBy: { program: { year: "desc" } },
-      select: { program: { select: { metadata: true } } },
+      select: {
+        program: { select: { id: true, metadata: true, fees: true } },
+      },
     });
-    const products = programs.flatMap(({ program }) => {
+    const products = await Promise.all(programs.map(async ({ program }) => {
       const metadata = program.metadata;
       if (
         !metadata ||
@@ -108,10 +113,38 @@ class ReportCatalogController {
         return [];
       }
       const catalog = metadata.reportCatalog;
-      return Array.isArray(catalog) ? catalog : [];
-    });
-    return products;
+      if (!Array.isArray(catalog)) return [];
+      const enrollment = principal.organizationId
+        ? await this.prisma.organizationProgram.findUnique({
+            where: {
+              organizationId_programId: {
+                organizationId: principal.organizationId,
+                programId: program.id,
+              },
+            },
+            select: { fees: true },
+          })
+        : null;
+      const programFees = jsonRecord(program.fees);
+      const organizationFees = jsonRecord(enrollment?.fees);
+      return catalog.map((entry) => {
+        if (!entry || typeof entry !== "object" || Array.isArray(entry)) return entry;
+        const product = entry as Record<string, unknown>;
+        const id = typeof product.id === "string" ? product.id : "";
+        const configured = organizationFees[id] ?? programFees[id];
+        return typeof configured === "number" && Number.isInteger(configured) && configured >= 0
+          ? { ...product, priceCents: configured }
+          : product;
+      });
+    }));
+    return products.flat();
   }
+}
+
+function jsonRecord(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
 }
 
 @Module({ controllers: [ReportsController, ReportCatalogController] })

@@ -104,6 +104,7 @@ model OrganizationProgram {
   stage          String?
   reportAccess   Json         @default("{}")
   paymentDetails Json         @default("{}")
+  fees           Json         @default("{}")
   metrics        Json         @default("{}")
   metadata       Json         @default("{}")
   createdAt      DateTime     @default(now())
