@@ -26,6 +26,7 @@ import { WebhooksModule } from "./modules/integrations/webhooks.module.js";
 import { CompatibilityWebhooksModule } from "./modules/integrations/compatibility-webhooks.module.js";
 import { OpsModule } from "./modules/ops/ops.module.js";
 import { ReportsModule } from "./modules/reports/reports.module.js";
+import { ReportCatalogAdminModule } from "./modules/reports/report-catalog-admin.module.js";
 import { CompatibilityReportsModule } from "./modules/reports/compatibility-reports.module.js";
 import { SurveysModule } from "./modules/surveys/surveys.module.js";
 import { TenantsModule } from "./modules/tenants/tenants.module.js";
@@ -109,6 +110,7 @@ import { BootstrapAdminService } from "./bootstrap-admin.service.js";
     TenantsModule,
     SurveysModule,
     ReportsModule,
+    ReportCatalogAdminModule,
     CompatibilityReportsModule,
     CompatibilityManagementModule,
     CompatibilityAdminModule,

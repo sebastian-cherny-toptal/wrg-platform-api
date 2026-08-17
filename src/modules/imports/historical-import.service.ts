@@ -14,6 +14,7 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { basename, extname, join } from "node:path";
 import { PrismaService } from "../../database/prisma.service.js";
 import type { Principal } from "../auth/auth.module.js";
+import { parseReportCatalog, type ReportCatalogProduct } from "../reports/report-catalog.js";
 import {
   forEachXlsxSurveyRow,
   readXlsxSurveyDefinition,
@@ -46,6 +47,7 @@ export interface HistoricalImportMetadata {
   projectAbbreviation?: string;
   employeeSurveyId?: string;
   employerSurveyId?: string;
+  reportCatalog?: ReportCatalogProduct[];
 }
 
 interface StoredWorkbook {
@@ -330,6 +332,9 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
     );
   }
   const projectAbbreviation = optionalString(value, "projectAbbreviation");
+  const reportCatalog = value.reportCatalog === undefined
+    ? undefined
+    : parseReportCatalog(value.reportCatalog);
   return {
     projectName,
     programName,
@@ -337,6 +342,7 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
     ...(projectAbbreviation ? { projectAbbreviation } : {}),
     ...(employeeSurveyId ? { employeeSurveyId } : {}),
     ...(employerSurveyId ? { employerSurveyId } : {}),
+    ...(reportCatalog ? { reportCatalog } : {}),
   };
 }
 
@@ -1034,6 +1040,7 @@ export class HistoricalImportService {
             historicalImportId: importId,
             employeeSurveyId: draft.employeeSurveyId ?? null,
             employerSurveyId: draft.employerSurveyId ?? null,
+            reportCatalog: JSON.parse(JSON.stringify(draft.reportCatalog ?? [])) as Prisma.InputJsonValue,
           },
         },
       });

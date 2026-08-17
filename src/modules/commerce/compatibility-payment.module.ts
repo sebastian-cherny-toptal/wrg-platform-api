@@ -193,11 +193,13 @@ export class CompatibilityPaymentService {
       ids.push(productId);
     }
     const metadata = jsonObject(context.program.metadata);
-    const catalog = Array.isArray(metadata.reportCatalog) ? metadata.reportCatalog : [];
+    const enrollmentMetadata = jsonObject(context.enrollment.metadata);
+    const effectiveCatalog = enrollmentMetadata.reportCatalog ?? metadata.reportCatalog;
+    const catalog = Array.isArray(effectiveCatalog) ? effectiveCatalog : [];
     const programFees = jsonObject(context.program.fees);
     const organizationFees = jsonObject(context.enrollment.fees);
     return ids.reduce((sum, id) => {
-      const product = catalog.find((entry) => entry && typeof entry === "object" && !Array.isArray(entry) && (entry as JsonRecord).id === id) as JsonRecord | undefined;
+      const product = catalog.find((entry) => entry && typeof entry === "object" && !Array.isArray(entry) && (entry as JsonRecord).id === id && (entry as JsonRecord).available !== false) as JsonRecord | undefined;
       if (!product) throw new BadRequestException(`Unknown report product: ${id}`);
       const configured = organizationFees[id] ?? programFees[id] ?? product.priceCents;
       if (typeof configured !== "number" || !Number.isInteger(configured) || configured <= 0) {

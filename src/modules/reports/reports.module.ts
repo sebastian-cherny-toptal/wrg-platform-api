@@ -15,6 +15,7 @@ import {
   type Principal,
 } from "../auth/auth.module.js";
 import { TenantGuard } from "../tenants/tenants.module.js";
+import { jsonObject } from "./report-catalog.js";
 
 @ApiTags("reports")
 @ApiBearerAuth()
@@ -112,8 +113,6 @@ class ReportCatalogController {
       ) {
         return [];
       }
-      const catalog = metadata.reportCatalog;
-      if (!Array.isArray(catalog)) return [];
       const enrollment = principal.organizationId
         ? await this.prisma.organizationProgram.findUnique({
             where: {
@@ -122,29 +121,29 @@ class ReportCatalogController {
                 programId: program.id,
               },
             },
-            select: { fees: true },
+            select: { fees: true, metadata: true },
           })
         : null;
-      const programFees = jsonRecord(program.fees);
-      const organizationFees = jsonRecord(enrollment?.fees);
-      return catalog.map((entry) => {
-        if (!entry || typeof entry !== "object" || Array.isArray(entry)) return entry;
+      const overrideCatalog = jsonObject(enrollment?.metadata).reportCatalog;
+      const catalog = Array.isArray(overrideCatalog) ? overrideCatalog : metadata.reportCatalog;
+      if (!Array.isArray(catalog)) return [];
+      const programFees = jsonObject(program.fees);
+      const organizationFees = jsonObject(enrollment?.fees);
+      const availableProducts: Array<Record<string, unknown>> = [];
+      for (const entry of catalog) {
+        if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
         const product = entry as Record<string, unknown>;
+        if (product.available === false) continue;
         const id = typeof product.id === "string" ? product.id : "";
         const configured = organizationFees[id] ?? programFees[id];
-        return typeof configured === "number" && Number.isInteger(configured) && configured >= 0
+        availableProducts.push(typeof configured === "number" && Number.isInteger(configured) && configured >= 0
           ? { ...product, priceCents: configured }
-          : product;
-      });
+          : product);
+      }
+      return availableProducts;
     }));
     return products.flat();
   }
-}
-
-function jsonRecord(value: unknown): Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : {};
 }
 
 @Module({ controllers: [ReportsController, ReportCatalogController] })
