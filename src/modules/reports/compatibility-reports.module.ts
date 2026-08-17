@@ -968,13 +968,13 @@ export class CompatibilityReportsService {
               Yes: {
                 title: "Winners",
                 value: this.publishedValue(
-                  published.surveyAverage[index] ?? "x",
+                  typeof published.surveyAverage[index] === "number" ? Math.round(published.surveyAverage[index]) : 'x',
                 ),
               },
               No: {
                 title: "Non-Winners",
                 value: this.publishedValue(
-                  published.surveyAverage[index + 1] ?? "x",
+                  typeof published.surveyAverage[index + 1] === "number" ? Math.round(Number(published.surveyAverage[index + 1])) : 'x',
                 ),
               },
             })),
