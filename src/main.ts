@@ -16,6 +16,7 @@ import { randomUUID } from "node:crypto";
 import type { IncomingMessage } from "node:http";
 import type { Env } from "./config/env.js";
 import { AppModule } from "./app.module.js";
+import { ServerErrorLoggingFilter } from "./common/http/server-error-exception.filter.js";
 import { requestLogPropsForRequest } from "./common/logging/request-logging.js";
 
 export async function createApp(): Promise<NestFastifyApplication> {
@@ -127,6 +128,7 @@ export async function createApp(): Promise<NestFastifyApplication> {
       transform: true,
     }),
   );
+  app.useGlobalFilters(new ServerErrorLoggingFilter());
 
   const document = SwaggerModule.createDocument(
     app,
