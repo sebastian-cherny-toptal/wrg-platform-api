@@ -559,7 +559,7 @@ export class CompatibilityAdminService {
 
   async uploadBenefitsBestPractices(
     principal: Principal,
-    programReference: string,
+    enrollmentReference: string,
     request: FastifyRequest,
   ) {
     this.assertAdmin(principal);
@@ -577,7 +577,13 @@ export class CompatibilityAdminService {
     if (file.buffer.length > benefitsWorkbookMaxBytes) {
       throw new BadRequestException("the workbook must be 25 MB or smaller");
     }
-    const program = await this.program(programReference);
+    const enrollment = await this.prisma.organizationProgram.findFirst({
+      where: referenceWhere(enrollmentReference),
+      include: { organization: true, program: true },
+    });
+    if (!enrollment) {
+      throw new NotFoundException("Organization program not found");
+    }
     const sourceFile = file.filename.replace(/[/\\]/gu, "_").slice(-255);
     let parsed;
     try {
@@ -592,14 +598,14 @@ export class CompatibilityAdminService {
           : "the workbook could not be parsed",
       );
     }
-    const metadata = jsonObject(program.metadata);
+    const metadata = jsonObject(enrollment.metadata);
     const publishedReports = jsonObject(metadata.publishedReports);
     const snapshot = {
       ...parsed,
       uploadedAt: new Date().toISOString(),
     };
-    await this.prisma.program.update({
-      where: { id: program.id },
+    await this.prisma.organizationProgram.update({
+      where: { id: enrollment.id },
       data: {
         metadata: inputJson({
           ...metadata,
@@ -614,7 +620,10 @@ export class CompatibilityAdminService {
       success: true,
       message: "Benefits & Best Practices workbook uploaded",
       data: {
-        programId: program.legacyId ?? program.id,
+        organizationId:
+          enrollment.organization.legacyId ?? enrollment.organization.id,
+        programId: enrollment.program.legacyId ?? enrollment.program.id,
+        organizationProgramId: enrollment.legacyId ?? enrollment.id,
         sourceFile: snapshot.sourceFile,
         headerCount: snapshot.headers.length,
         sectionCount: snapshot.sections.length,
@@ -738,6 +747,7 @@ export class CompatibilityAdminService {
               ...jsonObject(enrollment.metrics),
               ...jsonObject(enrollment.reportAccess),
               ...jsonObject(enrollment.paymentDetails),
+              ...jsonObject(enrollment.metadata),
               Stage: enrollment.stage,
               Created_Time: enrollment.createdAt,
               Last_time_deal_synced: enrollment.updatedAt,
@@ -1246,17 +1256,17 @@ export class CompatibilityAdminController {
     return this.admin.uploadKeyImpactAnalysis(principal, request, query);
   }
 
-  @Post("programs/:programId/benefits-best-practices")
+  @Post("organization-programs/:organizationProgramId/benefits-best-practices")
   @HttpCode(200)
   @ApiConsumes("multipart/form-data")
   uploadBenefitsBestPractices(
     @CurrentUser() principal: Principal,
-    @Param("programId") programId: string,
+    @Param("organizationProgramId") organizationProgramId: string,
     @Req() request: FastifyRequest,
   ) {
     return this.admin.uploadBenefitsBestPractices(
       principal,
-      programId,
+      organizationProgramId,
       request,
     );
   }

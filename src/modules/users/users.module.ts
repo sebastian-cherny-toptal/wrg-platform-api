@@ -405,6 +405,7 @@ export class ClientLoginService {
           stage: true,
           reportAccess: true,
           paymentDetails: true,
+          metadata: true,
           project: {
             select: { id: true, legacyId: true, name: true },
           },
@@ -417,7 +418,6 @@ export class ClientLoginService {
               year: true,
               currency: true,
               fees: true,
-              metadata: true,
             },
           },
         },
@@ -549,8 +549,7 @@ export class ClientLoginService {
           reportAccess: {
             ...reportAccess,
             BBP_Access:
-              benefitsAccess &&
-              hasPublishedBenefitsBestPractices(item.program.metadata)
+              benefitsAccess && hasPublishedBenefitsBestPractices(item.metadata)
                 ? "yes"
                 : "no",
           },

@@ -241,9 +241,7 @@ export class ImpersonationService {
       include: {
         actor: { select: { id: true, fullName: true } },
         organization: { select: { id: true, name: true } },
-        program: {
-          select: { id: true, name: true, year: true, metadata: true },
-        },
+        program: { select: { id: true, name: true, year: true } },
         target: {
           include: {
             roles: {
@@ -306,14 +304,14 @@ export class ImpersonationService {
           programId: grant.program.id,
         },
       },
-      select: { reportAccess: true },
+      select: { reportAccess: true, metadata: true },
     });
     const reportAccess = jsonObject(enrollment?.reportAccess ?? {});
     const entitlements = Object.fromEntries(
       entitlementKeys.map((key) => [
         key,
         key === "BBP_Access" &&
-        !hasPublishedBenefitsBestPractices(grant.program.metadata)
+        !hasPublishedBenefitsBestPractices(enrollment?.metadata)
           ? "no"
           : reportAccess[key] === "no"
             ? "no"

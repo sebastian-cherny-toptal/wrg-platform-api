@@ -36,21 +36,21 @@ enum JobStatus {
 }
 
 model Organization {
-  id               String                @id @default(uuid()) @db.Uuid
-  legacyId         String?               @unique
-  externalId       String?               @unique
-  name             String
-  slug             String                @unique
-  stripeCustomerId String?               @unique
-  metadata         Json                  @default("{}")
-  createdAt        DateTime              @default(now())
-  updatedAt        DateTime              @updatedAt
-  users            User[]
-  programs         OrganizationProgram[]
-  respondents      Respondent[]
-  orders           Order[]
-  assets           Asset[]
-  auditLogs        AuditLog[]
+  id                  String                @id @default(uuid()) @db.Uuid
+  legacyId            String?               @unique
+  externalId          String?               @unique
+  name                String
+  slug                String                @unique
+  stripeCustomerId    String?               @unique
+  metadata            Json                  @default("{}")
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+  users               User[]
+  programs            OrganizationProgram[]
+  respondents         Respondent[]
+  orders              Order[]
+  assets              Asset[]
+  auditLogs           AuditLog[]
   impersonationGrants ImpersonationGrant[]
 }
 
@@ -70,24 +70,24 @@ model Project {
 }
 
 model Program {
-  id            String                @id @default(uuid()) @db.Uuid
-  legacyId      String?               @unique
-  externalId    String?               @unique
-  projectId     String                @db.Uuid
-  name          String
-  year          Int?
-  currency      String                @default("USD")
-  fees          Json                  @default("{}")
-  metadata      Json                  @default("{}")
-  startsAt      DateTime?
-  endsAt        DateTime?
-  createdAt     DateTime              @default(now())
-  updatedAt     DateTime              @updatedAt
-  project       Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  organizations OrganizationProgram[]
-  surveys       Survey[]
-  users         UserProgram[]
-  orders        Order[]
+  id                  String                @id @default(uuid()) @db.Uuid
+  legacyId            String?               @unique
+  externalId          String?               @unique
+  projectId           String                @db.Uuid
+  name                String
+  year                Int?
+  currency            String                @default("USD")
+  fees                Json                  @default("{}")
+  metadata            Json                  @default("{}")
+  startsAt            DateTime?
+  endsAt              DateTime?
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+  project             Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  organizations       OrganizationProgram[]
+  surveys             Survey[]
+  users               UserProgram[]
+  orders              Order[]
   impersonationGrants ImpersonationGrant[]
 
   @@index([projectId])
@@ -105,6 +105,7 @@ model OrganizationProgram {
   reportAccess   Json         @default("{}")
   paymentDetails Json         @default("{}")
   metrics        Json         @default("{}")
+  metadata       Json         @default("{}")
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -119,27 +120,27 @@ model OrganizationProgram {
 }
 
 model User {
-  id                    String               @id @default(uuid()) @db.Uuid
-  legacyId              String?              @unique
-  externalId            String?              @unique
-  organizationId        String?              @db.Uuid
-  organizationProgramId String?              @db.Uuid
-  email                 String               @unique
-  username              String?              @unique
-  fullName              String
-  passwordHash          String
-  status                UserStatus           @default(INVITED)
-  mfaEnabled            Boolean              @default(false)
-  metadata              Json                 @default("{}")
-  createdAt             DateTime             @default(now())
-  updatedAt             DateTime             @updatedAt
-  organization          Organization?        @relation(fields: [organizationId], references: [id])
-  organizationProgram   OrganizationProgram? @relation(fields: [organizationProgramId], references: [id])
-  roles                 UserRole[]
-  projects              UserProject[]
-  programs              UserProgram[]
-  sessions              Session[]
-  auditLogs             AuditLog[]
+  id                          String               @id @default(uuid()) @db.Uuid
+  legacyId                    String?              @unique
+  externalId                  String?              @unique
+  organizationId              String?              @db.Uuid
+  organizationProgramId       String?              @db.Uuid
+  email                       String               @unique
+  username                    String?              @unique
+  fullName                    String
+  passwordHash                String
+  status                      UserStatus           @default(INVITED)
+  mfaEnabled                  Boolean              @default(false)
+  metadata                    Json                 @default("{}")
+  createdAt                   DateTime             @default(now())
+  updatedAt                   DateTime             @updatedAt
+  organization                Organization?        @relation(fields: [organizationId], references: [id])
+  organizationProgram         OrganizationProgram? @relation(fields: [organizationProgramId], references: [id])
+  roles                       UserRole[]
+  projects                    UserProject[]
+  programs                    UserProgram[]
+  sessions                    Session[]
+  auditLogs                   AuditLog[]
   impersonationGrantsAsActor  ImpersonationGrant[] @relation("ImpersonationActor")
   impersonationGrantsAsTarget ImpersonationGrant[] @relation("ImpersonationTarget")
 }

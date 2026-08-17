@@ -183,7 +183,7 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
         }),
         app.inject({
           method: "POST",
-          url: "/admin/programs/program-1/benefits-best-practices",
+          url: "/admin/organization-programs/enrollment-1/benefits-best-practices",
           headers,
         }),
         app.inject({

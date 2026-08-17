@@ -541,7 +541,7 @@ async function verifyImportedData(
   }
   const programs = await prisma.program.findMany({
     where: { projectId },
-    select: { year: true, metadata: true },
+    select: { id: true, year: true, metadata: true },
   });
   for (const program of programs) {
     if (program.year === null) continue;
@@ -551,9 +551,42 @@ async function verifyImportedData(
       metadata && typeof metadata === "object" && !Array.isArray(metadata)
         ? metadata.publishedReports
         : undefined;
-    if (!expected || canonicalJson(stored) !== canonicalJson(expected)) {
+    const expectedProgramReports = expected
+      ? { workforceBenchmark: expected.workforceBenchmark }
+      : undefined;
+    if (
+      !expected ||
+      canonicalJson(stored) !== canonicalJson(expectedProgramReports)
+    ) {
       throw new Error(
-        `${program.year} published workbook snapshot did not round-trip through PostgreSQL`,
+        `${program.year} workforce workbook snapshot did not round-trip through PostgreSQL`,
+      );
+    }
+    const enrollments = await prisma.organizationProgram.findMany({
+      where: { programId: program.id },
+      select: { metadata: true },
+    });
+    const expectedEnrollmentReports = {
+      benefitsBestPractices: expected.benefitsBestPractices,
+    };
+    if (
+      enrollments.length === 0 ||
+      enrollments.some((enrollment) => {
+        const enrollmentMetadata = enrollment.metadata;
+        const enrollmentReports =
+          enrollmentMetadata &&
+          typeof enrollmentMetadata === "object" &&
+          !Array.isArray(enrollmentMetadata)
+            ? enrollmentMetadata.publishedReports
+            : undefined;
+        return (
+          canonicalJson(enrollmentReports) !==
+          canonicalJson(expectedEnrollmentReports)
+        );
+      })
+    ) {
+      throw new Error(
+        `${program.year} organization benefits workbook snapshots did not round-trip through PostgreSQL`,
       );
     }
   }
@@ -679,7 +712,9 @@ async function seedSurvey(
         metadata: {
           anonymized: true,
           publishedReports: JSON.parse(
-            JSON.stringify(reports),
+            JSON.stringify({
+              workforceBenchmark: reports.workforceBenchmark,
+            }),
           ) as Prisma.InputJsonValue,
           seed: seedPrefix,
         },
@@ -748,8 +783,15 @@ async function seedSurvey(
             programId,
           },
         },
-        update:
-          source.kind === "EFS"
+        update: {
+          metadata: {
+            publishedReports: JSON.parse(
+              JSON.stringify({
+                benefitsBestPractices: reports.benefitsBestPractices,
+              }),
+            ) as Prisma.InputJsonValue,
+          },
+          ...(source.kind === "EFS"
             ? {
                 reportAccess: {
                   BBP_Access: "yes",
@@ -769,13 +811,21 @@ async function seedSurvey(
                   ...sourceIdentity,
                 },
               }
-            : {},
+            : {}),
+        },
         create: {
           organizationId: organization.id,
           projectId,
           programId,
           externalId: `${seedPrefix}-enrollment-${source.year}-${digest(key, 12)}`,
           stage: "Active",
+          metadata: {
+            publishedReports: JSON.parse(
+              JSON.stringify({
+                benefitsBestPractices: reports.benefitsBestPractices,
+              }),
+            ) as Prisma.InputJsonValue,
+          },
           reportAccess: {
             BBP_Access: "yes",
             EV_Access: "yes",

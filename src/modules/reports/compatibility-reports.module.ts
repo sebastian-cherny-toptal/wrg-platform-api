@@ -190,6 +190,7 @@ interface ReportContext {
   enrollmentId: string;
   reportAccess: Prisma.JsonValue;
   enrollmentMetrics: Prisma.JsonValue;
+  enrollmentMetadata: Prisma.JsonValue;
   program: {
     id: string;
     projectId: string;
@@ -2843,7 +2844,7 @@ export class CompatibilityReportsService {
     }
     const enrollment = await this.prisma.organizationProgram.findFirst({
       where: { organizationId, programId: program.id },
-      select: { id: true, reportAccess: true, metrics: true },
+      select: { id: true, reportAccess: true, metrics: true, metadata: true },
     });
     if (!enrollment) {
       throw new ForbiddenException(
@@ -2871,6 +2872,7 @@ export class CompatibilityReportsService {
       enrollmentId: enrollment.id,
       reportAccess: enrollment.reportAccess,
       enrollmentMetrics: enrollment.metrics,
+      enrollmentMetadata: enrollment.metadata,
       program,
       survey,
       organizationPrograms,
@@ -3603,12 +3605,13 @@ export class CompatibilityReportsService {
   private publishedBenefits(
     context: ReportContext,
   ): BenefitsBestPracticesSnapshot | null {
-    return publishedBenefitsBestPracticesSnapshot(context.program.metadata);
+    return publishedBenefitsBestPracticesSnapshot(context.enrollmentMetadata);
   }
 
   private publishedHeaders(headers: PublishedReportHeader[]) {
     return headers.map((header) => ({
       ...header,
+      subTitle: header.type.endsWith("_No") ? "Non-Winners" : "Winners",
       color: headerColors[header.type.endsWith("_No") ? "No" : "Yes"],
     }));
   }

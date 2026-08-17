@@ -157,6 +157,7 @@ describe("client login endpoint", () => {
               stage: "active",
               reportAccess: { BBP_Access: "yes" },
               paymentDetails: {},
+              metadata: {},
               project,
               program,
             },
