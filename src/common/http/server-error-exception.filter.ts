@@ -28,6 +28,18 @@ export function resolveHttpErrorMessage(exception: unknown): string {
   return "Internal server error";
 }
 
+export function resolveHttpErrorStack(exception: unknown): string | undefined {
+  const stacks: string[] = [];
+  const seen = new Set<unknown>();
+  let current: unknown = exception;
+  while (current instanceof Error && !seen.has(current)) {
+    seen.add(current);
+    if (current.stack) stacks.push(current.stack);
+    current = current.cause;
+  }
+  return stacks.length > 0 ? stacks.join("\nCaused by:\n") : undefined;
+}
+
 export function resolveHttpErrorBody(
   exception: unknown,
   status: number,
@@ -63,23 +75,32 @@ export class ServerErrorLoggingFilter implements ExceptionFilter {
     const message = resolveHttpErrorMessage(exception);
 
     if (status >= HttpStatus.INTERNAL_SERVER_ERROR.valueOf()) {
+      const stack = resolveHttpErrorStack(exception);
+      const err =
+        exception instanceof Error
+          ? exception
+          : { message, type: typeof exception };
       const payload = {
-        err: exception instanceof Error ? exception : undefined,
+        err,
         method: request.method,
         url: request.url,
         statusCode: status,
         correlationId: request.id,
         message,
+        ...(stack ? { stack } : {}),
       };
+
+      console.error(
+        `[HTTP ${status}] ${request.method} ${request.url} correlationId=${request.id} message=${message}${stack ? `\n${stack}` : ""}`,
+      );
+
       if (typeof request.log.error === "function") {
         request.log.error(payload, "request failed with server error");
       } else {
         this.logger.error(
-          {
-            ...payload,
-            stack: exception instanceof Error ? exception.stack : undefined,
-          },
-          "request failed with server error",
+          stack ? `${message}\n${stack}` : message,
+          stack,
+          ServerErrorLoggingFilter.name,
         );
       }
     }

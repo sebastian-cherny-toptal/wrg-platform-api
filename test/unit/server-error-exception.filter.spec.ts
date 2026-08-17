@@ -14,6 +14,7 @@ import { describe, it } from "node:test";
 import {
   resolveHttpErrorBody,
   resolveHttpErrorMessage,
+  resolveHttpErrorStack,
   resolveHttpErrorStatus,
   ServerErrorLoggingFilter,
 } from "../../src/common/http/server-error-exception.filter.js";
@@ -46,6 +47,16 @@ describe("server error exception filter", () => {
       "import failed",
     );
     assert.equal(resolveHttpErrorMessage(new Error("database exploded")), "database exploded");
+  });
+
+  it("walks error causes when resolving stack traces", () => {
+    const root = new Error("workbook parse failed");
+    const wrapped = new InternalServerErrorException("Historical import failed", {
+      cause: root,
+    });
+    const stack = resolveHttpErrorStack(wrapped);
+    assert.match(stack ?? "", /workbook parse failed/);
+    assert.match(stack ?? "", /Historical import failed/);
   });
 
   it("returns generic client message for unexpected 500 errors", () => {

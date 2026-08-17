@@ -27,9 +27,14 @@ import {
 } from "./xlsx-survey-importer.js";
 
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
+const MAX_LISTED_VALIDATION_ISSUES = 100;
+const MAX_PERSISTED_VALIDATION_ISSUES = 200;
 const XLSX_SIGNATURE = Buffer.from([0x50, 0x4b, 0x03, 0x04]);
 const responseBatchSize = 2_000;
-const stagingRoot = join(process.cwd(), "var", "historical-imports");
+
+function stagingRoot(): string {
+  return join(process.cwd(), "var", "historical-imports");
+}
 const standardOpenQuestionCaptions: Record<string, string> = {
   q_OpenEnded_1:
     "What are the top two or three reasons people like working for this organization?",
@@ -151,7 +156,7 @@ function importPrefixFor(importId: string): string {
 }
 
 function stagingDirectory(importId: string): string {
-  return join(stagingRoot, importId);
+  return join(stagingRoot(), importId);
 }
 
 function ensureStagingDirectory(importId: string): string {
@@ -178,6 +183,14 @@ function assertStoredWorkbooksReady(
   }
 }
 
+function isWorkbookValidationError(error: Error): boolean {
+  return (
+    /ENOENT.*\.xlsx|workbook|xlsx|worksheet|column|respondent|organization|Score %/iu.test(
+      error.message,
+    ) || error.message.includes(": required")
+  );
+}
+
 function toHttpException(error: unknown): Error {
   if (
     error instanceof BadRequestException ||
@@ -190,12 +203,63 @@ function toHttpException(error: unknown): Error {
   if (error instanceof Prisma.PrismaClientKnownRequestError) {
     return new InternalServerErrorException(
       `Historical import failed while writing ${error.meta?.modelName ?? "data"} (${error.code}).`,
+      { cause: error },
     );
   }
   if (error instanceof Error) {
-    return new InternalServerErrorException(error.message);
+    if (isWorkbookValidationError(error)) {
+      return new BadRequestException(error.message);
+    }
+    return new InternalServerErrorException(error.message, { cause: error });
   }
   return new InternalServerErrorException("Historical import failed");
+}
+
+function appendValidationIssue(
+  issues: HistoricalImportValidationIssue[],
+  counters: { listed: number; suppressed: number; errors: number; warnings: number },
+  issue: HistoricalImportValidationIssue,
+): void {
+  if (issue.level === "error") counters.errors += 1;
+  else counters.warnings += 1;
+  if (counters.listed < MAX_LISTED_VALIDATION_ISSUES) {
+    issues.push(issue);
+    counters.listed += 1;
+    return;
+  }
+  counters.suppressed += 1;
+}
+
+function finalizeValidationIssues(
+  issues: HistoricalImportValidationIssue[],
+  counters: { listed: number; suppressed: number; errors: number; warnings: number },
+): HistoricalImportValidationIssue[] {
+  if (counters.suppressed === 0) return issues;
+  return [
+    ...issues,
+    {
+      level: "warning",
+      message: `${counters.suppressed} additional validation messages were omitted from this preview`,
+    },
+  ];
+}
+
+function trimValidationSummary(
+  summary: HistoricalImportValidationSummary,
+): HistoricalImportValidationSummary {
+  if (summary.issues.length <= MAX_PERSISTED_VALIDATION_ISSUES) return summary;
+  const omitted = summary.issues.length - MAX_PERSISTED_VALIDATION_ISSUES;
+  return {
+    ...summary,
+    issues: [
+      ...summary.issues.slice(0, MAX_PERSISTED_VALIDATION_ISSUES),
+      {
+        level: "warning",
+        message: `${omitted} additional validation messages were omitted from the saved preview`,
+      },
+    ],
+    warningCount: summary.warningCount + 1,
+  };
 }
 
 function slugify(value: string): string {
@@ -358,6 +422,32 @@ export class HistoricalImportService {
     }
   }
 
+  private normalizeDraft(draft: HistoricalImportDraft): HistoricalImportDraft {
+    const stagingDir = ensureStagingDirectory(draft.importId);
+    const normalizeWorkbook = (
+      workbook: StoredWorkbook | undefined,
+    ): StoredWorkbook | undefined => {
+      if (!workbook) return undefined;
+      const storedName = basename(workbook.filePath);
+      const expectedPrefix = `${workbook.kind.toLowerCase()}-`;
+      const normalizedName = storedName.startsWith(expectedPrefix)
+        ? storedName
+        : `${workbook.kind.toLowerCase()}-${workbook.fileName}`;
+      return {
+        ...workbook,
+        filePath: join(stagingDir, normalizedName),
+      };
+    };
+    const eaFile = normalizeWorkbook(draft.eaFile);
+    const efsFile = normalizeWorkbook(draft.efsFile);
+    return {
+      ...draft,
+      stagingDir,
+      ...(eaFile ? { eaFile } : {}),
+      ...(efsFile ? { efsFile } : {}),
+    };
+  }
+
   private async loadDraft(importId: string): Promise<HistoricalImportDraft> {
     const record = await this.prisma.syncJob.findFirst({
       where: {
@@ -366,7 +456,7 @@ export class HistoricalImportService {
       },
     });
     if (!record) throw new NotFoundException("Historical import not found");
-    return draftFromInput(record.input);
+    return this.normalizeDraft(draftFromInput(record.input));
   }
 
   private async saveDraft(
@@ -401,9 +491,9 @@ export class HistoricalImportService {
     file: UploadedWorkbookFile,
   ): StoredWorkbook {
     assertXlsxFile(file);
-    ensureStagingDirectory(draft.importId);
+    const stagingDir = ensureStagingDirectory(draft.importId);
     const fileName = basename(file.filename);
-    const filePath = join(draft.stagingDir, `${kind.toLowerCase()}-${fileName}`);
+    const filePath = join(stagingDir, `${kind.toLowerCase()}-${fileName}`);
     writeFileSync(filePath, file.buffer);
     return {
       kind,
@@ -428,6 +518,8 @@ export class HistoricalImportService {
       }
     >;
     issues: HistoricalImportValidationIssue[];
+    errorCount: number;
+    warningCount: number;
   }> {
     const importPrefix = `historical-import:${draft.importId}`;
     const surveyId = deterministicUuid(`${importPrefix}:survey:${workbook.kind}`);
@@ -438,8 +530,9 @@ export class HistoricalImportService {
         deterministicUuid(`${surveyId}:question:${dataLabel}`),
     });
     const issues: HistoricalImportValidationIssue[] = [];
+    const issueCounters = { listed: 0, suppressed: 0, errors: 0, warnings: 0 };
     if (definition.questions.length === 0) {
-      issues.push({
+      appendValidationIssue(issues, issueCounters, {
         level: "error",
         message: `${workbook.fileName} does not contain any question columns`,
       });
@@ -458,7 +551,7 @@ export class HistoricalImportService {
     await forEachXlsxSurveyRow(definition, {}, (row) => {
       const displayName = row.organizationName?.trim();
       if (!displayName) {
-        issues.push({
+        appendValidationIssue(issues, issueCounters, {
           level: "error",
           message: `${workbook.fileName} row ${row.rowNumber} is missing an organization name`,
         });
@@ -466,7 +559,7 @@ export class HistoricalImportService {
       }
       const respondentKey = String(row.respondent ?? row.rowNumber);
       if (seenRespondents.has(respondentKey)) {
-        issues.push({
+        appendValidationIssue(issues, issueCounters, {
           level: "error",
           message: `${workbook.fileName} has duplicate respondent "${respondentKey}"`,
         });
@@ -491,7 +584,7 @@ export class HistoricalImportService {
         existing.workbookOrganizationId &&
         existing.workbookOrganizationId !== row.organizationId
       ) {
-        issues.push({
+        appendValidationIssue(issues, issueCounters, {
           level: "error",
           message: `${workbook.fileName} organization "${displayName}" uses conflicting workbook IDs`,
         });
@@ -500,11 +593,12 @@ export class HistoricalImportService {
       }
     });
     if (respondents === 0) {
-      issues.push({
+      appendValidationIssue(issues, issueCounters, {
         level: "error",
         message: `${workbook.fileName} does not contain any importable respondent rows`,
       });
     }
+    const finalizedIssues = finalizeValidationIssues(issues, issueCounters);
     return {
       summary: {
         kind: workbook.kind,
@@ -516,7 +610,10 @@ export class HistoricalImportService {
         responses,
       },
       organizations,
-      issues,
+      issues: finalizedIssues,
+      errorCount: issueCounters.errors,
+      warningCount:
+        issueCounters.warnings + (issueCounters.suppressed > 0 ? 1 : 0),
     };
   }
 
@@ -616,10 +713,12 @@ export class HistoricalImportService {
     if (eaFile.buffer.equals(efsFile.buffer)) {
       throw new BadRequestException("EA and EFS workbooks must be different files");
     }
+    const stagingDir = ensureStagingDirectory(importId);
     const nextDraft: HistoricalImportDraft = {
       ...draft,
-      eaFile: this.storeWorkbook(draft, "EA", eaFile),
-      efsFile: this.storeWorkbook(draft, "EFS", efsFile),
+      stagingDir,
+      eaFile: this.storeWorkbook({ ...draft, stagingDir }, "EA", eaFile),
+      efsFile: this.storeWorkbook({ ...draft, stagingDir }, "EFS", efsFile),
       status: "draft",
     };
     await this.saveDraft(nextDraft);
@@ -643,42 +742,43 @@ export class HistoricalImportService {
     const draft = await this.loadDraft(importId);
     assertStoredWorkbooksReady(draft);
     try {
-      const [eaAnalysis, efsAnalysis] = await Promise.all([
-        this.analyzeWorkbook(draft, draft.eaFile),
-        this.analyzeWorkbook(draft, draft.efsFile),
-      ]);
-    const organizations = this.buildOrganizationSummary(
-      eaAnalysis.organizations,
-      efsAnalysis.organizations,
-    );
-    const issues = [...eaAnalysis.issues, ...efsAnalysis.issues];
-    if (organizations.some((organization) => organization.warnings.length > 0)) {
-      for (const organization of organizations) {
-        for (const warning of organization.warnings) {
-          issues.push({
-            level: "warning",
-            message: `${organization.displayName}: ${warning}`,
-          });
+      const eaAnalysis = await this.analyzeWorkbook(draft, draft.eaFile);
+      const efsAnalysis = await this.analyzeWorkbook(draft, draft.efsFile);
+      const organizations = this.buildOrganizationSummary(
+        eaAnalysis.organizations,
+        efsAnalysis.organizations,
+      );
+      const issues = [...eaAnalysis.issues, ...efsAnalysis.issues];
+      let warningCount = eaAnalysis.warningCount + efsAnalysis.warningCount;
+      if (organizations.some((organization) => organization.warnings.length > 0)) {
+        for (const organization of organizations) {
+          for (const warning of organization.warnings) {
+            warningCount += 1;
+            issues.push({
+              level: "warning",
+              message: `${organization.displayName}: ${warning}`,
+            });
+          }
         }
       }
-    }
-    issues.push({
-      level: "warning",
-      message:
-        "Zoho commercial outcomes and report entitlements are not imported by this wizard",
-    });
-    const summary: HistoricalImportValidationSummary = {
-      issues,
-      workbooks: [eaAnalysis.summary, efsAnalysis.summary],
-      organizations,
-      blockingErrorCount: issues.filter((issue) => issue.level === "error").length,
-      warningCount: issues.filter((issue) => issue.level === "warning").length,
-    };
-    await this.saveDraft(
-      { ...draft, status: summary.blockingErrorCount === 0 ? "validated" : "draft" },
-      { output: summary as unknown as Prisma.InputJsonValue },
-    );
-    return summary;
+      warningCount += 1;
+      issues.push({
+        level: "warning",
+        message:
+          "Zoho commercial outcomes and report entitlements are not imported by this wizard",
+      });
+      const summary = trimValidationSummary({
+        issues,
+        workbooks: [eaAnalysis.summary, efsAnalysis.summary],
+        organizations,
+        blockingErrorCount: eaAnalysis.errorCount + efsAnalysis.errorCount,
+        warningCount,
+      });
+      await this.saveDraft(
+        { ...draft, status: summary.blockingErrorCount === 0 ? "validated" : "draft" },
+        { output: summary as unknown as Prisma.InputJsonValue },
+      );
+      return summary;
     } catch (error) {
       throw toHttpException(error);
     }
