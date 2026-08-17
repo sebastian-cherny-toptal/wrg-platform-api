@@ -2946,7 +2946,11 @@ export class CompatibilityReportsService {
       | "BBP_Access"
       | "KIA_Access",
   ): false {
-    if (principal.roles.includes("admin")) return false;
+    if (
+      principal.roles.includes("admin") ||
+      principal.roles.includes("super_admin")
+    )
+      return false;
     const access = jsonObject(context.reportAccess);
     const aliases = {
       WBC_Access: "workforceBenchmark",
@@ -3350,6 +3354,7 @@ export class CompatibilityReportsService {
   private assertAdmin(principal: Principal): void {
     if (
       !principal.roles.includes("admin") &&
+      !principal.roles.includes("super_admin") &&
       !principal.permissions.includes("ops.manage")
     ) {
       throw new ForbiddenException("Administrator access required");

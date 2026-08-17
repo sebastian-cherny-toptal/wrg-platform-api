@@ -43,7 +43,7 @@ export class BootstrapAdminService implements OnApplicationBootstrap {
       select: { id: true, passwordHash: true },
     });
     if (existing) {
-      await this.reconcilePassword(existing, password);
+      await this.reconcileBootstrapUser(existing, password);
       return;
     }
 
@@ -51,9 +51,9 @@ export class BootstrapAdminService implements OnApplicationBootstrap {
     try {
       await this.prisma.$transaction(async (transaction) => {
         const role = await transaction.role.upsert({
-          where: { key: "admin" },
-          update: {},
-          create: { key: "admin", name: "Administrator" },
+          where: { key: "super_admin" },
+          update: { name: "Super Admin" },
+          create: { key: "super_admin", name: "Super Admin" },
         });
         const permissions = await Promise.all(
           adminPermissions.map((key) =>
@@ -78,6 +78,15 @@ export class BootstrapAdminService implements OnApplicationBootstrap {
             }),
           ),
         );
+        const existingSuperAdmin = await transaction.userRole.findFirst({
+          where: { roleId: role.id },
+          select: { userId: true },
+        });
+        if (existingSuperAdmin) {
+          throw new Error(
+            "A Super Admin already exists; ADMIN_USERNAME must identify that user",
+          );
+        }
         const user = await transaction.user.create({
           data: {
             email: username,
@@ -102,7 +111,7 @@ export class BootstrapAdminService implements OnApplicationBootstrap {
           select: { id: true, passwordHash: true },
         });
         if (concurrent) {
-          await this.reconcilePassword(concurrent, password);
+          await this.reconcileBootstrapUser(concurrent, password);
           return;
         }
       }
@@ -110,7 +119,7 @@ export class BootstrapAdminService implements OnApplicationBootstrap {
     }
   }
 
-  private async reconcilePassword(
+  private async reconcileBootstrapUser(
     user: { id: string; passwordHash: string },
     password: string,
   ): Promise<void> {
@@ -120,21 +129,62 @@ export class BootstrapAdminService implements OnApplicationBootstrap {
     } catch {
       matches = false;
     }
-    if (matches) {
-      this.logger.log("Bootstrap administrator password already matches");
-      return;
-    }
-    const passwordHash = await hash(password);
     await this.prisma.$transaction(async (transaction) => {
+      const role = await transaction.role.upsert({
+        where: { key: "super_admin" },
+        update: { name: "Super Admin" },
+        create: { key: "super_admin", name: "Super Admin" },
+      });
+      const existingSuperAdmin = await transaction.userRole.findFirst({
+        where: { roleId: role.id, userId: { not: user.id } },
+        select: { userId: true },
+      });
+      if (existingSuperAdmin) {
+        throw new Error(
+          "A different Super Admin already exists; ADMIN_USERNAME must identify that user",
+        );
+      }
+      const permissions = await Promise.all(
+        adminPermissions.map((key) =>
+          transaction.permission.upsert({
+            where: { key },
+            update: {},
+            create: { key, description: key },
+          }),
+        ),
+      );
+      await Promise.all(
+        permissions.map((permission) =>
+          transaction.rolePermission.upsert({
+            where: {
+              roleId_permissionId: {
+                roleId: role.id,
+                permissionId: permission.id,
+              },
+            },
+            update: {},
+            create: { roleId: role.id, permissionId: permission.id },
+          }),
+        ),
+      );
       await transaction.user.update({
         where: { id: user.id },
-        data: { passwordHash },
+        data: {
+          ...(matches ? {} : { passwordHash: await hash(password) }),
+          status: "ACTIVE",
+          roles: {
+            deleteMany: {},
+            create: [{ roleId: role.id }],
+          },
+        },
       });
-      await transaction.session.updateMany({
-        where: { userId: user.id, revokedAt: null },
-        data: { revokedAt: new Date() },
-      });
+      if (!matches) {
+        await transaction.session.updateMany({
+          where: { userId: user.id, revokedAt: null },
+          data: { revokedAt: new Date() },
+        });
+      }
     });
-    this.logger.log("new admin password");
+    this.logger.log("Bootstrap Super Admin reconciled");
   }
 }

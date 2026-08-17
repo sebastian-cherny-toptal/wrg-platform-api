@@ -28,6 +28,7 @@ export class CompatibilityZohoService {
   async sync(principal: Principal, kind: ZohoSyncKind, requestedKey?: string) {
     if (
       !principal.roles.includes("admin") &&
+      !principal.roles.includes("super_admin") &&
       !principal.permissions.includes("ops.manage") &&
       !principal.permissions.includes("clientsProjectsProgramsAccess") &&
       !principal.permissions.includes("syncCheckmartketAndZohoAccess")

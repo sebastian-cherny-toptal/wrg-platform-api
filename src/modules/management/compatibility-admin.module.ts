@@ -274,8 +274,8 @@ export class CompatibilityAdminService {
       where: roleReferenceWhere(roleId),
     });
     if (!role) throw new NotFoundException("Role not found");
-    if (role.key === "admin") {
-      throw new ForbiddenException("Admin role can not be changed");
+    if (role.key === "admin" || role.key === "super_admin") {
+      throw new ForbiddenException("Administrator roles can not be changed");
     }
     await this.prisma.$transaction([
       this.prisma.rolePermission.deleteMany({ where: { roleId: role.id } }),
@@ -313,8 +313,13 @@ export class CompatibilityAdminService {
       where: roleReferenceWhere(roleId),
     });
     if (!role) throw new NotFoundException("Role not found");
-    if (role.key === "admin" && mode === "remove") {
-      throw new ForbiddenException("Admin permissions can not be removed");
+    if (
+      (role.key === "admin" || role.key === "super_admin") &&
+      mode === "remove"
+    ) {
+      throw new ForbiddenException(
+        "Administrator permissions can not be removed",
+      );
     }
     if (mode === "add") {
       await Promise.all(
@@ -351,8 +356,8 @@ export class CompatibilityAdminService {
       include: { _count: { select: { users: true } } },
     });
     if (!role) throw new NotFoundException("Role not found");
-    if (role.key === "admin") {
-      throw new ForbiddenException("Admin role can not be deleted");
+    if (role.key === "admin" || role.key === "super_admin") {
+      throw new ForbiddenException("Administrator roles can not be deleted");
     }
     if (role._count.users > 0) {
       return {
@@ -1093,6 +1098,7 @@ export class CompatibilityAdminService {
   private assertAdmin(principal: Principal): void {
     if (
       !principal.roles.includes("admin") &&
+      !principal.roles.includes("super_admin") &&
       !principal.permissions.includes("ops.manage")
     ) {
       throw new ForbiddenException("Administrator access required");
@@ -1102,6 +1108,7 @@ export class CompatibilityAdminService {
   private assertPermission(principal: Principal, permission: string): void {
     if (
       !principal.roles.includes("admin") &&
+      !principal.roles.includes("super_admin") &&
       !principal.permissions.includes("ops.manage") &&
       !principal.permissions.includes(permission)
     ) {

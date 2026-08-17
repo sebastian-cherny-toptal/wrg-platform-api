@@ -28,7 +28,8 @@ export class TenantGuard implements CanActivate {
     if (
       requested &&
       request.user.organizationId !== requested &&
-      !request.user.roles.includes("admin")
+      !request.user.roles.includes("admin") &&
+      !request.user.roles.includes("super_admin")
     ) {
       throw new ForbiddenException("Tenant access denied");
     }

@@ -90,6 +90,12 @@ describe("list users endpoint", () => {
         roles: ["admin"],
         permissions: [],
       } satisfies Principal);
+      const superAdminToken = jwt.sign({
+        sub: "20ba2a76-1e0a-42a6-8f50-c3464beecfec",
+        organizationId: null,
+        roles: ["super_admin"],
+        permissions: [],
+      } satisfies Principal);
       const managerToken = jwt.sign({
         sub: "9df11436-1475-4a6d-b95f-f62476340547",
         organizationId: null,
@@ -106,13 +112,21 @@ describe("list users endpoint", () => {
       assert.equal(listed.json<{ success: boolean }>().success, true);
       assert.equal(listCalls, 1);
 
+      const listedBySuperAdmin = await app.inject({
+        method: "GET",
+        url: "/user/list",
+        headers: { authorization: `Bearer ${superAdminToken}` },
+      });
+      assert.equal(listedBySuperAdmin.statusCode, 200, listedBySuperAdmin.body);
+      assert.equal(listCalls, 2);
+
       const forbidden = await app.inject({
         method: "GET",
         url: "/user/list",
         headers: { authorization: `Bearer ${managerToken}` },
       });
       assert.equal(forbidden.statusCode, 403);
-      assert.equal(listCalls, 1);
+      assert.equal(listCalls, 2);
     } finally {
       await app.close();
     }
@@ -133,6 +147,8 @@ describe("list users endpoint", () => {
               metadata: { mobile: "123", mfa: "email" },
               createdAt: new Date("2026-01-01T00:00:00.000Z"),
               updatedAt: new Date("2026-01-02T00:00:00.000Z"),
+              organization: { id: "organization-id", name: "Example Org" },
+              sessions: [{ createdAt: new Date("2026-01-03T12:30:00.000Z") }],
               roles: [
                 {
                   role: {
@@ -157,12 +173,20 @@ describe("list users endpoint", () => {
     } as unknown as PrismaService;
     const service = new UsersService(prisma, {} as UserInvitationMailer);
 
-    const response = await service.list("projects", "fullName,role,projects");
+    const response = await service.list(
+      "projects",
+      "fullName,role,projects,organization,lastLogin",
+    );
     const user = response.data[0];
     assert.ok(user);
     assert.equal(user._id, "legacy-user-id");
     assert.equal(user.fullName, "Example Person");
     assert.equal(user.role, "manager");
+    assert.deepEqual(user.organization, {
+      id: "organization-id",
+      name: "Example Org",
+    });
+    assert.deepEqual(user.lastLogin, new Date("2026-01-03T12:30:00.000Z"));
     assert.equal("email" in user, false);
     const projects = user.projects as Array<{ Name: string }>;
     assert.equal(projects[0]?.Name, "Project One");

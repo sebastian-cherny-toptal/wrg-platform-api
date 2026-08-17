@@ -10,12 +10,7 @@ import {
 import { Prisma } from "@prisma/client";
 import type { PrismaClient } from "@prisma/client";
 import { createHash, randomUUID } from "node:crypto";
-import {
-  existsSync,
-  mkdirSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { basename, extname, join } from "node:path";
 import { PrismaService } from "../../database/prisma.service.js";
 import type { Principal } from "../auth/auth.module.js";
@@ -134,7 +129,10 @@ function requiredString(body: Record<string, unknown>, key: string): string {
   return value.trim();
 }
 
-function optionalString(body: Record<string, unknown>, key: string): string | undefined {
+function optionalString(
+  body: Record<string, unknown>,
+  key: string,
+): string | undefined {
   const value = body[key];
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
@@ -172,7 +170,9 @@ function assertStoredWorkbooksReady(
   efsFile: StoredWorkbook;
 } {
   if (!draft.eaFile || !draft.efsFile) {
-    throw new BadRequestException("Upload both EA and EFS workbooks before continuing");
+    throw new BadRequestException(
+      "Upload both EA and EFS workbooks before continuing",
+    );
   }
   for (const workbook of [draft.eaFile, draft.efsFile]) {
     if (!existsSync(workbook.filePath)) {
@@ -217,7 +217,12 @@ function toHttpException(error: unknown): Error {
 
 function appendValidationIssue(
   issues: HistoricalImportValidationIssue[],
-  counters: { listed: number; suppressed: number; errors: number; warnings: number },
+  counters: {
+    listed: number;
+    suppressed: number;
+    errors: number;
+    warnings: number;
+  },
   issue: HistoricalImportValidationIssue,
 ): void {
   if (issue.level === "error") counters.errors += 1;
@@ -232,7 +237,12 @@ function appendValidationIssue(
 
 function finalizeValidationIssues(
   issues: HistoricalImportValidationIssue[],
-  counters: { listed: number; suppressed: number; errors: number; warnings: number },
+  counters: {
+    listed: number;
+    suppressed: number;
+    errors: number;
+    warnings: number;
+  },
 ): HistoricalImportValidationIssue[] {
   if (counters.suppressed === 0) return issues;
   return [
@@ -293,7 +303,11 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
   const yearValue = value.programYear;
   const programYear = Number(yearValue);
   const currentYear = new Date().getFullYear();
-  if (!Number.isInteger(programYear) || programYear < 1900 || programYear > currentYear) {
+  if (
+    !Number.isInteger(programYear) ||
+    programYear < 1900 ||
+    programYear > currentYear
+  ) {
     throw new BadRequestException(
       `programYear must be an integer between 1900 and ${currentYear}`,
     );
@@ -364,7 +378,9 @@ function draftFromInput(input: unknown): HistoricalImportDraft {
       ? { createdByUserId: value.createdByUserId }
       : {}),
     status,
-    ...(typeof value.projectId === "string" ? { projectId: value.projectId } : {}),
+    ...(typeof value.projectId === "string"
+      ? { projectId: value.projectId }
+      : {}),
     ...(typeof value.commitIdempotencyKey === "string"
       ? { commitIdempotencyKey: value.commitIdempotencyKey }
       : {}),
@@ -398,6 +414,64 @@ function questionReportRole(type: string): string {
   return "other";
 }
 
+interface HistoricalQuestionTemplate {
+  dataLabel: string;
+  caption: string;
+  type: string;
+  metadata: Prisma.JsonValue;
+}
+
+function jsonMetadata(value: Prisma.JsonValue | undefined): Prisma.JsonObject {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value
+    : {};
+}
+
+export function mergeHistoricalQuestionTemplate(
+  question: XlsxQuestionDefinition,
+  template?: HistoricalQuestionTemplate,
+): XlsxQuestionDefinition {
+  return {
+    ...question,
+    caption:
+      standardOpenQuestionCaptions[question.dataLabel] ??
+      template?.caption ??
+      question.caption,
+    type: template?.type ?? question.type,
+  };
+}
+
+export function missingQuestionTemplateLabels(
+  questions: XlsxQuestionDefinition[],
+  templateLabels: ReadonlySet<string>,
+): string[] {
+  return questions
+    .filter(
+      ({ dataLabel, type }) =>
+        type === "likert" && !templateLabels.has(dataLabel),
+    )
+    .map(({ dataLabel }) => dataLabel);
+}
+
+export function historicalQuestionMetadata(
+  question: XlsxQuestionDefinition,
+  templateMetadata: Prisma.JsonValue | undefined,
+  importId: string,
+): Prisma.InputJsonObject {
+  const template = jsonMetadata(templateMetadata);
+  return {
+    ...template,
+    QuestionTypeId: template.QuestionTypeId ?? questionTypeId(question.type),
+    reportRole: template.reportRole ?? questionReportRole(question.type),
+    ...(question.type === "likert" && !template.QuestionResponses
+      ? { QuestionResponses: likertQuestionResponses() }
+      : {}),
+    ...(question.filterLabel ? { filterLabel: question.filterLabel } : {}),
+    sourceColumn: question.column,
+    historicalImportId: importId,
+  };
+}
+
 async function insertBatches<T>(
   values: T[],
   insert: (batch: T[]) => Promise<unknown>,
@@ -415,6 +489,7 @@ export class HistoricalImportService {
   private assertAccess(principal: Principal): void {
     if (
       !principal.roles.includes("admin") &&
+      !principal.roles.includes("super_admin") &&
       !principal.permissions.includes("ops.manage") &&
       !principal.permissions.includes("clientsProjectsProgramsAccess")
     ) {
@@ -522,7 +597,9 @@ export class HistoricalImportService {
     warningCount: number;
   }> {
     const importPrefix = `historical-import:${draft.importId}`;
-    const surveyId = deterministicUuid(`${importPrefix}:survey:${workbook.kind}`);
+    const surveyId = deterministicUuid(
+      `${importPrefix}:survey:${workbook.kind}`,
+    );
     const definition = await readXlsxSurveyDefinition({
       fileName: workbook.fileName,
       filePath: workbook.filePath,
@@ -574,7 +651,9 @@ export class HistoricalImportService {
         organizations.set(key, {
           displayName,
           respondents: 1,
-          ...(row.organizationId ? { workbookOrganizationId: row.organizationId } : {}),
+          ...(row.organizationId
+            ? { workbookOrganizationId: row.organizationId }
+            : {}),
         });
         return;
       }
@@ -620,14 +699,25 @@ export class HistoricalImportService {
   private buildOrganizationSummary(
     eaOrganizations: Map<
       string,
-      { displayName: string; workbookOrganizationId?: string; respondents: number }
+      {
+        displayName: string;
+        workbookOrganizationId?: string;
+        respondents: number;
+      }
     >,
     efsOrganizations: Map<
       string,
-      { displayName: string; workbookOrganizationId?: string; respondents: number }
+      {
+        displayName: string;
+        workbookOrganizationId?: string;
+        respondents: number;
+      }
     >,
   ): OrganizationSummary[] {
-    const keys = new Set([...eaOrganizations.keys(), ...efsOrganizations.keys()]);
+    const keys = new Set([
+      ...eaOrganizations.keys(),
+      ...efsOrganizations.keys(),
+    ]);
     return [...keys]
       .map((key) => {
         const ea = eaOrganizations.get(key);
@@ -691,7 +781,9 @@ export class HistoricalImportService {
     this.assertAccess(principal);
     const draft = await this.loadDraft(importId);
     if (draft.status === "committing" || draft.status === "succeeded") {
-      throw new ConflictException("This historical import can no longer be edited");
+      throw new ConflictException(
+        "This historical import can no longer be edited",
+      );
     }
     const metadata = validateMetadata({ ...draft, ...objectBody(body) });
     const nextDraft = { ...draft, ...metadata, status: "draft" as const };
@@ -708,10 +800,14 @@ export class HistoricalImportService {
     this.assertAccess(principal);
     const draft = await this.loadDraft(importId);
     if (draft.status === "committing" || draft.status === "succeeded") {
-      throw new ConflictException("This historical import can no longer be edited");
+      throw new ConflictException(
+        "This historical import can no longer be edited",
+      );
     }
     if (eaFile.buffer.equals(efsFile.buffer)) {
-      throw new BadRequestException("EA and EFS workbooks must be different files");
+      throw new BadRequestException(
+        "EA and EFS workbooks must be different files",
+      );
     }
     const stagingDir = ensureStagingDirectory(importId);
     const nextDraft: HistoricalImportDraft = {
@@ -750,7 +846,9 @@ export class HistoricalImportService {
       );
       const issues = [...eaAnalysis.issues, ...efsAnalysis.issues];
       let warningCount = eaAnalysis.warningCount + efsAnalysis.warningCount;
-      if (organizations.some((organization) => organization.warnings.length > 0)) {
+      if (
+        organizations.some((organization) => organization.warnings.length > 0)
+      ) {
         for (const organization of organizations) {
           for (const warning of organization.warnings) {
             warningCount += 1;
@@ -775,7 +873,10 @@ export class HistoricalImportService {
         warningCount,
       });
       await this.saveDraft(
-        { ...draft, status: summary.blockingErrorCount === 0 ? "validated" : "draft" },
+        {
+          ...draft,
+          status: summary.blockingErrorCount === 0 ? "validated" : "draft",
+        },
         { output: summary as unknown as Prisma.InputJsonValue },
       );
       return summary;
@@ -831,7 +932,9 @@ export class HistoricalImportService {
     importPrefix: string,
     projectId: string,
   ): Promise<void> {
-    await this.prisma.project.deleteMany({ where: { id: projectId } }).catch(() => undefined);
+    await this.prisma.project
+      .deleteMany({ where: { id: projectId } })
+      .catch(() => undefined);
     await this.prisma.organization
       .deleteMany({
         where: { externalId: { startsWith: `${importPrefix}:org:` } },
@@ -839,7 +942,10 @@ export class HistoricalImportService {
       .catch(() => undefined);
   }
 
-  async commit(principal: Principal, importId: string): Promise<HistoricalImportStatus> {
+  async commit(
+    principal: Principal,
+    importId: string,
+  ): Promise<HistoricalImportStatus> {
     this.assertAccess(principal);
     const draft = await this.loadDraft(importId);
     assertStoredWorkbooksReady(draft);
@@ -864,7 +970,9 @@ export class HistoricalImportService {
       validation = await this.validate(principal, importId);
     }
     if (validation.blockingErrorCount > 0) {
-      throw new BadRequestException("Resolve validation errors before committing");
+      throw new BadRequestException(
+        "Resolve validation errors before committing",
+      );
     }
     if (draft.status === "succeeded" && draft.projectId) {
       return this.getStatus(principal, importId);
@@ -929,7 +1037,10 @@ export class HistoricalImportService {
           },
         },
       });
-      const organizationRows = await this.collectOrganizationRows(eaFile, efsFile);
+      const organizationRows = await this.collectOrganizationRows(
+        eaFile,
+        efsFile,
+      );
       await this.createOrganizationsAndEnrollments(
         this.prisma,
         draft,
@@ -940,6 +1051,26 @@ export class HistoricalImportService {
       );
       await this.importSurvey(this.prisma, draft, "EA", eaFile, programId);
       await this.importSurvey(this.prisma, draft, "EFS", efsFile, programId);
+      const actor =
+        principal.sub === "bypass-login-auth"
+          ? null
+          : await this.prisma.user.findUnique({
+              where: { id: principal.sub },
+              select: { id: true, username: true, email: true },
+            });
+      await this.prisma.auditLog.create({
+        data: {
+          ...(actor ? { actorUserId: actor.id } : {}),
+          action: "project.created",
+          resourceType: "Project",
+          resourceId: projectId,
+          after: {
+            projectName: draft.projectName,
+            actorUsername:
+              actor?.username ?? actor?.email ?? "local administrator",
+          },
+        },
+      });
 
       await this.saveDraft(
         {
@@ -964,7 +1095,8 @@ export class HistoricalImportService {
         { ...draft, status: "failed", commitIdempotencyKey, projectId },
         {
           status: "failed",
-          error: error instanceof Error ? error.message : "Historical import failed",
+          error:
+            error instanceof Error ? error.message : "Historical import failed",
         },
       );
       throw toHttpException(error);
@@ -1013,14 +1145,17 @@ export class HistoricalImportService {
           displayName,
           eaRespondents: 0,
           efsRespondents: 0,
-          ...(row.organizationId ? { workbookOrganizationId: row.organizationId } : {}),
+          ...(row.organizationId
+            ? { workbookOrganizationId: row.organizationId }
+            : {}),
         };
         if (kind === "EA") existing.eaRespondents += 1;
         else existing.efsRespondents += 1;
         if (row.organizationId && !existing.workbookOrganizationId) {
           existing.workbookOrganizationId = row.organizationId;
         }
-        if (row.companySize !== undefined) existing.companySize = row.companySize;
+        if (row.companySize !== undefined)
+          existing.companySize = row.companySize;
         rows.set(key, existing);
       });
     };
@@ -1048,7 +1183,9 @@ export class HistoricalImportService {
   ): Promise<void> {
     const importPrefix = importPrefixFor(draft.importId);
     for (const [key, details] of organizationRows) {
-      const organizationId = deterministicUuid(`${importPrefix}:organization:${key}`);
+      const organizationId = deterministicUuid(
+        `${importPrefix}:organization:${key}`,
+      );
       const token = digest(`${importPrefix}:organization:${key}`, 12);
       const organizationData = {
         name: details.displayName,
@@ -1087,7 +1224,7 @@ export class HistoricalImportService {
             CR_Access: "no",
           },
           metrics: {
-            Surveys_Sent: details.eaRespondents + details.efsRespondents,
+            Surveys_Sent: details.efsRespondents,
             Source_Organization_ID: details.workbookOrganizationId ?? null,
             Source_Organization_Name: details.displayName,
             ...(details.companySize !== undefined
@@ -1111,7 +1248,7 @@ export class HistoricalImportService {
             CR_Access: "no",
           },
           metrics: {
-            Surveys_Sent: details.eaRespondents + details.efsRespondents,
+            Surveys_Sent: details.efsRespondents,
             Source_Organization_ID: details.workbookOrganizationId ?? null,
             Source_Organization_Name: details.displayName,
             ...(details.companySize !== undefined
@@ -1138,12 +1275,50 @@ export class HistoricalImportService {
       questionId: (dataLabel) =>
         deterministicUuid(`${surveyId}:question:${dataLabel}`),
     });
-    const questions: XlsxQuestionDefinition[] = definition.questions.map(
-      (question) => ({
-        ...question,
-        caption:
-          standardOpenQuestionCaptions[question.dataLabel] ?? question.caption,
-      }),
+    const storedTemplates = await prisma.question.findMany({
+      where: {
+        dataLabel: {
+          in: definition.questions.map(({ dataLabel }) => dataLabel),
+        },
+        OR: [
+          { externalId: null },
+          {
+            externalId: {
+              not: { startsWith: "historical-import:" },
+            },
+          },
+        ],
+      },
+      select: {
+        dataLabel: true,
+        caption: true,
+        type: true,
+        metadata: true,
+      },
+      orderBy: { survey: { createdAt: "desc" } },
+    });
+    const templatesByDataLabel = new Map<string, HistoricalQuestionTemplate>();
+    for (const template of storedTemplates) {
+      if (!templatesByDataLabel.has(template.dataLabel)) {
+        templatesByDataLabel.set(template.dataLabel, template);
+      }
+    }
+    const missingTemplates = missingQuestionTemplateLabels(
+      definition.questions,
+      new Set(templatesByDataLabel.keys()),
+    );
+    if (missingTemplates.length > 0) {
+      throw new BadRequestException(
+        `${workbook.fileName}: question text is unavailable for ${missingTemplates
+          .slice(0, 5)
+          .join(", ")}${missingTemplates.length > 5 ? " and more" : ""}`,
+      );
+    }
+    const questions = definition.questions.map((question) =>
+      mergeHistoricalQuestionTemplate(
+        question,
+        templatesByDataLabel.get(question.dataLabel),
+      ),
     );
     await prisma.survey.create({
       data: {
@@ -1176,16 +1351,11 @@ export class HistoricalImportService {
         caption: question.caption,
         type: question.type,
         position: index + 1,
-        metadata: {
-          QuestionTypeId: questionTypeId(question.type),
-          reportRole: questionReportRole(question.type),
-          ...(question.type === "likert"
-            ? { QuestionResponses: likertQuestionResponses() }
-            : {}),
-          ...(question.filterLabel ? { filterLabel: question.filterLabel } : {}),
-          sourceColumn: question.column,
-          historicalImportId: draft.importId,
-        },
+        metadata: historicalQuestionMetadata(
+          question,
+          templatesByDataLabel.get(question.dataLabel)?.metadata,
+          draft.importId,
+        ),
       })),
     });
     const respondentBatch: Prisma.RespondentCreateManyInput[] = [];
@@ -1225,7 +1395,7 @@ export class HistoricalImportService {
         respondentHash: digest(`respondent:${respondentToken}`, 64),
         completedAt: row.completed
           ? (row.completedAt ??
-              new Date(`${draft.programYear}-06-30T12:00:00.000Z`))
+            new Date(`${draft.programYear}-06-30T12:00:00.000Z`))
           : null,
         metadata: {
           historicalImportId: draft.importId,
@@ -1235,7 +1405,9 @@ export class HistoricalImportService {
       });
       for (const response of row.responses) {
         responseBatch.push({
-          id: deterministicUuid(`${respondentId}:response:${response.question.id}`),
+          id: deterministicUuid(
+            `${respondentId}:response:${response.question.id}`,
+          ),
           respondentId,
           questionId: response.question.id,
           value: response.value,

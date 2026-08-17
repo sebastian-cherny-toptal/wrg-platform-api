@@ -334,6 +334,7 @@ export class CompatibilityPaymentService {
       principal.organizationId &&
       requestedOrganization !== principal.organizationId &&
       !principal.roles.includes("admin") &&
+      !principal.roles.includes("super_admin") &&
       !principal.permissions.includes("ops.manage")
     ) {
       throw new ForbiddenException("Organization access denied");

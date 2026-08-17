@@ -117,7 +117,7 @@ describe("delete user endpoint", () => {
     }
   });
 
-  it("disables the user, revokes sessions, and protects administrators", async () => {
+  it("disables users, revokes sessions, and protects the Super Admin", async () => {
     let targetRole = "manager";
     let disabledUserId: string | undefined;
     let revokedUserId: string | undefined;
@@ -156,10 +156,10 @@ describe("delete user endpoint", () => {
     assert.equal(disabledUserId, targetId);
     assert.equal(revokedUserId, targetId);
 
-    targetRole = "admin";
+    targetRole = "super_admin";
     await assert.rejects(
       service.delete(targetId),
-      /Administrator users cannot be deleted/u,
+      /Super Admin user cannot be deleted/u,
     );
   });
 });

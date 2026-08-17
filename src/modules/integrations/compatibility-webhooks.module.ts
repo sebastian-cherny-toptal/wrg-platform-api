@@ -66,6 +66,7 @@ export class CompatibilityWebhookOperationsService {
   assertAllowed(principal: Principal): void {
     const allowed =
       principal.roles.includes("admin") ||
+      principal.roles.includes("super_admin") ||
       principal.permissions.some((permission) =>
         [
           "ops.manage",

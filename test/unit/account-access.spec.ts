@@ -581,7 +581,7 @@ describe("account recovery service", () => {
     });
   });
 
-  it("keeps temporary credentials encrypted outside PostgreSQL and clears them after use", async () => {
+  it("returns a temporary credential once and never stores a recoverable copy", async () => {
     const userId = "6c79998f-10bd-45af-bdd1-61e11b50297a";
     let storedCredential: Record<string, string> | undefined;
     let persistedHash: string | undefined;
@@ -656,18 +656,10 @@ describe("account recovery service", () => {
       true,
     );
     assert.equal(metadata.passwordChangeRequired, true);
-    assert.ok(storedCredential);
-    assert.equal(
-      JSON.stringify(storedCredential).includes(
-        generated.data.temporaryPassword,
-      ),
-      false,
-    );
-
-    const fetched = await service.getTemporaryPassword("legacy-user");
-    assert.equal(
-      fetched.data.temporaryPassword,
-      generated.data.temporaryPassword,
+    assert.equal(storedCredential, undefined);
+    await assert.rejects(
+      service.getTemporaryPassword("legacy-user"),
+      /only returned when they are generated/u,
     );
 
     await service.changeTemporaryPassword(

@@ -143,11 +143,11 @@ export class ImpersonationService {
               roles: { some: { role: { key: "admin" } } },
             },
             orderBy: { createdAt: "asc" },
-            select: { id: true, fullName: true },
+            select: { id: true, fullName: true, username: true, email: true },
           })
         : this.prisma.user.findUnique({
             where: { id: principal.sub },
-            select: { id: true, fullName: true },
+            select: { id: true, fullName: true, username: true, email: true },
           });
     const [actor, context] = await Promise.all([
       actorLookup,
@@ -166,7 +166,7 @@ export class ImpersonationService {
             ),
             id: input.targetUserId,
           },
-          select: { id: true, fullName: true },
+          select: { id: true, fullName: true, username: true, email: true },
         })
       : await this.genericPreviewUser(
           organization.id,
@@ -200,11 +200,13 @@ export class ImpersonationService {
         data: {
           actorUserId: actor.id,
           organizationId: organization.id,
-          action: "admin.impersonation.created",
+          action: "admin.impersonation.started",
           resourceType: "ImpersonationGrant",
           resourceId: id,
           after: {
             targetUserId: target.id,
+            adminUsername: actor.username ?? actor.email,
+            impersonatedUsername: target.username ?? target.email,
             programId: program.id,
             reason,
             expiresAt: expiresAt.toISOString(),
@@ -346,6 +348,16 @@ export class ImpersonationService {
     const impersonation = principal.impersonation;
     if (!impersonation)
       throw new BadRequestException("No preview session is active");
+    const [actor, target] = await Promise.all([
+      this.prisma.user.findUnique({
+        where: { id: impersonation.actorUserId },
+        select: { username: true, email: true },
+      }),
+      this.prisma.user.findUnique({
+        where: { id: principal.sub },
+        select: { username: true, email: true },
+      }),
+    ]);
     await this.prisma.$transaction([
       this.prisma.impersonationGrant.updateMany({
         where: { id: impersonation.grantId, targetUserId: principal.sub },
@@ -358,6 +370,12 @@ export class ImpersonationService {
           action: "admin.impersonation.ended",
           resourceType: "ImpersonationGrant",
           resourceId: impersonation.grantId,
+          after: {
+            adminUsername:
+              actor?.username ?? actor?.email ?? impersonation.actorDisplayName,
+            impersonatedUsername:
+              target?.username ?? target?.email ?? principal.sub,
+          },
         },
       }),
     ]);
@@ -367,6 +385,7 @@ export class ImpersonationService {
   private assertPreviewAccess(principal: Principal): void {
     if (
       !principal.roles.includes("admin") &&
+      !principal.roles.includes("super_admin") &&
       !principal.permissions.includes("ops.manage") &&
       !principal.permissions.includes("previewClientsDashboardAccess")
     ) {
@@ -392,7 +411,12 @@ export class ImpersonationService {
     programId: string,
     projectId: string,
     organizationProgramId: string,
-  ): Promise<{ id: string; fullName: string }> {
+  ): Promise<{
+    id: string;
+    fullName: string;
+    username: string | null;
+    email: string;
+  }> {
     const externalId = `generic-dashboard-preview-${organizationProgramId}`;
     const clientRole = await this.prisma.role.upsert({
       where: { key: "client" },
@@ -417,7 +441,7 @@ export class ImpersonationService {
         status: "ACTIVE",
         metadata: { genericDashboardPreview: true },
       },
-      select: { id: true, fullName: true },
+      select: { id: true, fullName: true, username: true, email: true },
     });
     await Promise.all([
       this.prisma.userRole.upsert({

@@ -293,6 +293,7 @@ export class CompatibilityManagementService {
   ): Promise<string[] | null> {
     if (
       principal.roles.includes("admin") ||
+      principal.roles.includes("super_admin") ||
       principal.permissions.includes("ops.manage")
     ) {
       return null;
@@ -310,6 +311,7 @@ export class CompatibilityManagementService {
   private assertAdmin(principal: Principal): void {
     if (
       !principal.roles.includes("admin") &&
+      !principal.roles.includes("super_admin") &&
       !principal.permissions.includes("ops.manage")
     ) {
       throw new ForbiddenException("Administrator access required");

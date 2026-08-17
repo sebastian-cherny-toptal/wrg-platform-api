@@ -29,8 +29,6 @@ import { Prisma } from "@prisma/client";
 import { hash, verify } from "argon2";
 import { Redis } from "ioredis";
 import {
-  createCipheriv,
-  createDecipheriv,
   createHash,
   randomBytes,
   randomInt,
@@ -83,7 +81,6 @@ const require = createRequire(import.meta.url);
 const speakeasy = require("speakeasy") as Speakeasy;
 const forgotPasswordTtlSeconds = 15 * 60;
 const adminResetTtlSeconds = 60 * 60;
-const temporaryPasswordTtlSeconds = 24 * 60 * 60;
 
 type AccountSecretNamespace =
   "forgot-password" | "admin-reset" | "temporary-password";
@@ -560,36 +557,24 @@ export class AccountAccessService {
   }> {
     const user = await this.userByReference(userReference);
     const temporaryPassword = randomBytes(12).toString("base64url");
-    const encrypted = this.encryptTemporaryPassword(temporaryPassword);
-    await this.recovery.set(
-      "temporary-password",
-      user.id,
-      encrypted,
-      temporaryPasswordTtlSeconds,
-    );
-    try {
-      const passwordHash = await hash(temporaryPassword);
-      await this.prisma.$transaction(async (transaction) => {
-        await transaction.user.update({
-          where: { id: user.id },
-          data: {
-            passwordHash,
-            status: "ACTIVE",
-            metadata: {
-              ...jsonObject(user.metadata),
-              passwordChangeRequired: true,
-            },
+    const passwordHash = await hash(temporaryPassword);
+    await this.prisma.$transaction(async (transaction) => {
+      await transaction.user.update({
+        where: { id: user.id },
+        data: {
+          passwordHash,
+          status: "ACTIVE",
+          metadata: {
+            ...jsonObject(user.metadata),
+            passwordChangeRequired: true,
           },
-        });
-        await transaction.session.updateMany({
-          where: { userId: user.id, revokedAt: null },
-          data: { revokedAt: new Date() },
-        });
+        },
       });
-    } catch (error) {
-      await this.recovery.delete("temporary-password", user.id);
-      throw error;
-    }
+      await transaction.session.updateMany({
+        where: { userId: user.id, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+    });
     return {
       success: true,
       message: "Temporary password generated",
@@ -609,30 +594,10 @@ export class AccountAccessService {
       temporaryPassword: string;
     };
   }> {
-    const user = await this.userByReference(userReference);
-    const encrypted = await this.recovery.get("temporary-password", user.id);
-    if (!encrypted) {
-      throw new NotFoundException(
-        "No temporary password set for this user or it has expired",
-      );
-    }
-    let temporaryPassword: string;
-    try {
-      temporaryPassword = this.decryptTemporaryPassword(encrypted);
-    } catch {
-      await this.recovery.delete("temporary-password", user.id);
-      throw new NotFoundException(
-        "No temporary password set for this user or it has expired",
-      );
-    }
-    return {
-      success: true,
-      data: {
-        username: user.username ?? user.email,
-        email: user.email,
-        temporaryPassword,
-      },
-    };
+    await this.userByReference(userReference);
+    throw new NotFoundException(
+      "Temporary passwords are only returned when they are generated",
+    );
   }
 
   async changeTemporaryPassword(
@@ -710,44 +675,6 @@ export class AccountAccessService {
     });
     if (!user) throw new NotFoundException("User not found");
     return user;
-  }
-
-  private encryptionKey(): Buffer {
-    return createHash("sha256")
-      .update(this.config.get("JWT_REFRESH_SECRET", { infer: true }))
-      .digest();
-  }
-
-  private encryptTemporaryPassword(
-    temporaryPassword: string,
-  ): Record<string, string> {
-    const iv = randomBytes(12);
-    const cipher = createCipheriv("aes-256-gcm", this.encryptionKey(), iv);
-    const ciphertext = Buffer.concat([
-      cipher.update(temporaryPassword, "utf8"),
-      cipher.final(),
-    ]);
-    return {
-      iv: iv.toString("base64url"),
-      tag: cipher.getAuthTag().toString("base64url"),
-      ciphertext: ciphertext.toString("base64url"),
-    };
-  }
-
-  private decryptTemporaryPassword(encrypted: Record<string, string>): string {
-    if (!encrypted.iv || !encrypted.tag || !encrypted.ciphertext) {
-      throw new Error("Invalid encrypted credential");
-    }
-    const decipher = createDecipheriv(
-      "aes-256-gcm",
-      this.encryptionKey(),
-      Buffer.from(encrypted.iv, "base64url"),
-    );
-    decipher.setAuthTag(Buffer.from(encrypted.tag, "base64url"));
-    return Buffer.concat([
-      decipher.update(Buffer.from(encrypted.ciphertext, "base64url")),
-      decipher.final(),
-    ]).toString("utf8");
   }
 
   private async managementUserByEmail(emailValue: string) {

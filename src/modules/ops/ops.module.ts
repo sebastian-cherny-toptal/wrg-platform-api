@@ -49,6 +49,7 @@ class AdminGuard implements CanActivate {
       .getRequest<{ user: Principal }>().user;
     if (
       !principal.roles.includes("admin") &&
+      !principal.roles.includes("super_admin") &&
       !principal.permissions.includes("ops.manage")
     ) {
       throw new ForbiddenException("Administrator access required");

@@ -4,7 +4,12 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
-import { HistoricalImportService } from "../../src/modules/imports/historical-import.service.js";
+import {
+  HistoricalImportService,
+  historicalQuestionMetadata,
+  missingQuestionTemplateLabels,
+  mergeHistoricalQuestionTemplate,
+} from "../../src/modules/imports/historical-import.service.js";
 
 async function writeWorkbook(
   filePath: string,
@@ -35,6 +40,46 @@ async function writeWorkbook(
 }
 
 describe("historical import service", () => {
+  it("uses stored question text and answer labels for imported survey columns", () => {
+    const question = {
+      id: "question-id",
+      dataLabel: "q_YourJob_3_25",
+      caption: "Your Job / 3 / 25",
+      column: 7,
+      type: "likert",
+    };
+    const template = {
+      dataLabel: question.dataLabel,
+      caption: "I have the resources I need to do my job well.",
+      type: "likert",
+      metadata: {
+        QuestionTypeId: 5,
+        QuestionResponses: [
+          { Id: 1, Caption: "Strongly Disagree" },
+          { Id: 5, Caption: "Strongly Agree" },
+        ],
+      },
+    };
+
+    assert.equal(
+      mergeHistoricalQuestionTemplate(question, template).caption,
+      template.caption,
+    );
+    assert.deepEqual(
+      historicalQuestionMetadata(question, template.metadata, "import-id")
+        .QuestionResponses,
+      template.metadata.QuestionResponses,
+    );
+    assert.deepEqual(
+      missingQuestionTemplateLabels([question], new Set([question.dataLabel])),
+      [],
+    );
+    assert.deepEqual(
+      missingQuestionTemplateLabels([question], new Set()),
+      [question.dataLabel],
+    );
+  });
+
   it("validates uploaded workbooks and returns a summary", async () => {
     const root = mkdtempSync(join(tmpdir(), "historical-import-test-"));
     const previousCwd = process.cwd();

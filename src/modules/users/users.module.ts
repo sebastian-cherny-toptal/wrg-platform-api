@@ -248,7 +248,15 @@ const listUserFields = new Set([
   "isActive",
   "mfa",
   "status",
+  "organization",
+  "lastLogin",
 ]);
+
+const administratorRoleKeys = ["admin", "super_admin"] as const;
+
+function isAdministrator(roles: readonly string[]): boolean {
+  return administratorRoleKeys.some((role) => roles.includes(role));
+}
 
 function isUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(
@@ -268,7 +276,7 @@ export class AdminRoleGuard implements CanActivate {
     const principal = context
       .switchToHttp()
       .getRequest<{ user?: Principal }>().user;
-    if (!principal?.roles.includes("admin")) {
+    if (!principal || !isAdministrator(principal.roles)) {
       throw new ForbiddenException("Administrator access required");
     }
     return true;
@@ -454,22 +462,20 @@ export class ClientLoginService {
           },
         },
       });
-      if (!dto.userEmail?.toLowerCase().includes("workforcerg.com")) {
-        await this.prisma.auditLog.create({
-          data: {
-            organizationId: user.organization.id,
-            actorUserId: user.id,
-            action: "user.client_login",
-            resourceType: "User",
-            resourceId: user.id,
-            after: {
-              username,
-              email: dto.userEmail ?? user.email,
-              loginTime: timestamp,
-            },
+      await this.prisma.auditLog.create({
+        data: {
+          organizationId: user.organization.id,
+          actorUserId: user.id,
+          action: "user.client_login",
+          resourceType: "User",
+          resourceId: user.id,
+          after: {
+            username,
+            email: dto.userEmail ?? user.email,
+            loginTime: timestamp,
           },
-        });
-      }
+        },
+      });
     }
 
     const metadata = jsonObject(user.metadata);
@@ -642,13 +648,13 @@ export class UsersService {
     if (!role) throw new NotFoundException("Role not found");
 
     if (
-      role.key === "admin" &&
+      role.key === "super_admin" &&
       (await this.prisma.userRole.findFirst({
         where: { roleId: role.id },
         select: { userId: true },
       }))
     ) {
-      throw new ForbiddenException("Admin user already exists");
+      throw new ForbiddenException("Super Admin user already exists");
     }
 
     const isClient = role.key === "client";
@@ -857,7 +863,7 @@ export class UsersService {
     });
     if (!target) throw new NotFoundException("User not found");
 
-    const isAdmin = principal.roles.includes("admin");
+    const isAdmin = isAdministrator(principal.roles);
     if (!isAdmin && target.id !== principal.sub) {
       throw new ForbiddenException("You can only update your own user");
     }
@@ -884,21 +890,27 @@ export class UsersService {
         : await this.prisma.role.findFirst({
             where: isUuid(dto.roleId)
               ? { id: dto.roleId }
-              : { legacyId: dto.roleId },
+              : {
+                  OR: [
+                    { legacyId: dto.roleId },
+                    { externalId: dto.roleId },
+                    { key: dto.roleId },
+                  ],
+                },
             select: { id: true, key: true, name: true },
           });
     if (dto.roleId !== undefined && !role) {
       throw new NotFoundException("Role not found");
     }
-    const currentAdminRole = target.roles.find(
-      ({ role: current }) => current.key === "admin",
+    const currentSuperAdminRole = target.roles.find(
+      ({ role: current }) => current.key === "super_admin",
     )?.role;
     if (
       role &&
-      (role.key === "admin" || currentAdminRole) &&
-      role.id !== currentAdminRole?.id
+      (role.key === "super_admin" || currentSuperAdminRole) &&
+      role.id !== currentSuperAdminRole?.id
     ) {
-      throw new ForbiddenException("The admin role cannot be reassigned");
+      throw new ForbiddenException("The Super Admin role cannot be reassigned");
     }
 
     const projectReferences = dto.projects;
@@ -1052,7 +1064,6 @@ export class UsersService {
     const users = await this.prisma.user.findMany({
       where: {
         status: { not: "DISABLED" },
-        roles: { none: { role: { key: "client" } } },
       },
       orderBy: { createdAt: "desc" },
       select: {
@@ -1065,6 +1076,12 @@ export class UsersService {
         metadata: true,
         createdAt: true,
         updatedAt: true,
+        organization: { select: { id: true, name: true } },
+        sessions: {
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          select: { createdAt: true },
+        },
         roles: {
           select: {
             role: {
@@ -1121,6 +1138,10 @@ export class UsersService {
           isActive: user.status === "ACTIVE",
           mfa: metadata.mfa === "mobile" ? "mobile" : "email",
           status: user.status,
+          organization: user.organization
+            ? { id: user.organization.id, name: user.organization.name }
+            : null,
+          lastLogin: user.sessions[0]?.createdAt ?? null,
         };
         if (selectedFields === undefined) return item;
         const projected: Record<string, unknown> = { _id: item._id };
@@ -1130,7 +1151,10 @@ export class UsersService {
     };
   }
 
-  async delete(reference: string): Promise<DeleteUserResponse> {
+  async delete(
+    reference: string,
+    principal?: Principal,
+  ): Promise<DeleteUserResponse> {
     const target = await this.prisma.user.findFirst({
       where: isUuid(reference) ? { id: reference } : { legacyId: reference },
       select: {
@@ -1139,8 +1163,11 @@ export class UsersService {
       },
     });
     if (!target) throw new NotFoundException("User not found");
-    if (target.roles.some(({ role }) => role.key === "admin")) {
-      throw new ForbiddenException("Administrator users cannot be deleted");
+    if (target.id === principal?.sub) {
+      throw new ForbiddenException("You cannot delete your own user");
+    }
+    if (target.roles.some(({ role }) => role.key === "super_admin")) {
+      throw new ForbiddenException("The Super Admin user cannot be deleted");
     }
 
     await this.prisma.$transaction(async (transaction) => {
@@ -1226,8 +1253,11 @@ export class UsersController {
   @UseGuards(JwtAuthGuard, AdminRoleGuard)
   @ApiParam({ name: "userId", type: String })
   @ApiOkResponse({ description: "The user was disabled and signed out." })
-  delete(@Param("userId") userId: string): Promise<DeleteUserResponse> {
-    return this.users.delete(userId);
+  delete(
+    @Param("userId") userId: string,
+    @CurrentUser() principal: Principal,
+  ): Promise<DeleteUserResponse> {
+    return this.users.delete(userId, principal);
   }
 }
 

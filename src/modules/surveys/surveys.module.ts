@@ -26,7 +26,8 @@ class SurveysController {
     return this.prisma.survey.findFirstOrThrow({
       where: {
         id,
-        ...(principal.roles.includes("admin")
+        ...(principal.roles.includes("admin") ||
+        principal.roles.includes("super_admin")
           ? {}
           : {
               program: {
@@ -48,7 +49,8 @@ class SurveysController {
       this.prisma.survey.findFirstOrThrow({
         where: {
           id,
-          ...(principal.roles.includes("admin")
+          ...(principal.roles.includes("admin") ||
+          principal.roles.includes("super_admin")
             ? {}
             : {
                 program: {

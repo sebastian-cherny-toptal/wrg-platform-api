@@ -29,28 +29,37 @@ async function main(): Promise<void> {
       }),
     ),
   );
-  const adminRole = await prisma.role.upsert({
-    where: { key: "admin" },
-    update: {},
-    create: { key: "admin", name: "Administrator" },
-  });
+  const administratorRoles = await Promise.all([
+    prisma.role.upsert({
+      where: { key: "super_admin" },
+      update: { name: "Super Admin" },
+      create: { key: "super_admin", name: "Super Admin" },
+    }),
+    prisma.role.upsert({
+      where: { key: "admin" },
+      update: { name: "Admin" },
+      create: { key: "admin", name: "Admin" },
+    }),
+  ]);
   await prisma.role.upsert({
     where: { key: "client" },
     update: {},
     create: { key: "client", name: "Client" },
   });
   await Promise.all(
-    permissions.map((permission) =>
-      prisma.rolePermission.upsert({
-        where: {
-          roleId_permissionId: {
-            roleId: adminRole.id,
-            permissionId: permission.id,
+    administratorRoles.flatMap((role) =>
+      permissions.map((permission) =>
+        prisma.rolePermission.upsert({
+          where: {
+            roleId_permissionId: {
+              roleId: role.id,
+              permissionId: permission.id,
+            },
           },
-        },
-        update: {},
-        create: { roleId: adminRole.id, permissionId: permission.id },
-      }),
+          update: {},
+          create: { roleId: role.id, permissionId: permission.id },
+        }),
+      ),
     ),
   );
 }
