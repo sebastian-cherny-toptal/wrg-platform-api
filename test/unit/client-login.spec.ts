@@ -97,6 +97,7 @@ describe("client login endpoint", () => {
       year: 2026,
       currency: "USD",
       fees: {},
+      metadata: {},
     };
     const prisma = {
       user: {
@@ -154,7 +155,7 @@ describe("client login endpoint", () => {
               legacyId: "legacy-organization-program-id",
               dealExternalId: "deal-id",
               stage: "active",
-              reportAccess: {},
+              reportAccess: { BBP_Access: "yes" },
               paymentDetails: {},
               project,
               program,
@@ -199,8 +200,14 @@ describe("client login endpoint", () => {
     assert.equal(response.data.userData.role, "client");
     assert.equal("passwordHash" in response.data.userData, false);
     const organizationPrograms = response.data.userData
-      .organizationProgram as Array<{ programId: { _id: string } }>;
-    assert.equal(organizationPrograms[0]?.programId._id, "legacy-program-id");
+      .organizationProgram as Array<{
+      programId: { _id: string };
+      reportAccess: { BBP_Access: string };
+    }>;
+    const enrollment = organizationPrograms[0];
+    assert.ok(enrollment);
+    assert.equal(enrollment.programId._id, "legacy-program-id");
+    assert.equal(enrollment.reportAccess.BBP_Access, "no");
     assert.equal(organizationUpdates, 1);
     assert.equal(auditEntries, 1);
   });

@@ -35,8 +35,10 @@ import {
   type Principal,
 } from "../auth/auth.module.js";
 import { CrmSyncModule, SyncQueue } from "../crm-sync/crm-sync.module.js";
+import { parseBenefitsBestPracticesWorkbook } from "../reports/benefits-best-practices-workbook.js";
 
 type JsonRecord = Record<string, unknown>;
+const benefitsWorkbookMaxBytes = 25 * 1024 * 1024;
 
 interface UploadedPart {
   filename: string;
@@ -55,7 +57,7 @@ function isUuid(value: string): boolean {
   );
 }
 
-function jsonObject(value: Prisma.JsonValue | null | undefined): JsonRecord {
+function jsonObject(value: unknown): JsonRecord {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? (value as JsonRecord)
     : {};
@@ -553,6 +555,72 @@ export class CompatibilityAdminService {
       await this.prisma.asset.delete({ where: { id: existing.id } });
     }
     return { success: true, message: "uploaded successfully" };
+  }
+
+  async uploadBenefitsBestPractices(
+    principal: Principal,
+    programReference: string,
+    request: FastifyRequest,
+  ) {
+    this.assertAdmin(principal);
+    const { files } = await multipartPayload(request);
+    if (files.length !== 1) {
+      throw new BadRequestException("exactly one workbook is required");
+    }
+    const file = files[0];
+    if (!file || !/\.xlsx$/iu.test(file.filename)) {
+      throw new BadRequestException("an .xlsx workbook is required");
+    }
+    if (file.buffer.length === 0) {
+      throw new BadRequestException("the workbook is empty");
+    }
+    if (file.buffer.length > benefitsWorkbookMaxBytes) {
+      throw new BadRequestException("the workbook must be 25 MB or smaller");
+    }
+    const program = await this.program(programReference);
+    const sourceFile = file.filename.replace(/[/\\]/gu, "_").slice(-255);
+    let parsed;
+    try {
+      parsed = await parseBenefitsBestPracticesWorkbook(
+        file.buffer,
+        sourceFile,
+      );
+    } catch (error) {
+      throw new BadRequestException(
+        error instanceof Error
+          ? error.message
+          : "the workbook could not be parsed",
+      );
+    }
+    const metadata = jsonObject(program.metadata);
+    const publishedReports = jsonObject(metadata.publishedReports);
+    const snapshot = {
+      ...parsed,
+      uploadedAt: new Date().toISOString(),
+    };
+    await this.prisma.program.update({
+      where: { id: program.id },
+      data: {
+        metadata: inputJson({
+          ...metadata,
+          publishedReports: {
+            ...publishedReports,
+            benefitsBestPractices: snapshot,
+          },
+        }),
+      },
+    });
+    return {
+      success: true,
+      message: "Benefits & Best Practices workbook uploaded",
+      data: {
+        programId: program.legacyId ?? program.id,
+        sourceFile: snapshot.sourceFile,
+        headerCount: snapshot.headers.length,
+        sectionCount: snapshot.sections.length,
+        uploadedAt: snapshot.uploadedAt,
+      },
+    };
   }
 
   async deleteAsset(
@@ -1176,6 +1244,21 @@ export class CompatibilityAdminController {
     @Query() query: Record<string, unknown>,
   ) {
     return this.admin.uploadKeyImpactAnalysis(principal, request, query);
+  }
+
+  @Post("programs/:programId/benefits-best-practices")
+  @HttpCode(200)
+  @ApiConsumes("multipart/form-data")
+  uploadBenefitsBestPractices(
+    @CurrentUser() principal: Principal,
+    @Param("programId") programId: string,
+    @Req() request: FastifyRequest,
+  ) {
+    return this.admin.uploadBenefitsBestPractices(
+      principal,
+      programId,
+      request,
+    );
   }
 
   @Delete("keyImpactAnalysis/:id")

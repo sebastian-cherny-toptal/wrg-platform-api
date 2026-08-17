@@ -41,6 +41,11 @@ import {
   type Principal,
 } from "../auth/auth.module.js";
 import {
+  publishedBenefitsBestPracticesSnapshot,
+  type BenefitsBestPracticesSnapshot,
+  type PublishedReportHeader,
+} from "./benefits-best-practices-workbook.js";
+import {
   createBenchmarkWorkbook,
   createBenefitsWorkbook,
   createResponseDetailWorkbook,
@@ -257,11 +262,6 @@ interface BenchmarkGroup {
   hidden: boolean;
 }
 
-interface PublishedReportHeader {
-  title: string;
-  type: string;
-}
-
 interface PublishedWorkforceSnapshot {
   categories: Array<{
     dataValues: Array<number | string>;
@@ -271,22 +271,6 @@ interface PublishedWorkforceSnapshot {
   headers: PublishedReportHeader[];
   sourceFile: string;
   surveyAverage: Array<number | string>;
-}
-
-interface PublishedBenefitsSnapshot {
-  headers: PublishedReportHeader[];
-  sections: Array<{
-    questions: Array<{
-      responses: Array<{
-        dataValues: Array<number | string>;
-        format: "number" | "percent";
-        label: string;
-      }>;
-      text: string;
-    }>;
-    title: string;
-  }>;
-  sourceFile: string;
 }
 
 function isUuid(value: string): boolean {
@@ -968,13 +952,17 @@ export class CompatibilityReportsService {
               Yes: {
                 title: "Winners",
                 value: this.publishedValue(
-                  typeof published.surveyAverage[index] === "number" ? Math.round(published.surveyAverage[index]) : 'x',
+                  typeof published.surveyAverage[index] === "number"
+                    ? Math.round(published.surveyAverage[index])
+                    : "x",
                 ),
               },
               No: {
                 title: "Non-Winners",
                 value: this.publishedValue(
-                  typeof published.surveyAverage[index + 1] === "number" ? Math.round(Number(published.surveyAverage[index + 1])) : 'x',
+                  typeof published.surveyAverage[index + 1] === "number"
+                    ? Math.round(Number(published.surveyAverage[index + 1]))
+                    : "x",
                 ),
               },
             })),
@@ -2355,83 +2343,37 @@ export class CompatibilityReportsService {
   }
 
   async employerBenchmark(principal: Principal, query: ReportQuery) {
-    const context = await this.employerContext(principal, query);
+    const context = await this.context(principal, query);
     this.requiresDemo(principal, context, "BBP_Access");
     const published = this.publishedBenefits(context);
-    if (published) {
-      return {
-        success: true,
-        message: "true",
-        data: {
-          tableHeaders: this.publishedHeaders(published.headers),
-          tableData: published.sections.map((section) => ({
-            title: section.title,
-            nestedData: section.questions.map((question, questionIndex) => ({
-              id: `${section.title}-${questionIndex + 1}`,
-              title: question.text,
-              type: question.responses.every(
-                ({ format }) => format === "percent",
-              )
-                ? "%"
-                : "number",
-              nestedData: question.responses.map((response) => ({
-                title: response.label,
-                type: response.format === "percent" ? "%" : "number",
-                dataValues: response.dataValues.map((value) =>
-                  this.publishedValue(value),
-                ),
-              })),
-            })),
-          })),
-        },
-      };
+    if (!published) {
+      throw new NotFoundException(
+        "Benefits & Best Practices is not available for this program",
+      );
     }
-    const groups = this.groups(context);
-    const questions = await this.employerQuestions(context.survey.id);
-    const responses =
-      questions.length === 0
-        ? []
-        : await this.agreementResponses(context.survey.id, questions);
-    const groupedQuestions = this.questionsByCategory(questions);
-    const tableData = sortedCategories(groupedQuestions.keys()).map(
-      (category) => ({
-        title: category,
-        nestedData: (groupedQuestions.get(category) ?? []).map((question) => {
-          const options = [
-            ...new Set(
-              responses.flatMap((response) => {
-                if (response.questionId !== question.id) return [];
-                const caption = responseCaption(response.value);
-                return caption ? [caption] : [];
-              }),
-            ),
-          ].sort((left, right) => left.localeCompare(right));
-          return {
-            id: question.legacyId ?? question.externalId ?? question.id,
-            title: question.caption,
-            type: "%",
-            nestedData: options.map((option) => ({
-              title: option,
-              type: "%",
-              dataValues: groups.map((group) =>
-                group.hidden
-                  ? "x"
-                  : this.captionPercentage(
-                      responses,
-                      question.id,
-                      group.organizationIds,
-                      option,
-                    ),
-              ),
-            })),
-          };
-        }),
-      }),
-    );
     return {
       success: true,
       message: "true",
-      data: { tableHeaders: this.tableHeaders(groups), tableData },
+      data: {
+        tableHeaders: this.publishedHeaders(published.headers),
+        tableData: published.sections.map((section) => ({
+          title: section.title,
+          nestedData: section.questions.map((question, questionIndex) => ({
+            id: `${section.title}-${questionIndex + 1}`,
+            title: question.text,
+            type: question.responses.every(({ format }) => format === "percent")
+              ? "%"
+              : "number",
+            nestedData: question.responses.map((response) => ({
+              title: response.label,
+              type: response.format === "percent" ? "%" : "number",
+              dataValues: response.dataValues.map((value) =>
+                this.publishedValue(value),
+              ),
+            })),
+          })),
+        })),
+      },
     };
   }
 
@@ -3261,96 +3203,6 @@ export class CompatibilityReportsService {
       : "Workplace Demographics";
   }
 
-  private async employerContext(
-    principal: Principal,
-    query: ReportQuery,
-  ): Promise<ReportContext> {
-    const context = await this.context(principal, query);
-    const surveys = await this.prisma.survey.findMany({
-      where: { programId: context.program.id },
-      orderBy: [{ endsAt: "desc" }, { createdAt: "desc" }],
-      select: {
-        id: true,
-        title: true,
-        startsAt: true,
-        endsAt: true,
-        metadata: true,
-      },
-    });
-    const survey =
-      surveys.find((candidate) => {
-        const kind = metadataString(
-          candidate.metadata,
-          "kind",
-          "type",
-          "surveyType",
-        );
-        return (
-          Boolean(kind?.toLowerCase().includes("employer")) ||
-          candidate.title.toLowerCase().includes("employer")
-        );
-      }) ?? surveys[0];
-    if (!survey) throw new NotFoundException("Employer survey not found");
-    return {
-      ...context,
-      survey: {
-        id: survey.id,
-        title: survey.title,
-        startsAt: survey.startsAt,
-        endsAt: survey.endsAt,
-      },
-    };
-  }
-
-  private async employerQuestions(
-    surveyId: string,
-  ): Promise<BenchmarkQuestion[]> {
-    const questions = await this.prisma.question.findMany({
-      where: { surveyId },
-      orderBy: { position: "asc" },
-      select: {
-        id: true,
-        legacyId: true,
-        externalId: true,
-        dataLabel: true,
-        caption: true,
-        type: true,
-        position: true,
-        metadata: true,
-      },
-    });
-    return questions.filter((question) => {
-      const type = question.type.toLowerCase();
-      return (
-        !question.dataLabel.toUpperCase().includes("ORGID") &&
-        !question.dataLabel.toLowerCase().includes("demographic") &&
-        !type.includes("open") &&
-        !type.includes("text")
-      );
-    });
-  }
-
-  private captionPercentage(
-    responses: AgreementResponse[],
-    questionId: string,
-    organizationIds: string[],
-    option: string,
-  ): number {
-    const organizationSet = new Set(organizationIds);
-    const scoped = responses.filter(
-      (response) =>
-        response.questionId === questionId &&
-        Boolean(
-          response.respondent.organizationId &&
-          organizationSet.has(response.respondent.organizationId),
-        ),
-    );
-    const matching = scoped.filter(
-      (response) => responseCaption(response.value) === option,
-    ).length;
-    return scoped.length === 0 ? 0 : (matching * 100) / scoped.length;
-  }
-
   private assertAdmin(principal: Principal): void {
     if (
       !principal.roles.includes("admin") &&
@@ -3750,27 +3602,8 @@ export class CompatibilityReportsService {
 
   private publishedBenefits(
     context: ReportContext,
-  ): PublishedBenefitsSnapshot | null {
-    const published = jsonObject(context.program.metadata).publishedReports;
-    if (
-      published === null ||
-      typeof published !== "object" ||
-      Array.isArray(published)
-    ) {
-      return null;
-    }
-    const snapshot = published.benefitsBestPractices;
-    if (
-      snapshot === null ||
-      typeof snapshot !== "object" ||
-      Array.isArray(snapshot)
-    ) {
-      return null;
-    }
-    const candidate = snapshot as unknown as PublishedBenefitsSnapshot;
-    return Array.isArray(candidate.headers) && Array.isArray(candidate.sections)
-      ? candidate
-      : null;
+  ): BenefitsBestPracticesSnapshot | null {
+    return publishedBenefitsBestPracticesSnapshot(context.program.metadata);
   }
 
   private publishedHeaders(headers: PublishedReportHeader[]) {

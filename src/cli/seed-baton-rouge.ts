@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import {
   existsSync,
   mkdtempSync,
+  readFileSync,
   readdirSync,
   rmSync,
   writeFileSync,
@@ -22,6 +23,13 @@ import {
   readXlsxSurveyDefinition,
   type XlsxQuestionDefinition,
 } from "../modules/imports/xlsx-survey-importer.js";
+import {
+  parseBenefitsBestPracticesWorkbook,
+  parsePublishedReportHeaders,
+  parsePublishedReportValues,
+  type BenefitsBestPracticesSnapshot,
+  type PublishedReportHeader,
+} from "../modules/reports/benefits-best-practices-workbook.js";
 
 const seedPrefix = "seed-br";
 const defaultSource = resolve(process.cwd(), "..", "Baton Rouge 24-26.zip");
@@ -61,11 +69,6 @@ interface CliOptions {
   source: string;
 }
 
-interface ReportHeader {
-  title: string;
-  type: string;
-}
-
 interface WorkforceQuestionSnapshot {
   dataValues: Array<number | string>;
   text: string;
@@ -79,35 +82,13 @@ interface WorkforceCategorySnapshot {
 
 interface WorkforceSnapshot {
   categories: WorkforceCategorySnapshot[];
-  headers: ReportHeader[];
+  headers: PublishedReportHeader[];
   sourceFile: string;
   surveyAverage: Array<number | string>;
 }
 
-interface BenefitsResponseSnapshot {
-  dataValues: Array<number | string>;
-  format: "number" | "percent";
-  label: string;
-}
-
-interface BenefitsQuestionSnapshot {
-  responses: BenefitsResponseSnapshot[];
-  text: string;
-}
-
-interface BenefitsSectionSnapshot {
-  questions: BenefitsQuestionSnapshot[];
-  title: string;
-}
-
-interface BenefitsSnapshot {
-  headers: ReportHeader[];
-  sections: BenefitsSectionSnapshot[];
-  sourceFile: string;
-}
-
 interface PublishedReports {
-  benefitsBestPractices: BenefitsSnapshot;
+  benefitsBestPractices: BenefitsBestPracticesSnapshot;
   workforceBenchmark: WorkforceSnapshot;
 }
 
@@ -197,38 +178,6 @@ function canonicalJson(value: unknown): string {
   return JSON.stringify(value);
 }
 
-function reportHeaders(worksheet: ExcelJS.Worksheet): ReportHeader[] {
-  const labels = worksheet.getRow(6);
-  return Array.from({ length: worksheet.columnCount - 1 }, (_, index) => {
-    const title = String(
-      cellScalar(labels.getCell(index + 2).value) ?? "",
-    ).trim();
-    const winner = /non-winners?$/iu.test(title) ? "No" : "Yes";
-    const size = title
-      .replace(/\s+non-winners?$/iu, "")
-      .replace(/\s+winners?$/iu, "")
-      .trim();
-    return {
-      title: size === "All" ? "All Size Categories" : `${size} Employers`,
-      type: `${size.replace(/\s+/gu, "")}_${winner}`,
-    };
-  });
-}
-
-function reportValues(
-  row: ExcelJS.Row,
-  count: number,
-  format: "number" | "percent" = "number",
-): Array<number | string> {
-  return Array.from({ length: count }, (_, index) => {
-    const value = cellScalar(row.getCell(index + 2).value);
-    if (typeof value === "number") {
-      return format === "percent" ? value * 100 : value;
-    }
-    return value === null ? "x" : String(value).trim();
-  });
-}
-
 async function parseWorkforceSnapshot(
   filePath: string,
 ): Promise<WorkforceSnapshot> {
@@ -237,7 +186,7 @@ async function parseWorkforceSnapshot(
   const worksheet = workbook.worksheets[0];
   if (!worksheet)
     throw new Error(`${basename(filePath)} contains no worksheet`);
-  const headers = reportHeaders(worksheet);
+  const headers = parsePublishedReportHeaders(worksheet);
   const categories: WorkforceCategorySnapshot[] = [];
   let current: WorkforceCategorySnapshot | undefined;
   let surveyAverage: Array<number | string> = [];
@@ -245,7 +194,7 @@ async function parseWorkforceSnapshot(
     const row = worksheet.getRow(rowNumber);
     const label = String(cellScalar(row.getCell(1).value) ?? "").trim();
     if (!label) continue;
-    const values = reportValues(row, headers.length);
+    const values = parsePublishedReportValues(row, headers.length);
     const numeric = values.some((value) => typeof value === "number");
     if (!numeric) {
       if (/^x\s*[–-]|^this report/iu.test(label)) break;
@@ -266,64 +215,6 @@ async function parseWorkforceSnapshot(
     current.questions.push({ dataValues: values, text: label });
   }
   return { categories, headers, sourceFile: basename(filePath), surveyAverage };
-}
-
-async function parseBenefitsSnapshot(
-  filePath: string,
-): Promise<BenefitsSnapshot> {
-  const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.readFile(filePath);
-  const worksheet = workbook.worksheets[0];
-  if (!worksheet)
-    throw new Error(`${basename(filePath)} contains no worksheet`);
-  const headers = reportHeaders(worksheet);
-  const sections: BenefitsSectionSnapshot[] = [];
-  let section: BenefitsSectionSnapshot | undefined;
-  let question: BenefitsQuestionSnapshot | undefined;
-  for (let rowNumber = 8; rowNumber <= worksheet.rowCount; rowNumber += 1) {
-    const row = worksheet.getRow(rowNumber);
-    const label = String(cellScalar(row.getCell(1).value) ?? "").trim();
-    if (!label) continue;
-    if (/^x\s*[–-]|^this report/iu.test(label)) break;
-    const hasNumbers = Array.from({ length: headers.length }, (_, index) =>
-      cellScalar(row.getCell(index + 2).value),
-    ).some((value) => typeof value === "number");
-    if (!hasNumbers) {
-      const normalized = label.replace(/[^A-Za-z]+/gu, "");
-      const isSection =
-        normalized.length > 0 && normalized === normalized.toUpperCase();
-      if (isSection) {
-        section = { questions: [], title: titleCase(label) };
-        sections.push(section);
-        question = undefined;
-      } else {
-        if (!section)
-          throw new Error(
-            `${basename(filePath)} has a question before a section`,
-          );
-        question = { responses: [], text: label };
-        section.questions.push(question);
-      }
-      continue;
-    }
-    if (!section)
-      throw new Error(`${basename(filePath)} has values before a section`);
-    if (!question) {
-      question = { responses: [], text: label };
-      section.questions.push(question);
-    }
-    const percent = row.getCell(2).numFmt.includes("%");
-    question.responses.push({
-      dataValues: reportValues(
-        row,
-        headers.length,
-        percent ? "percent" : "number",
-      ),
-      format: percent ? "percent" : "number",
-      label,
-    });
-  }
-  return { headers, sections, sourceFile: basename(filePath) };
 }
 
 async function loadPublishedReports(
@@ -354,8 +245,9 @@ async function loadPublishedReports(
       );
     }
     reports.set(year, {
-      benefitsBestPractices: await parseBenefitsSnapshot(
-        join(reportSource, benefitsFile),
+      benefitsBestPractices: await parseBenefitsBestPracticesWorkbook(
+        readFileSync(join(reportSource, benefitsFile)),
+        benefitsFile,
       ),
       workforceBenchmark: await parseWorkforceSnapshot(
         join(reportSource, workforceFile),

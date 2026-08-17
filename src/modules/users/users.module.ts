@@ -54,6 +54,7 @@ import {
   JwtAuthGuard,
   type Principal,
 } from "../auth/auth.module.js";
+import { hasPublishedBenefitsBestPractices } from "../reports/benefits-best-practices-workbook.js";
 
 class ClientLoginDto {
   @ApiProperty({ type: String })
@@ -416,6 +417,7 @@ export class ClientLoginService {
               year: true,
               currency: true,
               fees: true,
+              metadata: true,
             },
           },
         },
@@ -534,16 +536,29 @@ export class ClientLoginService {
         ? (user.organizationProgram.legacyId ?? user.organizationProgram.id)
         : user.organizationProgramId,
       dealId: user.organizationProgram?.dealExternalId ?? null,
-      organizationProgram: organizationPrograms.map((item) => ({
-        _id: item.legacyId ?? item.id,
-        id: item.id,
-        DealId: item.dealExternalId,
-        stage: item.stage,
-        reportAccess: item.reportAccess,
-        paymentDetails: item.paymentDetails,
-        projectId: projectData(item.project),
-        programId: programData(item.program),
-      })),
+      organizationProgram: organizationPrograms.map((item) => {
+        const reportAccess = jsonObject(item.reportAccess);
+        const benefitsAccess =
+          reportAccess.BBP_Access === "yes" ||
+          reportAccess.benefitsBestPractices === "yes";
+        return {
+          _id: item.legacyId ?? item.id,
+          id: item.id,
+          DealId: item.dealExternalId,
+          stage: item.stage,
+          reportAccess: {
+            ...reportAccess,
+            BBP_Access:
+              benefitsAccess &&
+              hasPublishedBenefitsBestPractices(item.program.metadata)
+                ? "yes"
+                : "no",
+          },
+          paymentDetails: item.paymentDetails,
+          projectId: projectData(item.project),
+          programId: programData(item.program),
+        };
+      }),
     };
     return {
       success: true,

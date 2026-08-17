@@ -47,6 +47,7 @@ const adminStub = {
   deleteRole: () => mark("deleteRole"),
   uploadCustomReport: () => mark("uploadCustomReport"),
   uploadKeyImpactAnalysis: () => mark("uploadKeyImpactAnalysis"),
+  uploadBenefitsBestPractices: () => mark("uploadBenefitsBestPractices"),
   deleteAsset: (
     _principal: Principal,
     _id: string,
@@ -112,6 +113,7 @@ async function createTestApp(): Promise<NestFastifyApplication> {
     exclude: [
       { path: "admin/:one", method: RequestMethod.ALL },
       { path: "admin/:one/:two", method: RequestMethod.ALL },
+      { path: "admin/:one/:two/:three", method: RequestMethod.ALL },
       { path: "dashboard/:one", method: RequestMethod.ALL },
       { path: "payment/:one", method: RequestMethod.ALL },
       { path: "zoho/:one", method: RequestMethod.ALL },
@@ -126,7 +128,7 @@ async function createTestApp(): Promise<NestFastifyApplication> {
 }
 
 describe("native admin, payment and Zoho compatibility endpoints", () => {
-  it("serves all 22 newly migrated routes", async () => {
+  it("serves all 23 newly migrated routes", async () => {
     const app = await createTestApp();
     calls.clear();
     const token = app.get(JwtService).sign({
@@ -177,6 +179,11 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
         app.inject({
           method: "POST",
           url: "/admin/uploadKeyImpactAnalysis",
+          headers,
+        }),
+        app.inject({
+          method: "POST",
+          url: "/admin/programs/program-1/benefits-best-practices",
           headers,
         }),
         app.inject({
@@ -246,6 +253,7 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
         deleteRole: 1,
         uploadCustomReport: 1,
         uploadKeyImpactAnalysis: 1,
+        uploadBenefitsBestPractices: 1,
         "deleteAsset:keyImpactAnalysis": 1,
         "deleteAsset:customReport": 1,
         organizations: 1,

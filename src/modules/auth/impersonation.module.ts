@@ -31,6 +31,7 @@ import {
   JwtAuthGuard,
   type Principal,
 } from "./auth.module.js";
+import { hasPublishedBenefitsBestPractices } from "../reports/benefits-best-practices-workbook.js";
 
 const previewLifetimeMs = 15 * 60 * 1000;
 const entitlementKeys = [
@@ -240,7 +241,9 @@ export class ImpersonationService {
       include: {
         actor: { select: { id: true, fullName: true } },
         organization: { select: { id: true, name: true } },
-        program: { select: { id: true, name: true, year: true } },
+        program: {
+          select: { id: true, name: true, year: true, metadata: true },
+        },
         target: {
           include: {
             roles: {
@@ -309,7 +312,12 @@ export class ImpersonationService {
     const entitlements = Object.fromEntries(
       entitlementKeys.map((key) => [
         key,
-        reportAccess[key] === "no" ? "no" : "yes",
+        key === "BBP_Access" &&
+        !hasPublishedBenefitsBestPractices(grant.program.metadata)
+          ? "no"
+          : reportAccess[key] === "no"
+            ? "no"
+            : "yes",
       ]),
     );
     const expiresAt = new Date(Date.now() + previewLifetimeMs).toISOString();
