@@ -244,7 +244,7 @@ describe("create user endpoint", () => {
     assert.equal(response.data.email, "person@example.com");
     assert.equal(response.data.fullName, "Example Person");
     assert.equal(response.data.username, "example.person");
-    assert.equal(deliveredPassword, plaintextPassword);
+    assert.equal(deliveredPassword, undefined);
     assert.ok(createdData);
     assert.equal(createdData.status, "INVITED");
     assert.equal(createdData.username, "example.person");

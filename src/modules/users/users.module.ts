@@ -636,7 +636,7 @@ export class UsersService {
     const username = dto.username.trim();
     if (!fullName) throw new BadRequestException("Full name is required");
     if (!username) throw new BadRequestException("Username is required");
-    this.mailer.assertConfigured();
+    // this.mailer.assertConfigured();
 
     if (
       await this.prisma.user.findUnique({
@@ -823,7 +823,7 @@ export class UsersService {
           id: true,
         },
       });
-      await this.mailer.sendWelcome(email, password);
+      // await this.mailer.sendWelcome(email, password);
       const user = await this.prisma.user.update({
         where: { id: created.id },
         data: { status: "ACTIVE" },
