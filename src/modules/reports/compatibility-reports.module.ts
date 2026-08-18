@@ -58,6 +58,12 @@ import {
 } from "./report-template-workbooks.js";
 
 const privacyThreshold = 5;
+const promotionalPreviewAccess = new Set([
+  "WFR_Access",
+  "EV_Access",
+  "WBC_Access",
+  "BBP_Access",
+]);
 const winnerColors = { Yes: "#00a46a", No: "#ffc955" } as const;
 const headerColors = { Yes: "#0f0", No: "#ff0" } as const;
 const winnerTitles = { Yes: "Winners", No: "Non-Winners" } as const;
@@ -2892,7 +2898,9 @@ export class CompatibilityReportsService {
   ): false {
     if (
       principal.roles.includes("admin") ||
-      principal.roles.includes("super_admin")
+      principal.roles.includes("super_admin") ||
+      (principal.roles.includes("promotional") &&
+        promotionalPreviewAccess.has(accessKey))
     )
       return false;
     const access = jsonObject(context.reportAccess);
