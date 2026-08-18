@@ -25,7 +25,7 @@ function benchmarkQuestion(
 }
 
 describe("compatibility report categories", () => {
-  it("allows promotional users to preview basic reports without mutating shared report access", async () => {
+  it("returns dummy report data only for promotional users", async () => {
     const prisma = {
       program: {
         findFirst: () => ({
@@ -60,17 +60,69 @@ describe("compatibility report categories", () => {
     } as unknown as PrismaService;
     const service = new CompatibilityReportsService(prisma);
     const query = { selectedProgramId: "program-1", isDummy: false };
+    const promotional = {
+      sub: "promotional-user",
+      organizationId: "organization-1",
+      roles: ["promotional"],
+      permissions: [],
+    };
+    const dummyQuery = { ...query, isDummy: true };
 
-    await assert.doesNotReject(
-      service.sectionComparison(
+    const result = await service.demographicResponseCounts(
+      promotional,
+      dummyQuery,
+    );
+    assert.equal(result.data.length, 4);
+    assert.ok(
+      result.data.every((demographic) =>
+        demographic.options.every(({ Count }) => Count >= 8 && Count <= 45),
+      ),
+    );
+    const questions = await service.openResponseQuestions(
+      promotional,
+      dummyQuery,
+    );
+    const answers = await service.openResponseAnswers(
+      promotional,
+      dummyQuery,
+      String(questions.data[0]?.id),
+    );
+    const filters = await service.surveyFilters(promotional, dummyQuery);
+    const benchmark = await service.workforceComparison(
+      promotional,
+      dummyQuery,
+    );
+    const benefits = await service.employerBenchmark(
+      promotional,
+      dummyQuery,
+    );
+    assert.ok(questions.data.length > 0);
+    assert.ok(answers.data.respondentData.length > 0);
+    assert.ok(filters.data.length > 0);
+    assert.ok(benchmark.data.data.length > 0);
+    assert.ok(benefits.data.tableData.length > 0);
+    const [feedbackWorkbook, verbatimWorkbook, benchmarkWorkbook, benefitsWorkbook] =
+      await Promise.all([
+        service.feedbackWorkbook(promotional, dummyQuery, false),
+        service.openResponsesWorkbook(promotional, dummyQuery),
+        service.benchmarkWorkbook(promotional, dummyQuery),
+        service.employerBenchmarkWorkbook(promotional, dummyQuery),
+      ]);
+    assert.ok(feedbackWorkbook.byteLength > 0);
+    assert.ok(verbatimWorkbook.byteLength > 0);
+    assert.ok(benchmarkWorkbook.byteLength > 0);
+    assert.ok(benefitsWorkbook.byteLength > 0);
+    await assert.rejects(
+      service.demographicResponseCounts(
         {
-          sub: "promotional-user",
+          sub: "client-user",
           organizationId: "organization-1",
-          roles: ["promotional"],
+          roles: ["client"],
           permissions: [],
         },
-        query,
+        { ...query, isDummy: true },
       ),
+      /Dummy report data is only available to promotional users/u,
     );
     await assert.rejects(
       service.sectionComparison(

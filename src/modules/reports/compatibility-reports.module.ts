@@ -64,6 +64,62 @@ const promotionalPreviewAccess = new Set([
   "WBC_Access",
   "BBP_Access",
 ]);
+const dummyDemographicOptions = [
+  { category: "Personal Demographics", label: "Gender", options: ["Female", "Male", "Non-binary"] },
+  { category: "Personal Demographics", label: "Age Generation", options: ["Generation Z", "Millennial", "Generation X", "Baby Boomer"] },
+  { category: "Workplace Demographics", label: "Employment Length", options: ["Less than 1 year", "1-5 years", "6-10 years", "More than 10 years"] },
+  { category: "Workplace Demographics", label: "Workplace Setting", options: ["On-site", "Hybrid", "Remote"] },
+] as const;
+const dummyOpenQuestions = [
+  { id: "dummy-open-1", caption: "What do you value most about working here?" },
+  { id: "dummy-open-2", caption: "What is one thing the organization could improve?" },
+] as const;
+const dummyVerbatims = [
+  "I appreciate the support from my manager and teammates.",
+  "Communication across departments could be more consistent.",
+  "The flexibility and opportunities to learn make this a great workplace.",
+  "Clearer priorities would help our team work more effectively.",
+  "I feel recognized for the work I contribute.",
+] as const;
+
+function randomInteger(minimum: number, maximum: number): number {
+  return Math.floor(Math.random() * (maximum - minimum + 1)) + minimum;
+}
+
+function randomPercentage(): number {
+  return randomInteger(42, 94);
+}
+
+function dummyFeedbackSections(): FeedbackWorkbookSection[] {
+  return [
+    "Core Employee Experience",
+    "Your Job",
+    "Communication and Workplace Culture",
+  ].map((title, sectionIndex) => ({
+    title,
+    questions: Array.from({ length: 3 }, (_unused, questionIndex) => {
+      const agreement = randomInteger(55, 90);
+      const neutral = randomInteger(5, Math.min(25, 95 - agreement));
+      return {
+        text: `Sample survey statement ${sectionIndex * 3 + questionIndex + 1}`,
+        agreement,
+        neutral,
+        disagreement: 100 - agreement - neutral,
+      };
+    }),
+  }));
+}
+
+function dummyWorkbookDemographics(): ReportWorkbookDemographic[] {
+  return dummyDemographicOptions.map((demographic) => ({
+    title: demographic.label,
+    groupLabel: demographic.category,
+    options: demographic.options.map((label) => ({
+      label,
+      count: randomInteger(8, 45),
+    })),
+  }));
+}
 const winnerColors = { Yes: "#00a46a", No: "#ffc955" } as const;
 const headerColors = { Yes: "#0f0", No: "#ff0" } as const;
 const winnerTitles = { Yes: "Winners", No: "Non-Winners" } as const;
@@ -192,6 +248,7 @@ interface ResponsePatternQueryInput {
 }
 
 interface ReportContext {
+  isDummy: boolean;
   organizationId: string;
   enrollmentId: string;
   reportAccess: Prisma.JsonValue;
@@ -925,6 +982,45 @@ export class CompatibilityReportsService {
   }> {
     const context = await this.context(principal, query);
     this.requiresDemo(principal, context, "WBC_Access");
+    if (query.isDummy) {
+      const cohorts = ["All Employers", "Similar Size Employers"];
+      const tableHeaders = cohorts.flatMap((title) => [
+        { title, type: `${title.replaceAll(" ", "")}_Yes`, color: winnerColors.Yes },
+        { title, type: `${title.replaceAll(" ", "")}_No`, color: winnerColors.No },
+      ]);
+      const categories = [
+        "Core Employee Experience",
+        "Your Job",
+        "Communication and Workplace Culture",
+        "Relationship With Your Manager",
+      ];
+      return {
+        success: true,
+        message: "true",
+        data: {
+          tableHeaders,
+          data: categories.map((title, categoryIndex) => ({
+            title,
+            dataValues: tableHeaders.map(() => randomPercentage()),
+            nestedData: Array.from({ length: 3 }, (_unused, index) => ({
+              id: `dummy-benchmark-${categoryIndex + 1}-${index + 1}`,
+              title: `Sample benchmark statement ${categoryIndex * 3 + index + 1}`,
+              dataValues: tableHeaders.map(() => randomPercentage()),
+            })),
+            legends: Object.entries(winnerTitles).map(([winner, legendTitle]) => ({
+              color: winnerColors[winner as "Yes" | "No"],
+              title: legendTitle,
+            })),
+          })),
+          surveyAverage: cohorts.map((title) => ({
+            title,
+            subTitle: "Survey Average",
+            Yes: { title: "Winners", value: randomPercentage() },
+            No: { title: "Non-Winners", value: randomPercentage() },
+          })),
+        },
+      };
+    }
     const published = this.publishedWorkforce(context);
     if (published) {
       const tableHeaders = this.publishedHeaders(published.headers);
@@ -1345,6 +1441,18 @@ export class CompatibilityReportsService {
   async openResponseQuestions(principal: Principal, query: ReportQuery) {
     const context = await this.context(principal, query);
     this.requiresDemo(principal, context, "EV_Access");
+    if (query.isDummy) {
+      return {
+        success: true,
+        message: "success",
+        data: dummyOpenQuestions.map((question, index) => ({
+          caption: question.caption,
+          id: question.id,
+          _id: question.id,
+          questionNumber: index + 1,
+        })),
+      };
+    }
     const questions = await this.openQuestions(context.survey.id);
     return {
       success: true,
@@ -1366,6 +1474,37 @@ export class CompatibilityReportsService {
   ) {
     const context = await this.context(principal, query);
     this.requiresDemo(principal, context, "EV_Access");
+    if (query.isDummy) {
+      const question =
+        dummyOpenQuestions.find(({ id }) => id === questionReference) ??
+        dummyOpenQuestions[0];
+      const respondentData = [...dummyVerbatims]
+        .sort(() => Math.random() - 0.5)
+        .slice(0, randomInteger(3, dummyVerbatims.length))
+        .map((Value, index) => ({
+          _id: `dummy-respondent-${index + 1}`,
+          RespondentId: `dummy-respondent-${index + 1}`,
+          responses: {
+            QuestionId: question.id,
+            DataLabel: question.id,
+            Value,
+            ResponseCaption: Value,
+          },
+        }));
+      return {
+        success: true,
+        message: "success",
+        data: {
+          respondentData,
+          dataLen: respondentData.length,
+          queryQuestion: {
+            Caption: question.caption,
+            Id: question.id,
+            DataLabel: question.id,
+          },
+        },
+      };
+    }
     const questions = await this.openQuestions(context.survey.id);
     const question = questions.find(
       (candidate) =>
@@ -1589,6 +1728,18 @@ export class CompatibilityReportsService {
 
   async surveyFilters(principal: Principal, query: ReportQuery) {
     const context = await this.context(principal, query);
+    if (query.isDummy) {
+      return {
+        success: true,
+        message: "success",
+        data: dummyDemographicOptions.map((demographic, index) => ({
+          QuestionId: `dummy-filter-${index + 1}`,
+          filterLabel: demographic.label,
+          type: "Demographics",
+          filterOption: demographic.options.map((Caption) => ({ Caption })),
+        })),
+      };
+    }
     const respondents = await this.organizationRespondents(context);
     const options = new Map<
       string,
@@ -1863,6 +2014,15 @@ export class CompatibilityReportsService {
       context,
       detailed ? "RD_Access" : "WFR_Access",
     );
+    if (query.isDummy) {
+      return createWorkforceFeedbackWorkbook({
+        metadata: await this.reportWorkbookMetadata(principal, query, context),
+        demographics: dummyWorkbookDemographics(),
+        sections: dummyFeedbackSections(),
+        totalResponses: randomInteger(65, 180),
+        ...(highlightRanges ? { responsePatternRanges: highlightRanges } : {}),
+      });
+    }
     const respondentFilter = Object.fromEntries(
       Object.entries(queryFilter ?? {}).filter(
         ([key]) => key !== "responsePatterns",
@@ -2273,6 +2433,22 @@ export class CompatibilityReportsService {
   async demographicResponseCounts(principal: Principal, query: ReportQuery) {
     const context = await this.context(principal, query);
     this.requiresDemo(principal, context, "WFR_Access");
+    if (query.isDummy) {
+      return {
+        success: true,
+        message: "success",
+        data: dummyDemographicOptions.map((demographic, index) => ({
+          QuestionId: `dummy-demographic-${index + 1}`,
+          category: demographic.category,
+          categoryLabel: demographic.label,
+          options: demographic.options.map((Caption, optionIndex) => ({
+            Caption,
+            Count: randomInteger(8, 45),
+            Position: optionIndex + 1,
+          })),
+        })),
+      };
+    }
     const respondents = await this.organizationRespondents(context);
     const questions = new Map<string, DetailedResponse["question"]>();
     const counts = new Map<string, Map<string, number>>();
@@ -2352,6 +2528,51 @@ export class CompatibilityReportsService {
   async employerBenchmark(principal: Principal, query: ReportQuery) {
     const context = await this.context(principal, query);
     this.requiresDemo(principal, context, "BBP_Access");
+    if (query.isDummy) {
+      const tableHeaders = [
+        { title: "All Employers", subTitle: "Winners", type: "All_Yes", color: winnerColors.Yes },
+        { title: "All Employers", subTitle: "Non-Winners", type: "All_No", color: winnerColors.No },
+        { title: "Similar Size Employers", subTitle: "Winners", type: "Size_Yes", color: winnerColors.Yes },
+        { title: "Similar Size Employers", subTitle: "Non-Winners", type: "Size_No", color: winnerColors.No },
+      ];
+      const sections = [
+        {
+          title: "Benefits",
+          questions: ["Medical insurance", "Retirement plan", "Paid parental leave"],
+        },
+        {
+          title: "Workplace Practices",
+          questions: ["Flexible work schedules", "Employee recognition program", "Professional development"],
+        },
+      ];
+      return {
+        success: true,
+        message: "true",
+        data: {
+          tableHeaders,
+          tableData: sections.map((section) => ({
+            title: section.title,
+            nestedData: section.questions.map((title, index) => ({
+              id: `dummy-benefit-${section.title}-${index + 1}`,
+              title,
+              type: "%",
+              nestedData: [
+                {
+                  title: "Yes",
+                  type: "%",
+                  dataValues: tableHeaders.map(() => randomPercentage()),
+                },
+                {
+                  title: "No",
+                  type: "%",
+                  dataValues: tableHeaders.map(() => randomInteger(5, 40)),
+                },
+              ],
+            })),
+          })),
+        },
+      };
+    }
     const published = this.publishedBenefits(context);
     if (!published) {
       throw new NotFoundException(
@@ -2755,6 +2976,19 @@ export class CompatibilityReportsService {
   ): Promise<Buffer> {
     const context = await this.context(principal, query);
     this.requiresDemo(principal, context, "EV_Access");
+    if (query.isDummy) {
+      return createVerbatimWorkbook({
+        metadata: await this.reportWorkbookMetadata(principal, query, context),
+        demographicTitle: "All respondents",
+        questions: dummyOpenQuestions.map((question) => ({
+          text: question.caption,
+          responses: [...dummyVerbatims]
+            .sort(() => Math.random() - 0.5)
+            .slice(0, randomInteger(3, dummyVerbatims.length))
+            .map((answer) => ({ answer, demographic: "All respondents" })),
+        })),
+      });
+    }
     const questions = await this.openQuestions(context.survey.id, queryFilter);
     const respondents = await this.prisma.respondent.findMany({
       where: {
@@ -2797,6 +3031,11 @@ export class CompatibilityReportsService {
     principal: Principal,
     query: ReportQuery,
   ): Promise<ReportContext> {
+    if (query.isDummy && !principal.roles.includes("promotional")) {
+      throw new ForbiddenException(
+        "Dummy report data is only available to promotional users",
+      );
+    }
     const programSelect = {
       id: true,
       projectId: true,
@@ -2874,6 +3113,7 @@ export class CompatibilityReportsService {
       },
     );
     return {
+      isDummy: query.isDummy,
       organizationId,
       enrollmentId: enrollment.id,
       reportAccess: enrollment.reportAccess,
@@ -2899,7 +3139,7 @@ export class CompatibilityReportsService {
     if (
       principal.roles.includes("admin") ||
       principal.roles.includes("super_admin") ||
-      (principal.roles.includes("promotional") &&
+      (context.isDummy && principal.roles.includes("promotional") &&
         promotionalPreviewAccess.has(accessKey))
     )
       return false;
@@ -3707,7 +3947,7 @@ export class CompatibilityReportsController {
   ) {
     return this.reports.workforceComparison(
       principal,
-      this.reportQuery(selectedProgramId, organizationId, isDummy),
+      this.reportQuery(selectedProgramId, organizationId, isDummy, false, true),
     );
   }
 
@@ -3728,7 +3968,7 @@ export class CompatibilityReportsController {
   ): Promise<void> {
     const workbook = await this.reports.openResponsesWorkbook(
       principal,
-      this.reportQuery(selectedProgramId, organizationId, isDummy),
+      this.reportQuery(selectedProgramId, organizationId, isDummy, false, true),
       body.queryFilter,
     );
     reply
@@ -3837,7 +4077,7 @@ export class CompatibilityReportsController {
   ) {
     return this.reports.openResponseQuestions(
       principal,
-      this.reportQuery(selectedProgramId, organizationId, isDummy),
+      this.reportQuery(selectedProgramId, organizationId, isDummy, false, true),
     );
   }
 
@@ -3856,7 +4096,7 @@ export class CompatibilityReportsController {
     if (!reference) throw new BadRequestException("questionId is required");
     return this.reports.openResponseAnswers(
       principal,
-      this.reportQuery(selectedProgramId, organizationId, isDummy),
+      this.reportQuery(selectedProgramId, organizationId, isDummy, false, true),
       reference,
       body.queryFilter,
     );
@@ -3938,7 +4178,7 @@ export class CompatibilityReportsController {
   ) {
     return this.reports.surveyFilters(
       principal,
-      this.reportQuery(selectedProgramId, organizationId, isDummy),
+      this.reportQuery(selectedProgramId, organizationId, isDummy, false, true),
     );
   }
 
@@ -4132,7 +4372,7 @@ export class CompatibilityReportsController {
   ): Promise<void> {
     const workbook = await this.reports.feedbackWorkbook(
       principal,
-      this.reportQuery(selectedProgramId, organizationId, isDummy),
+      this.reportQuery(selectedProgramId, organizationId, isDummy, false, true),
       false,
       this.parseQueryFilter(queryFilter),
     );
@@ -4185,7 +4425,7 @@ export class CompatibilityReportsController {
   ): Promise<void> {
     const workbook = await this.reports.benchmarkWorkbook(
       principal,
-      this.reportQuery(selectedProgramId, organizationId, isDummy),
+      this.reportQuery(selectedProgramId, organizationId, isDummy, false, true),
     );
     this.sendWorkbook(reply, workbook, "Workforce_Benchmark_Report.xlsx");
   }
@@ -4250,7 +4490,7 @@ export class CompatibilityReportsController {
   ) {
     return this.reports.demographicResponseCounts(
       principal,
-      this.reportQuery(selectedProgramId, organizationId, isDummy),
+      this.reportQuery(selectedProgramId, organizationId, isDummy, false, true),
     );
   }
 
@@ -4279,7 +4519,7 @@ export class CompatibilityReportsController {
   ): Promise<void> {
     const workbook = await this.reports.employerBenchmarkWorkbook(
       principal,
-      this.reportQuery(selectedProgramId, organizationId, isDummy),
+      this.reportQuery(selectedProgramId, organizationId, isDummy, false, true),
     );
     this.sendWorkbook(reply, workbook, "Benefits_&_Best_Practices.xlsx");
   }
@@ -4294,7 +4534,7 @@ export class CompatibilityReportsController {
   ) {
     return this.reports.employerBenchmark(
       principal,
-      this.reportQuery(selectedProgramId, organizationId, isDummy),
+      this.reportQuery(selectedProgramId, organizationId, isDummy, false, true),
     );
   }
 
@@ -4552,14 +4792,15 @@ export class CompatibilityReportsController {
     organizationId: string | string[] | undefined,
     isDummy: string | string[] | undefined,
     allowCurrentProgram = false,
+    allowDummy = false,
   ): ReportQuery {
     const dummy = scalarQuery("isDummy", isDummy);
     if (dummy !== undefined && dummy !== "true" && dummy !== "false") {
       throw new BadRequestException("isDummy must be true or false");
     }
-    if (dummy === "true") {
+    if (dummy === "true" && !allowDummy) {
       throw new BadRequestException(
-        "Preview data must be loaded into PostgreSQL before it can be requested",
+        "Dummy data is not supported for this report",
       );
     }
     const selectedOrganizationId = scalarQuery(
@@ -4579,7 +4820,7 @@ export class CompatibilityReportsController {
       ...(selectedOrganizationId
         ? { organizationId: selectedOrganizationId }
         : {}),
-      isDummy: false,
+      isDummy: dummy === "true",
     };
   }
 }
