@@ -192,7 +192,11 @@ describe("client login endpoint", () => {
       userEmail: "viewer@example.com",
     });
 
-    assert.match(JSON.stringify(clientLookup), /"key":"client"/u);
+    assert.deepEqual(
+      (clientLookup as { roles?: { some?: { role?: { key?: unknown } } } })
+        .roles?.some?.role?.key,
+      { in: ["client", "promotional"] },
+    );
     assert.ok(issuedPrincipal);
     assert.deepEqual(issuedPrincipal.roles, ["client"]);
     assert.deepEqual(issuedPrincipal.permissions, ["reports.read"]);

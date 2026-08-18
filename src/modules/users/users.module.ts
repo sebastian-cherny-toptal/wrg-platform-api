@@ -312,7 +312,7 @@ export class ClientLoginService {
       where: {
         username,
         status: "ACTIVE",
-        roles: { some: { role: { key: "client" } } },
+        roles: { some: { role: { key: { in: ["client", "promotional"] } } } },
       },
       select: {
         id: true,
