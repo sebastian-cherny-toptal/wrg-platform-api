@@ -671,7 +671,7 @@ export class UsersService {
       throw new ForbiddenException("Super Admin user already exists");
     }
 
-    const isClient = role.key === "client";
+    const isClient = role.key === "client" || role.key === "promotional";
     const projectReferences = dto.projects ?? [];
     const programReferences = dto.programs ?? [];
     if (isClient && !dto.organizationId) {
