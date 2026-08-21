@@ -339,7 +339,36 @@ describe("CompatibilityReportsService.feedbackSections", () => {
       2026,
     );
     assert.deepEqual(
-      sections.map(({ title, questions }) => {
+      sections.map(({ title }) => title),
+      [
+        "Core Employee Experience",
+        "Your Job",
+        "Communication And Workplace Culture",
+        "Relationship With Your Manager",
+        "Training, Technology And Professional Development",
+        "Diversity And Inclusion",
+        "Leadership Of This Organization",
+        "Employee Benefits",
+        "Work-Life Balance",
+      ],
+    );
+    const fixtureOrder = [
+      "Core Employee Experience",
+      "Your Job",
+      "Communication And Workplace Culture",
+      "Relationship With Your Manager",
+      "Employee Benefits",
+      "Work-Life Balance",
+      "Diversity And Inclusion",
+      "Leadership Of This Organization",
+      "Training, Technology And Professional Development",
+    ];
+    const sectionsByFixtureOrder = [...sections].sort(
+      (left, right) =>
+        fixtureOrder.indexOf(left.title) - fixtureOrder.indexOf(right.title),
+    );
+    assert.deepEqual(
+      sectionsByFixtureOrder.map(({ title, questions }) => {
         const summarize = (question: (typeof questions)[number] | undefined) =>
           question && {
             text: question.text,
@@ -502,7 +531,7 @@ describe("CompatibilityReportsService.feedbackSections", () => {
       ],
     );
     assert.deepEqual(
-      sections.map(({ title, questions }) => ({
+      sectionsByFixtureOrder.map(({ title, questions }) => ({
         title,
         first: questions[0]?.demographicAgreement,
         last: questions.at(-1)?.demographicAgreement,

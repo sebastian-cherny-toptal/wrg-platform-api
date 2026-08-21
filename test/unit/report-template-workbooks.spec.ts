@@ -27,6 +27,17 @@ describe("workforce feedback workbook generation", () => {
             },
           ],
         },
+        {
+          title: "Second section",
+          questions: [
+            {
+              text: "Second question",
+              agreement: 60,
+              neutral: 10,
+              disagreement: 30,
+            },
+          ],
+        },
       ],
       totalResponses: 10,
     });
@@ -46,6 +57,9 @@ describe("workforce feedback workbook generation", () => {
     }
     assert.equal(sheet.getCell("B2").value, null);
     assert.equal(sheet.getCell("G4").value, 0);
+    assert.equal(sheet.getCell("B101").value, "SURVEY AVERAGE");
+    assert.equal(sheet.getCell("D101").value, 70);
+    assert.equal(sheet.getCell("E101").value, 20);
   });
 });
 

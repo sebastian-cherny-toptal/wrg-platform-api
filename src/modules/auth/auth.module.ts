@@ -321,9 +321,11 @@ export class AuthService {
     return { ...rotated, principal };
   }
 
-  async refresh(token: string): Promise<{ accessToken: string }> {
-    const { accessToken } = await this.rotateRefreshToken(token);
-    return { accessToken };
+  async refresh(
+    token: string,
+  ): Promise<{ accessToken: string; refreshToken: string }> {
+    const { accessToken, refreshToken } = await this.rotateRefreshToken(token);
+    return { accessToken, refreshToken };
   }
 
   async logoutAll(userId: string): Promise<void> {
