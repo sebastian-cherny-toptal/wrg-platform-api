@@ -459,8 +459,8 @@ describe("CompatibilityReportsService.feedbackSections", () => {
           },
           last: {
             text: "I like this organization's disability plan",
-            agreement: 93.75,
-            neutral: 6.25,
+            agreement: 92.3076923076923,
+            neutral: 7.6923076923076925,
             disagreement: 0,
           },
         },
@@ -958,7 +958,7 @@ describe("CompatibilityReportsService.feedbackSections", () => {
           },
           last: {
             Gender: {
-              Female: 92.85714285714286,
+              Female: 91.66666666666667,
               Male: 100,
             },
             "Age Generation": {
@@ -968,21 +968,21 @@ describe("CompatibilityReportsService.feedbackSections", () => {
               "Generation X (Born 1965 to 1980)": 100,
             },
             "Race/Ethnicity": {
-              White: 93.75,
+              White: 92.3076923076923,
             },
             "Employment Length": {
               "One year to less than two years": 100,
-              "Two years to less than five years": 66.66666666666667,
+              "Two years to less than five years": 50,
               "Five years to less than ten years": 100,
-              "Less than one year": 100,
+              "Less than one year": 0,
               "Ten years or more": 100,
             },
             "Job Status": {
-              "Full-Time": 93.33333333333333,
+              "Full-Time": 91.66666666666667,
               "Part-Time": 100,
             },
             "Workplace Setting": {
-              "Hybrid (a blend of on-site and remote)": 90,
+              "Hybrid (a blend of on-site and remote)": 88.88888888888889,
               "Fully on-site": 100,
               "Fully remote": 100,
             },
@@ -997,7 +997,7 @@ describe("CompatibilityReportsService.feedbackSections", () => {
               "Customer Service/Care/Support": 100,
               "Human Resources": 100,
               Other: 100,
-              Production: 80,
+              Production: 75,
               "Public Relations/Marketing": 100,
             },
           },

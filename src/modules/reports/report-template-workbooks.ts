@@ -20,7 +20,9 @@ export interface FeedbackWorkbookSection {
     agreement: number;
     neutral: number;
     disagreement: number;
+    responseCount?: number;
     demographicAgreement?: Record<string, Record<string, number>>;
+    demographicResponseCount?: Record<string, Record<string, number>>;
   }>;
 }
 
@@ -180,24 +182,50 @@ function demographicAverageValue(
   demographicAgreements: Array<
     Record<string, Record<string, number>> | undefined
   >,
+  demographicResponseCounts: Array<
+    Record<string, Record<string, number>> | undefined
+  >,
 ): number | string {
   const label = cell.worksheet.getCell(3, cell.col).value;
   if (typeof label !== "string") return "x";
   const groupLabel = demographicGroupLabel(cell);
   const count = demographicCount(demographics, label, groupLabel);
   if (count === undefined || count < 5) return "x";
-  const values = demographicAgreements.flatMap((agreement) => {
+  const values = demographicAgreements.flatMap((agreement, index) => {
     const value = subgroupAgreement(agreement, groupLabel, label);
-    return typeof value === "number" ? [value] : [];
+    if (typeof value !== "number") return [];
+    const responseCount = subgroupAgreement(
+      demographicResponseCounts[index],
+      groupLabel,
+      label,
+    );
+    return [{ value, weight: responseCount }];
   });
-  return values.length ? roundedAverage(values) : baseValue;
+  return values.length ? weightedAverage(values) : baseValue;
 }
 
-function roundedAverage(values: number[]): number {
+function average(values: number[]): number {
   if (!values.length) return 0;
-  return Math.round(
-    values.reduce((total, value) => total + value, 0) / values.length,
+  return values.reduce((total, value) => total + value, 0) / values.length;
+}
+
+function weightedAverage(
+  values: Array<{ value: number; weight?: number | undefined }>,
+): number {
+  const weighted = values.filter(
+    (item): item is { value: number; weight: number } =>
+      typeof item.weight === "number" && item.weight > 0,
   );
+  if (weighted.length === values.length && weighted.length > 0) {
+    const totalWeight = weighted.reduce((total, item) => total + item.weight, 0);
+    return (
+      weighted.reduce(
+        (total, item) => total + item.value * item.weight,
+        0,
+      ) / totalWeight
+    );
+  }
+  return average(values.map((item) => item.value));
 }
 
 const responsePatternFills = {
@@ -354,11 +382,17 @@ export async function createWorkforceFeedbackWorkbook(input: {
       const section = input.sections[Number(averageValueMatch[1]) - 1];
       if (!section) return null;
       const valueIndex = Number(averageValueMatch[2]);
-      const agreement = roundedAverage(
-        section.questions.map((item) => item.agreement),
+      const agreement = weightedAverage(
+        section.questions.map((item) => ({
+          value: item.agreement,
+          weight: item.responseCount,
+        })),
       );
-      const disagreement = roundedAverage(
-        section.questions.map((item) => item.disagreement),
+      const disagreement = weightedAverage(
+        section.questions.map((item) => ({
+          value: item.disagreement,
+          weight: item.responseCount,
+        })),
       );
       if (valueIndex === 1) return agreement;
       if (valueIndex === 2) return disagreement;
@@ -367,6 +401,7 @@ export async function createWorkforceFeedbackWorkbook(input: {
         cell,
         agreement,
         section.questions.map((item) => item.demographicAgreement),
+        section.questions.map((item) => item.demographicResponseCount),
       );
     }
     const questionValueMatch = /^QUESTION_(\d+)_VALUE_(\d+)$/u.exec(name);
@@ -386,9 +421,17 @@ export async function createWorkforceFeedbackWorkbook(input: {
     const surveyAverageMatch = /^SURVEY_AVERAGE_VALUE_(\d+)$/u.exec(name);
     if (surveyAverageMatch) {
       const valueIndex = Number(surveyAverageMatch[1]);
-      const agreement = roundedAverage(questions.map((item) => item.agreement));
-      const disagreement = roundedAverage(
-        questions.map((item) => item.disagreement),
+      const agreement = weightedAverage(
+        questions.map((item) => ({
+          value: item.agreement,
+          weight: item.responseCount,
+        })),
+      );
+      const disagreement = weightedAverage(
+        questions.map((item) => ({
+          value: item.disagreement,
+          weight: item.responseCount,
+        })),
       );
       if (valueIndex === 1) return agreement;
       if (valueIndex === 2) return disagreement;
@@ -397,6 +440,7 @@ export async function createWorkforceFeedbackWorkbook(input: {
         cell,
         agreement,
         questions.map((question) => question.demographicAgreement),
+        questions.map((question) => question.demographicResponseCount),
       );
     }
     return null;

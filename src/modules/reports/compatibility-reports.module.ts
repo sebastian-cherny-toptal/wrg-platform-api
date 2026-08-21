@@ -2155,16 +2155,23 @@ export class CompatibilityReportsService {
         const percentage = (caption: "Agree" | "Neutral" | "Disagree") =>
           distribution.find((item) => item.ResponseCaption === caption)
             ?.percentage ?? 0;
+        const responseCount = distribution.reduce(
+          (total, item) => total + item.numberOfResponses,
+          0,
+        );
+        const demographic = this.demographicAgreementByQuestion(
+          question,
+          respondents,
+          programYear,
+        );
         return {
           text: question.caption,
           agreement: percentage("Agree"),
           neutral: percentage("Neutral"),
           disagreement: percentage("Disagree"),
-          demographicAgreement: this.demographicAgreementByQuestion(
-            question,
-            respondents,
-            programYear,
-          ),
+          responseCount,
+          demographicAgreement: demographic.agreement,
+          demographicResponseCount: demographic.responseCount,
         };
       }),
     }));
@@ -2174,7 +2181,10 @@ export class CompatibilityReportsService {
     question: BenchmarkQuestion,
     respondents: DetailedRespondent[],
     programYear?: number | null,
-  ): Record<string, Record<string, number>> {
+  ): {
+    agreement: Record<string, Record<string, number>>;
+    responseCount: Record<string, Record<string, number>>;
+  } {
     const grouped = new Map<string, Map<string, DetailedResponse[]>>();
     for (const respondent of respondents) {
       const labels = new Map<string, Set<string>>();
@@ -2212,19 +2222,41 @@ export class CompatibilityReportsService {
         grouped.set(group, groupedByLabel);
       }
     }
-    return Object.fromEntries(
-      [...grouped].map(([group, labels]) => [
-        group,
-        Object.fromEntries(
-          [...labels].map(([label, responses]) => [
-            label,
-            this.trendDistribution(responses).find(
-              (item) => item.ResponseCaption === "Agree",
-            )?.percentage ?? 0,
-          ]),
-        ),
-      ]),
-    );
+    const distributions = [...grouped].map(([group, labels]) => [
+      group,
+      [...labels].map(([label, responses]) => [
+        label,
+        this.trendDistribution(responses),
+      ] as const),
+    ] as const);
+    return {
+      agreement: Object.fromEntries(
+        distributions.map(([group, labels]) => [
+          group,
+          Object.fromEntries(
+            labels.map(([label, distribution]) => [
+              label,
+              distribution.find((item) => item.ResponseCaption === "Agree")
+                ?.percentage ?? 0,
+            ]),
+          ),
+        ]),
+      ),
+      responseCount: Object.fromEntries(
+        distributions.map(([group, labels]) => [
+          group,
+          Object.fromEntries(
+            labels.map(([label, distribution]) => [
+              label,
+              distribution.reduce(
+                (total, item) => total + item.numberOfResponses,
+                0,
+              ),
+            ]),
+          ),
+        ]),
+      ),
+    };
   }
 
   private workbookDemographicsFromRespondents(
@@ -3603,12 +3635,20 @@ export class CompatibilityReportsService {
       if (!caption || caption === "n/a" || caption === "not applicable") {
         continue;
       }
+      const numericCaption = /^-?\d+(?:\.\d+)?$/u.test(caption)
+        ? Number(caption)
+        : null;
+      // WRG Likert exports use numeric codes 1–5 for scored answers and 6 for
+      // N/A. Exclude any out-of-range code instead of counting it as agreement.
+      if (
+        response.score === null &&
+        numericCaption !== null &&
+        (numericCaption < 1 || numericCaption > 5)
+      ) {
+        continue;
+      }
       const score =
-        response.score === null
-          ? /^-?\d+(?:\.\d+)?$/u.test(caption)
-            ? Number(caption)
-            : null
-          : Number(response.score);
+        response.score === null ? numericCaption : Number(response.score);
       if (
         caption === "agree" ||
         caption === "strongly agree" ||
