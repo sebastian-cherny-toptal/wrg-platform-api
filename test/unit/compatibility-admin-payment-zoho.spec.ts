@@ -26,6 +26,8 @@ import {
   CompatibilityZohoController,
   CompatibilityZohoService,
 } from "../../src/modules/crm-sync/compatibility-zoho.module.js";
+import { SyncQueue } from "../../src/modules/crm-sync/crm-sync.module.js";
+import { ZohoAdapter } from "../../src/modules/integrations/integrations.module.js";
 import {
   CompatibilityAdminController,
   CompatibilityAdminService,
@@ -69,6 +71,10 @@ const paymentStub = {
 
 const zohoStub = {
   sync: (_principal: Principal, kind: string) => mark(`sync:${kind}`),
+  listPrograms: () => {
+    mark("listPrograms");
+    return [];
+  },
 };
 
 @Injectable()
@@ -128,7 +134,42 @@ async function createTestApp(): Promise<NestFastifyApplication> {
 }
 
 describe("native admin, payment and Zoho compatibility endpoints", () => {
-  it("serves all 23 newly migrated routes", async () => {
+  it("projects Zoho program records for the admin selector", async () => {
+    const service = new CompatibilityZohoService(
+      {} as SyncQueue,
+      {
+        listAllRecords: () =>
+          Promise.resolve([
+            {
+              id: "zoho-program-1",
+              Name: "Baton Rouge 2026",
+              Program_Year: "2026",
+              EFS_Launch_Date: "2026-01-15",
+              EFS_end_Date: "2026-04-30",
+            },
+          ]),
+      } as unknown as ZohoAdapter,
+    );
+
+    const programs = await service.listPrograms({
+      sub: "admin-id",
+      organizationId: null,
+      roles: ["admin"],
+      permissions: [],
+    });
+
+    assert.deepEqual(programs, [
+      {
+        id: "zoho-program-1",
+        name: "Baton Rouge 2026",
+        year: 2026,
+        efsLaunchDate: "2026-01-15",
+        efsDeadline: "2026-04-30",
+      },
+    ]);
+  });
+
+  it("serves the compatibility routes", async () => {
     const app = await createTestApp();
     calls.clear();
     const token = app.get(JwtService).sign({
@@ -240,6 +281,7 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
           headers,
         }),
         app.inject({ method: "GET", url: "/zoho/syncClients", headers }),
+        app.inject({ method: "GET", url: "/zoho/programs", headers }),
       ];
       const responses = await Promise.all(requests);
       for (const response of responses) {
@@ -269,6 +311,7 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
         "sync:Programs": 1,
         "sync:Accounts": 1,
         "sync:Contacts": 1,
+        listPrograms: 1,
       });
     } finally {
       await app.close();

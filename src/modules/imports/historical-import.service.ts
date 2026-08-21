@@ -14,7 +14,10 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { basename, extname, join } from "node:path";
 import { PrismaService } from "../../database/prisma.service.js";
 import type { Principal } from "../auth/auth.module.js";
-import { parseReportCatalog, type ReportCatalogProduct } from "../reports/report-catalog.js";
+import {
+  parseReportCatalog,
+  type ReportCatalogProduct,
+} from "../reports/report-catalog.js";
 import {
   forEachXlsxSurveyRow,
   readXlsxSurveyDefinition,
@@ -44,6 +47,7 @@ export interface HistoricalImportMetadata {
   projectId?: string;
   projectName?: string;
   programId?: string;
+  zohoProgramId?: string;
   programName: string;
   programYear: number;
   projectAbbreviation?: string;
@@ -54,6 +58,7 @@ export interface HistoricalImportMetadata {
     organizationKey?: string;
     organizationName?: string;
     surveysSent: number;
+    isWinner: boolean;
   }>;
   reportCatalog?: ReportCatalogProduct[];
 }
@@ -312,8 +317,11 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
   const projectId = optionalString(value, "projectId");
   const projectName = optionalString(value, "projectName");
   const programId = optionalString(value, "programId");
+  const zohoProgramId = optionalString(value, "zohoProgramId");
   if (!projectId && !projectName) {
-    throw new BadRequestException("Select an existing project or enter a new project name");
+    throw new BadRequestException(
+      "Select an existing project or enter a new project name",
+    );
   }
   const programName = requiredString(value, "programName");
   const yearValue = value.programYear;
@@ -339,35 +347,59 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
   const launch = new Date(`${efsLaunchDate}T00:00:00.000Z`);
   const deadline = new Date(`${efsDeadline}T23:59:59.999Z`);
   if (Number.isNaN(launch.valueOf()) || Number.isNaN(deadline.valueOf())) {
-    throw new BadRequestException("EFS launch date and deadline must be valid dates");
+    throw new BadRequestException(
+      "EFS launch date and deadline must be valid dates",
+    );
   }
   if (deadline < launch) {
-    throw new BadRequestException("EFS deadline must be on or after its launch date");
+    throw new BadRequestException(
+      "EFS deadline must be on or after its launch date",
+    );
   }
   const projectAbbreviation = optionalString(value, "projectAbbreviation");
-  const organizationPrograms = value.organizationPrograms === undefined
-    ? undefined
-    : (Array.isArray(value.organizationPrograms) ? value.organizationPrograms : []).map((raw) => {
-        const entry = objectBody(raw);
-        const surveysSent = Number(entry.surveysSent);
-        if (!Number.isInteger(surveysSent) || surveysSent < 0) {
-          throw new BadRequestException("Surveys Sent must be a non-negative integer");
-        }
-        const organizationProgramId = optionalString(entry, "organizationProgramId");
-        const organizationKey = optionalString(entry, "organizationKey");
-        const organizationName = optionalString(entry, "organizationName");
-        if (!organizationProgramId && !organizationKey) {
-          throw new BadRequestException("Each Surveys Sent value must identify an organization");
-        }
-        return { ...(organizationProgramId ? { organizationProgramId } : {}), ...(organizationKey ? { organizationKey } : {}), ...(organizationName ? { organizationName } : {}), surveysSent };
-      });
-  const reportCatalog = value.reportCatalog === undefined
-    ? undefined
-    : parseReportCatalog(value.reportCatalog);
+  const organizationPrograms =
+    value.organizationPrograms === undefined
+      ? undefined
+      : (Array.isArray(value.organizationPrograms)
+          ? value.organizationPrograms
+          : []
+        ).map((raw) => {
+          const entry = objectBody(raw);
+          const surveysSent = Number(entry.surveysSent);
+          if (!Number.isInteger(surveysSent) || surveysSent < 0) {
+            throw new BadRequestException(
+              "Surveys Sent must be a non-negative integer",
+            );
+          }
+          const organizationProgramId = optionalString(
+            entry,
+            "organizationProgramId",
+          );
+          const organizationKey = optionalString(entry, "organizationKey");
+          const organizationName = optionalString(entry, "organizationName");
+          const isWinner = entry.isWinner === true;
+          if (!organizationProgramId && !organizationKey) {
+            throw new BadRequestException(
+              "Each Surveys Sent value must identify an organization",
+            );
+          }
+          return {
+            ...(organizationProgramId ? { organizationProgramId } : {}),
+            ...(organizationKey ? { organizationKey } : {}),
+            ...(organizationName ? { organizationName } : {}),
+            surveysSent,
+            isWinner,
+          };
+        });
+  const reportCatalog =
+    value.reportCatalog === undefined
+      ? undefined
+      : parseReportCatalog(value.reportCatalog);
   return {
     ...(projectId ? { projectId } : {}),
     ...(projectName ? { projectName } : {}),
     ...(programId ? { programId } : {}),
+    ...(zohoProgramId ? { zohoProgramId } : {}),
     programName,
     programYear,
     efsLaunchDate,
@@ -789,7 +821,9 @@ export class HistoricalImportService {
     body: unknown,
   ): Promise<{ importId: string; metadata: HistoricalImportMetadata }> {
     this.assertAccess(principal);
-    const metadata = await this.resolveMetadataReferences(validateMetadata(body));
+    const metadata = await this.resolveMetadataReferences(
+      validateMetadata(body),
+    );
     const importId = randomUUID();
     const stagingDir = ensureStagingDirectory(importId);
     const draft: HistoricalImportDraft = {
@@ -834,37 +868,51 @@ export class HistoricalImportService {
   private async resolveMetadataReferences(
     metadata: HistoricalImportMetadata,
   ): Promise<HistoricalImportMetadata> {
-    const uuid = (value: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(value);
+    const uuid = (value: string) =>
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(
+        value,
+      );
     let projectId = metadata.projectId;
     if (projectId) {
       const reference = projectId;
       const project = await this.prisma.project.findFirst({
-        where: { OR: [
-          ...(uuid(reference) ? [{ id: reference }] : []),
-          { legacyId: reference },
-          { externalId: reference },
-        ] },
+        where: {
+          OR: [
+            ...(uuid(reference) ? [{ id: reference }] : []),
+            { legacyId: reference },
+            { externalId: reference },
+          ],
+        },
         select: { id: true, name: true },
       });
-      if (!project) throw new BadRequestException("Selected project does not exist");
+      if (!project)
+        throw new BadRequestException("Selected project does not exist");
       projectId = project.id;
       metadata = { ...metadata, projectId, projectName: project.name };
     }
     if (metadata.programId) {
       const reference = metadata.programId;
       const program = await this.prisma.program.findFirst({
-        where: { OR: [
-          ...(uuid(reference) ? [{ id: reference }] : []),
-          { legacyId: reference },
-          { externalId: reference },
-        ] },
+        where: {
+          OR: [
+            ...(uuid(reference) ? [{ id: reference }] : []),
+            { legacyId: reference },
+            { externalId: reference },
+          ],
+        },
         select: { id: true, projectId: true },
       });
       if (!program) throw new BadRequestException("Program does not exist");
       if (projectId && program.projectId !== projectId) {
-        throw new BadRequestException("Program does not belong to the selected project");
+        throw new BadRequestException(
+          "Program does not belong to the selected project",
+        );
       }
-      metadata = { ...metadata, programId: program.id, projectId: program.projectId };
+      metadata = {
+        ...metadata,
+        programId: program.id,
+        projectId: program.projectId,
+      };
     }
     return metadata;
   }
@@ -1036,7 +1084,8 @@ export class HistoricalImportService {
     this.assertAccess(principal);
     const draft = await this.loadDraft(importId);
     const editing = Boolean(draft.programId);
-    if (!editing || draft.eaFile || draft.efsFile) assertStoredWorkbooksReady(draft);
+    if (!editing || draft.eaFile || draft.efsFile)
+      assertStoredWorkbooksReady(draft);
     const eaFile = draft.eaFile;
     const efsFile = draft.efsFile;
 
@@ -1069,16 +1118,19 @@ export class HistoricalImportService {
     const commitIdempotencyKey =
       draft.commitIdempotencyKey ?? `historical-import-commit:${importId}`;
     const importPrefix = importPrefixFor(importId);
-    const projectId = draft.projectId ?? deterministicUuid(`${importPrefix}:project`);
-    const programId = draft.programId ?? deterministicUuid(`${importPrefix}:program`);
+    const projectId =
+      draft.projectId ?? deterministicUuid(`${importPrefix}:project`);
+    const programId =
+      draft.programId ?? deterministicUuid(`${importPrefix}:program`);
     const projectSlugBase = slugify(draft.projectName ?? draft.programName);
     let projectSlug = projectSlugBase;
     let slugSuffix = 1;
-    while (!draft.projectId &&
-      await this.prisma.project.findUnique({
+    while (
+      !draft.projectId &&
+      (await this.prisma.project.findUnique({
         where: { slug: projectSlug },
         select: { id: true },
-      })
+      }))
     ) {
       projectSlug = `${projectSlugBase}-${slugSuffix}`;
       slugSuffix += 1;
@@ -1110,8 +1162,12 @@ export class HistoricalImportService {
           },
         });
       } else {
-        const selectedProject = await this.prisma.project.findUnique({ where: { id: projectId }, select: { id: true } });
-        if (!selectedProject) throw new BadRequestException("Selected project no longer exists");
+        const selectedProject = await this.prisma.project.findUnique({
+          where: { id: projectId },
+          select: { id: true },
+        });
+        if (!selectedProject)
+          throw new BadRequestException("Selected project no longer exists");
       }
       const programData = {
         name: draft.programName,
@@ -1122,34 +1178,84 @@ export class HistoricalImportService {
           historicalImportId: importId,
           efsLaunchDate: draft.efsLaunchDate,
           efsDeadline: draft.efsDeadline,
-          reportCatalog: JSON.parse(JSON.stringify(draft.reportCatalog ?? [])) as Prisma.InputJsonValue,
+          reportCatalog: JSON.parse(
+            JSON.stringify(draft.reportCatalog ?? []),
+          ) as Prisma.InputJsonValue,
         },
-        fees: Object.fromEntries((draft.reportCatalog ?? []).map(({ id, priceCents }) => [id, priceCents])),
+        fees: Object.fromEntries(
+          (draft.reportCatalog ?? []).map(({ id, priceCents }) => [
+            id,
+            priceCents,
+          ]),
+        ),
       };
       if (editing) {
-        const existing = await this.prisma.program.findUnique({ where: { id: programId }, select: { projectId: true, metadata: true, fees: true } });
-        if (existing?.projectId !== projectId) throw new BadRequestException("Program does not belong to the selected project");
-        await this.prisma.program.update({ where: { id: programId }, data: {
-          ...programData,
-          metadata: { ...objectBody(existing.metadata), ...programData.metadata },
-          fees: JSON.parse(JSON.stringify({ ...objectBody(existing.fees), ...programData.fees })) as Prisma.InputJsonValue,
-        } });
+        const existing = await this.prisma.program.findUnique({
+          where: { id: programId },
+          select: { projectId: true, metadata: true, fees: true },
+        });
+        if (existing?.projectId !== projectId)
+          throw new BadRequestException(
+            "Program does not belong to the selected project",
+          );
+        await this.prisma.program.update({
+          where: { id: programId },
+          data: {
+            ...programData,
+            metadata: {
+              ...objectBody(existing.metadata),
+              ...programData.metadata,
+            },
+            fees: JSON.parse(
+              JSON.stringify({
+                ...objectBody(existing.fees),
+                ...programData.fees,
+              }),
+            ) as Prisma.InputJsonValue,
+          },
+        });
       } else {
-        await this.prisma.program.create({ data: {
-          id: programId,
-          externalId: `${importPrefix}:program`,
-          projectId,
-          currency: "USD",
-          ...programData,
-        } });
+        await this.prisma.program.create({
+          data: {
+            id: programId,
+            externalId: draft.zohoProgramId ?? `${importPrefix}:program`,
+            projectId,
+            currency: "USD",
+            ...programData,
+          },
+        });
       }
       if (eaFile && efsFile) {
-        const organizationRows = await this.collectOrganizationRows(eaFile, efsFile);
-        const organizationIds = await this.createOrganizationsAndEnrollments(this.prisma, draft, organizationRows, projectId, programId, projectSlug);
-        await this.importSurvey(this.prisma, draft, "EA", eaFile, programId, organizationIds);
-        await this.importSurvey(this.prisma, draft, "EFS", efsFile, programId, organizationIds);
+        const organizationRows = await this.collectOrganizationRows(
+          eaFile,
+          efsFile,
+        );
+        const organizationIds = await this.createOrganizationsAndEnrollments(
+          this.prisma,
+          draft,
+          organizationRows,
+          projectId,
+          programId,
+          projectSlug,
+        );
+        await this.importSurvey(
+          this.prisma,
+          draft,
+          "EA",
+          eaFile,
+          programId,
+          organizationIds,
+        );
+        await this.importSurvey(
+          this.prisma,
+          draft,
+          "EFS",
+          efsFile,
+          programId,
+          organizationIds,
+        );
       }
-      await this.updateSurveysSent(this.prisma, draft, programId);
+      await this.updateOrganizationPrograms(this.prisma, draft, programId);
       const actor =
         principal.sub === "bypass-login-auth"
           ? null
@@ -1285,11 +1391,20 @@ export class HistoricalImportService {
     const organizationIds = new Map<string, string>();
     const configuredSent = new Map(
       (draft.organizationPrograms ?? [])
-        .filter(
-          (entry): entry is typeof entry & { organizationKey: string } =>
-            Boolean(entry.organizationKey),
+        .filter((entry): entry is typeof entry & { organizationKey: string } =>
+          Boolean(entry.organizationKey),
         )
-        .map(({ organizationKey, surveysSent }) => [organizationKey, surveysSent]),
+        .map(({ organizationKey, surveysSent }) => [
+          organizationKey,
+          surveysSent,
+        ]),
+    );
+    const configuredWinners = new Map(
+      (draft.organizationPrograms ?? [])
+        .filter((entry): entry is typeof entry & { organizationKey: string } =>
+          Boolean(entry.organizationKey),
+        )
+        .map(({ organizationKey, isWinner }) => [organizationKey, isWinner]),
     );
     const existingEnrollments = draft.programId
       ? await prisma.organizationProgram.findMany({
@@ -1299,18 +1414,25 @@ export class HistoricalImportService {
       : [];
     for (const [key, details] of organizationRows) {
       const surveysSent = configuredSent.get(key) ?? details.efsRespondents;
+      const isWinner = configuredWinners.get(key) ?? false;
       const normalizedName = normalizeOrganizationName(details.displayName);
       const matched = existingEnrollments.find(({ metrics }) => {
         const values = objectBody(metrics);
         if (
           details.workbookOrganizationId &&
-          String(values.Source_Organization_ID ?? "") === details.workbookOrganizationId
-        ) return true;
-        return normalizeOrganizationName(String(values.Source_Organization_Name ?? "")) === normalizedName;
+          String(values.Source_Organization_ID ?? "") ===
+            details.workbookOrganizationId
+        )
+          return true;
+        return (
+          normalizeOrganizationName(
+            String(values.Source_Organization_Name ?? ""),
+          ) === normalizedName
+        );
       });
-      const organizationId = matched?.organizationId ?? deterministicUuid(
-        `${importPrefix}:organization:${key}`,
-      );
+      const organizationId =
+        matched?.organizationId ??
+        deterministicUuid(`${importPrefix}:organization:${key}`);
       organizationIds.set(key, organizationId);
       const token = digest(`${importPrefix}:organization:${key}`, 12);
       const organizationData = {
@@ -1335,15 +1457,24 @@ export class HistoricalImportService {
       }
       if (matched) {
         const metrics = objectBody(matched.metrics);
-        await prisma.organizationProgram.update({ where: { id: matched.id }, data: {
-          metrics: {
-            ...metrics,
-            Surveys_Sent: surveysSent,
-            Source_Organization_ID: details.workbookOrganizationId ?? metrics.Source_Organization_ID ?? null,
-            Source_Organization_Name: details.displayName,
-            ...(details.companySize !== undefined ? { Company_Size: details.companySize } : {}),
+        await prisma.organizationProgram.update({
+          where: { id: matched.id },
+          data: {
+            isWinner,
+            metrics: {
+              ...metrics,
+              Surveys_Sent: surveysSent,
+              Source_Organization_ID:
+                details.workbookOrganizationId ??
+                metrics.Source_Organization_ID ??
+                null,
+              Source_Organization_Name: details.displayName,
+              ...(details.companySize !== undefined
+                ? { Company_Size: details.companySize }
+                : {}),
+            },
           },
-        } });
+        });
         continue;
       }
       await prisma.organizationProgram.upsert({
@@ -1355,6 +1486,7 @@ export class HistoricalImportService {
         },
         update: {
           stage: "Closed",
+          isWinner,
           reportAccess: {
             WFR_Access: "no",
             WBC_Access: "no",
@@ -1379,6 +1511,7 @@ export class HistoricalImportService {
           programId,
           externalId: `${importPrefix}:enrollment:${token}`,
           stage: "Closed",
+          isWinner,
           reportAccess: {
             WFR_Access: "no",
             WBC_Access: "no",
@@ -1402,7 +1535,7 @@ export class HistoricalImportService {
     return organizationIds;
   }
 
-  private async updateSurveysSent(
+  private async updateOrganizationPrograms(
     prisma: PrismaClient,
     draft: HistoricalImportDraft,
     programId: string,
@@ -1413,20 +1546,37 @@ export class HistoricalImportService {
     );
     if (!changes.length) return;
     const current = await prisma.organizationProgram.findMany({
-      where: { programId, id: { in: changes.map(({ organizationProgramId }) => organizationProgramId) } },
-      select: { id: true, metrics: true },
+      where: {
+        programId,
+        id: {
+          in: changes.map(({ organizationProgramId }) => organizationProgramId),
+        },
+      },
+      select: { id: true, isWinner: true, metrics: true },
     });
     const byId = new Map(current.map((entry) => [entry.id, entry]));
-    await Promise.all(changes.map(async ({ organizationProgramId, surveysSent }) => {
-      const enrollment = byId.get(organizationProgramId);
-      if (!enrollment) throw new BadRequestException("An organization program no longer exists");
-      const metrics = objectBody(enrollment.metrics);
-      if (Number(metrics.Surveys_Sent ?? 0) === surveysSent) return;
-      await prisma.organizationProgram.update({
-        where: { id: organizationProgramId },
-        data: { metrics: { ...metrics, Surveys_Sent: surveysSent } },
-      });
-    }));
+    await Promise.all(
+      changes.map(async ({ organizationProgramId, surveysSent, isWinner }) => {
+        const enrollment = byId.get(organizationProgramId);
+        if (!enrollment)
+          throw new BadRequestException(
+            "An organization program no longer exists",
+          );
+        const metrics = objectBody(enrollment.metrics);
+        if (
+          Number(metrics.Surveys_Sent ?? 0) === surveysSent &&
+          enrollment.isWinner === isWinner
+        )
+          return;
+        await prisma.organizationProgram.update({
+          where: { id: organizationProgramId },
+          data: {
+            isWinner,
+            metrics: { ...metrics, Surveys_Sent: surveysSent },
+          },
+        });
+      }),
+    );
   }
 
   private async importSurvey(
@@ -1500,12 +1650,14 @@ export class HistoricalImportService {
             ? `${draft.programName} Employer Assessment`
             : `${draft.programName} Employee Feedback Survey`,
         status: "CLOSED",
-        startsAt: kind === "EFS"
-          ? new Date(`${draft.efsLaunchDate}T00:00:00.000Z`)
-          : new Date(`${draft.programYear}-01-01T00:00:00.000Z`),
-        endsAt: kind === "EFS"
-          ? new Date(`${draft.efsDeadline}T23:59:59.999Z`)
-          : new Date(`${draft.programYear}-05-31T23:59:59.999Z`),
+        startsAt:
+          kind === "EFS"
+            ? new Date(`${draft.efsLaunchDate}T00:00:00.000Z`)
+            : new Date(`${draft.programYear}-01-01T00:00:00.000Z`),
+        endsAt:
+          kind === "EFS"
+            ? new Date(`${draft.efsDeadline}T23:59:59.999Z`)
+            : new Date(`${draft.programYear}-05-31T23:59:59.999Z`),
         metadata: {
           historicalImportId: draft.importId,
           kind: kind === "EA" ? "employer" : "employee",
@@ -1549,7 +1701,9 @@ export class HistoricalImportService {
       if (!displayName) return;
       const organizationId = organizationIds.get(organizationKey(row));
       if (!organizationId) {
-        throw new BadRequestException(`${workbook.fileName}: organization could not be reconciled`);
+        throw new BadRequestException(
+          `${workbook.fileName}: organization could not be reconciled`,
+        );
       }
       const respondentToken = digest(
         `${kind}:${String(row.respondent ?? row.rowNumber)}:${workbook.sha256}`,

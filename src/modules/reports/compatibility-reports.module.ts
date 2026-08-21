@@ -65,14 +65,38 @@ const promotionalPreviewAccess = new Set([
   "BBP_Access",
 ]);
 const dummyDemographicOptions = [
-  { category: "Personal Demographics", label: "Gender", options: ["Female", "Male", "Non-binary"] },
-  { category: "Personal Demographics", label: "Age Generation", options: ["Generation Z", "Millennial", "Generation X", "Baby Boomer"] },
-  { category: "Workplace Demographics", label: "Employment Length", options: ["Less than 1 year", "1-5 years", "6-10 years", "More than 10 years"] },
-  { category: "Workplace Demographics", label: "Workplace Setting", options: ["On-site", "Hybrid", "Remote"] },
+  {
+    category: "Personal Demographics",
+    label: "Gender",
+    options: ["Female", "Male", "Non-binary"],
+  },
+  {
+    category: "Personal Demographics",
+    label: "Age Generation",
+    options: ["Generation Z", "Millennial", "Generation X", "Baby Boomer"],
+  },
+  {
+    category: "Workplace Demographics",
+    label: "Employment Length",
+    options: [
+      "Less than 1 year",
+      "1-5 years",
+      "6-10 years",
+      "More than 10 years",
+    ],
+  },
+  {
+    category: "Workplace Demographics",
+    label: "Workplace Setting",
+    options: ["On-site", "Hybrid", "Remote"],
+  },
 ] as const;
 const dummyOpenQuestions = [
   { id: "dummy-open-1", caption: "What do you value most about working here?" },
-  { id: "dummy-open-2", caption: "What is one thing the organization could improve?" },
+  {
+    id: "dummy-open-2",
+    caption: "What is one thing the organization could improve?",
+  },
 ] as const;
 const dummyVerbatims = [
   "I appreciate the support from my manager and teammates.",
@@ -271,6 +295,7 @@ interface ReportContext {
   };
   organizationPrograms: Array<{
     organizationId: string;
+    isWinner: boolean;
     metrics: Prisma.JsonValue;
     organization: { metadata: Prisma.JsonValue };
   }>;
@@ -978,6 +1003,7 @@ export class CompatibilityReportsService {
       tableHeaders: Array<Record<string, string>>;
       data: Array<Record<string, unknown>>;
       surveyAverage: Array<Record<string, unknown>>;
+      cohortOrganizationCount: number;
     };
   }> {
     const context = await this.context(principal, query);
@@ -985,8 +1011,16 @@ export class CompatibilityReportsService {
     if (query.isDummy) {
       const cohorts = ["All Employers", "Similar Size Employers"];
       const tableHeaders = cohorts.flatMap((title) => [
-        { title, type: `${title.replaceAll(" ", "")}_Yes`, color: winnerColors.Yes },
-        { title, type: `${title.replaceAll(" ", "")}_No`, color: winnerColors.No },
+        {
+          title,
+          type: `${title.replaceAll(" ", "")}_Yes`,
+          color: winnerColors.Yes,
+        },
+        {
+          title,
+          type: `${title.replaceAll(" ", "")}_No`,
+          color: winnerColors.No,
+        },
       ]);
       const categories = [
         "Core Employee Experience",
@@ -1007,10 +1041,12 @@ export class CompatibilityReportsService {
               title: `Sample benchmark statement ${categoryIndex * 3 + index + 1}`,
               dataValues: tableHeaders.map(() => randomPercentage()),
             })),
-            legends: Object.entries(winnerTitles).map(([winner, legendTitle]) => ({
-              color: winnerColors[winner as "Yes" | "No"],
-              title: legendTitle,
-            })),
+            legends: Object.entries(winnerTitles).map(
+              ([winner, legendTitle]) => ({
+                color: winnerColors[winner as "Yes" | "No"],
+                title: legendTitle,
+              }),
+            ),
           })),
           surveyAverage: cohorts.map((title) => ({
             title,
@@ -1018,57 +1054,7 @@ export class CompatibilityReportsService {
             Yes: { title: "Winners", value: randomPercentage() },
             No: { title: "Non-Winners", value: randomPercentage() },
           })),
-        },
-      };
-    }
-    const published = this.publishedWorkforce(context);
-    if (published) {
-      const tableHeaders = this.publishedHeaders(published.headers);
-      return {
-        success: true,
-        message: "true",
-        data: {
-          tableHeaders,
-          data: published.categories.map((category) => ({
-            title: category.title,
-            dataValues: category.dataValues.map((value) =>
-              this.publishedValue(value),
-            ),
-            nestedData: category.questions.map((question, index) => ({
-              id: `${category.title}-${index + 1}`,
-              title: question.text,
-              dataValues: question.dataValues.map((value) =>
-                this.publishedValue(value),
-              ),
-            })),
-            legends: Object.entries(winnerTitles).map(([winner, title]) => ({
-              color: winnerColors[winner as "Yes" | "No"],
-              title,
-            })),
-          })),
-          surveyAverage: published.headers
-            .map((header, index) => ({ header, index }))
-            .filter(({ header }) => header.type.endsWith("_Yes"))
-            .map(({ header, index }) => ({
-              title: header.title,
-              subTitle: "Survey Average",
-              Yes: {
-                title: "Winners",
-                value: this.publishedValue(
-                  typeof published.surveyAverage[index] === "number"
-                    ? Math.round(published.surveyAverage[index])
-                    : "x",
-                ),
-              },
-              No: {
-                title: "Non-Winners",
-                value: this.publishedValue(
-                  typeof published.surveyAverage[index + 1] === "number"
-                    ? Math.round(Number(published.surveyAverage[index + 1]))
-                    : "x",
-                ),
-              },
-            })),
+          cohortOrganizationCount: 0,
         },
       };
     }
@@ -1119,6 +1105,11 @@ export class CompatibilityReportsService {
         tableHeaders,
         data,
         surveyAverage: this.surveyAverages(groups, questions, responses),
+        cohortOrganizationCount:
+          (groups.find(({ size, winner }) => size === "All" && winner === "Yes")
+            ?.organizationIds.length ?? 0) +
+          (groups.find(({ size, winner }) => size === "All" && winner === "No")
+            ?.organizationIds.length ?? 0),
       },
     };
   }
@@ -2274,18 +2265,22 @@ export class CompatibilityReportsService {
     query: ReportQuery,
   ): Promise<Buffer> {
     const report = await this.workforceComparison(principal, query);
-    const firstAverage = report.data.surveyAverage[0];
-    const averageValue = (key: "Yes" | "No"): number | string => {
-      const value = firstAverage?.[key];
-      return value &&
-        typeof value === "object" &&
-        "value" in value &&
-        (typeof value.value === "number" || typeof value.value === "string")
-        ? value.value
-        : "x";
-    };
+    const surveyAverage = report.data.surveyAverage.flatMap((average) =>
+      (["Yes", "No"] as const).map((key) => {
+        const value = average[key];
+        return value &&
+          typeof value === "object" &&
+          "value" in value &&
+          (typeof value.value === "number" || typeof value.value === "string")
+          ? value.value
+          : "x";
+      }),
+    );
     return createBenchmarkWorkbook({
       metadata: await this.reportWorkbookMetadata(principal, query),
+      headerTypes: report.data.tableHeaders.flatMap(({ type }) =>
+        typeof type === "string" ? [type] : [],
+      ),
       categories: report.data.data.map((category) => ({
         title: typeof category.title === "string" ? category.title : "",
         values: Array.isArray(category.dataValues)
@@ -2317,7 +2312,8 @@ export class CompatibilityReportsService {
             })
           : [],
       })),
-      surveyAverage: [averageValue("Yes"), averageValue("No")],
+      surveyAverage,
+      cohortOrganizationCount: report.data.cohortOrganizationCount,
     });
   }
 
@@ -2528,19 +2524,47 @@ export class CompatibilityReportsService {
     this.requiresDemo(principal, context, "BBP_Access");
     if (query.isDummy) {
       const tableHeaders = [
-        { title: "All Employers", subTitle: "Winners", type: "All_Yes", color: winnerColors.Yes },
-        { title: "All Employers", subTitle: "Non-Winners", type: "All_No", color: winnerColors.No },
-        { title: "Similar Size Employers", subTitle: "Winners", type: "Size_Yes", color: winnerColors.Yes },
-        { title: "Similar Size Employers", subTitle: "Non-Winners", type: "Size_No", color: winnerColors.No },
+        {
+          title: "All Employers",
+          subTitle: "Winners",
+          type: "All_Yes",
+          color: winnerColors.Yes,
+        },
+        {
+          title: "All Employers",
+          subTitle: "Non-Winners",
+          type: "All_No",
+          color: winnerColors.No,
+        },
+        {
+          title: "Similar Size Employers",
+          subTitle: "Winners",
+          type: "Size_Yes",
+          color: winnerColors.Yes,
+        },
+        {
+          title: "Similar Size Employers",
+          subTitle: "Non-Winners",
+          type: "Size_No",
+          color: winnerColors.No,
+        },
       ];
       const sections = [
         {
           title: "Benefits",
-          questions: ["Medical insurance", "Retirement plan", "Paid parental leave"],
+          questions: [
+            "Medical insurance",
+            "Retirement plan",
+            "Paid parental leave",
+          ],
         },
         {
           title: "Workplace Practices",
-          questions: ["Flexible work schedules", "Employee recognition program", "Professional development"],
+          questions: [
+            "Flexible work schedules",
+            "Employee recognition program",
+            "Professional development",
+          ],
         },
       ];
       return {
@@ -3105,6 +3129,7 @@ export class CompatibilityReportsService {
         where: { programId: program.id },
         select: {
           organizationId: true,
+          isWinner: true,
           metrics: true,
           organization: { select: { metadata: true } },
         },
@@ -3137,7 +3162,8 @@ export class CompatibilityReportsService {
     if (
       principal.roles.includes("admin") ||
       principal.roles.includes("super_admin") ||
-      (context.isDummy && principal.roles.includes("promotional") &&
+      (context.isDummy &&
+        principal.roles.includes("promotional") &&
         promotionalPreviewAccess.has(accessKey))
     )
       return false;
@@ -3243,47 +3269,39 @@ export class CompatibilityReportsService {
 
   private groups(context: ReportContext): BenchmarkGroup[] {
     const categorized = context.organizationPrograms.flatMap((enrollment) => {
-      const winner =
+      const storedCategory =
         metadataString(
           enrollment.metrics,
-          "Current_Year_Winner",
-          "currentYearWinner",
-          "winner",
+          "Current_Year_Category",
+          "currentYearCategory",
+          "category",
         ) ??
         metadataString(
           enrollment.organization.metadata,
-          "Current_Year_Winner",
-          "currentYearWinner",
-          "winner",
+          "Current_Year_Category",
+          "currentYearCategory",
+          "category",
         );
+      const metrics = jsonObject(enrollment.metrics);
+      const companySize = Number(metrics.Company_Size ?? metrics.companySize);
       const category =
-        metadataString(
-          enrollment.metrics,
-          "Current_Year_Category",
-          "currentYearCategory",
-          "category",
-        ) ??
-        metadataString(
-          enrollment.organization.metadata,
-          "Current_Year_Category",
-          "currentYearCategory",
-          "category",
-        );
-      const normalizedWinner =
-        winner?.toLowerCase() === "yes"
-          ? "Yes"
-          : winner?.toLowerCase() === "no"
-            ? "No"
-            : null;
-      return normalizedWinner
-        ? [
-            {
-              organizationId: enrollment.organizationId,
-              category,
-              winner: normalizedWinner,
-            },
-          ]
-        : [];
+        storedCategory ??
+        (Number.isFinite(companySize)
+          ? companySize >= 250
+            ? "Large"
+            : companySize >= 50
+              ? "Medium"
+              : companySize >= 15
+                ? "Small"
+                : "Boutique"
+          : null);
+      return [
+        {
+          organizationId: enrollment.organizationId,
+          category,
+          winner: enrollment.isWinner ? ("Yes" as const) : ("No" as const),
+        },
+      ];
     });
     const observedSizes = [
       ...new Set(

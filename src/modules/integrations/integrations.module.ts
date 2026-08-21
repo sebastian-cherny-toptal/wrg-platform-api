@@ -29,6 +29,14 @@ export interface ZohoRecord {
   [key: string]: unknown;
 }
 
+interface ZohoRecordPage {
+  data: ZohoRecord[];
+  info?: {
+    more_records?: boolean;
+    next_page_token?: string | null;
+  };
+}
+
 export interface CheckMarketSurvey {
   Id: number;
   Title: string;
@@ -42,13 +50,19 @@ export class ZohoAdapter {
     @Inject(ConfigService) private readonly config: ConfigService<Env, true>,
   ) {}
 
-  async listRecords(module: string, page = 1): Promise<ZohoRecord[]> {
+  private async recordPage(
+    module: string,
+    options: { page?: number; pageToken?: string } = {},
+  ): Promise<ZohoRecordPage> {
     if (this.config.get("INTEGRATIONS_MOCK", { infer: true })) {
-      return [];
+      return { data: [], info: { more_records: false } };
     }
     return withRetry(async () => {
+      const query = new URLSearchParams({ per_page: "200" });
+      if (options.pageToken) query.set("page_token", options.pageToken);
+      else query.set("page", String(options.page ?? 1));
       const response = await request(
-        `${this.config.get("ZOHO_BASE_URL", { infer: true })}/${encodeURIComponent(module)}?page=${page}`,
+        `${this.config.get("ZOHO_BASE_URL", { infer: true })}/${encodeURIComponent(module)}?${query.toString()}`,
         {
           headers: {
             "x-client-id": this.config.get("ZOHO_CLIENT_ID", { infer: true }),
@@ -62,9 +76,45 @@ export class ZohoAdapter {
         throw new Error(`Zoho transient error ${response.statusCode}`);
       if (response.statusCode >= 400)
         throw new Error(`Zoho request failed ${response.statusCode}`);
-      const payload = (await response.body.json()) as { data?: ZohoRecord[] };
-      return payload.data ?? [];
+      const payload = (await response.body.json()) as {
+        data?: ZohoRecord[];
+        info?: ZohoRecordPage["info"];
+      };
+      return {
+        data: payload.data ?? [],
+        ...(payload.info ? { info: payload.info } : {}),
+      };
     });
+  }
+
+  async listRecords(module: string, page = 1): Promise<ZohoRecord[]> {
+    return (await this.recordPage(module, { page })).data;
+  }
+
+  async listAllRecords(module: string): Promise<ZohoRecord[]> {
+    const records: ZohoRecord[] = [];
+    const perPage = 200;
+    const maxPages = 500;
+    let pageToken: string | undefined;
+    for (let page = 1; page <= maxPages; page += 1) {
+      const result = await this.recordPage(module, {
+        ...(pageToken ? { pageToken } : { page }),
+      });
+      records.push(...result.data);
+      if (
+        result.info?.more_records === false ||
+        (result.info?.more_records === undefined &&
+          result.data.length < perPage)
+      ) {
+        return records;
+      }
+      const nextPageToken = result.info?.next_page_token;
+      if (nextPageToken) pageToken = nextPageToken;
+      else if (pageToken) {
+        throw new Error("Zoho did not return the next records page token");
+      }
+    }
+    throw new Error("Zoho records exceeded the supported pagination limit");
   }
 
   async updateRecord(

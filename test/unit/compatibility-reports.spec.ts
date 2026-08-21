@@ -218,4 +218,92 @@ describe("compatibility report categories", () => {
       ],
     );
   });
+
+  it("calculates winner cohorts from OrganizationProgram.isWinner", async () => {
+    const question = benchmarkQuestion(
+      "q-core",
+      "Core Employee Experience",
+      1,
+    );
+    const winners = Array.from({ length: 5 }, (_, index) => `winner-${index}`);
+    const nonWinners = Array.from(
+      { length: 5 },
+      (_, index) => `non-winner-${index}`,
+    );
+    const prisma = {
+      program: {
+        findFirst: () => ({
+          id: "program-1",
+          projectId: "project-1",
+          name: "Test program",
+          year: 2026,
+          startsAt: null,
+          metadata: {} as Prisma.JsonValue,
+          project: { id: "project-1", name: "Test project" },
+        }),
+      },
+      organizationProgram: {
+        findFirst: () => ({
+          id: "enrollment-1",
+          reportAccess: {},
+          metrics: {},
+          metadata: {},
+        }),
+        findMany: () => [
+          ...winners.map((organizationId) => ({
+            organizationId,
+            isWinner: true,
+            metrics: { Current_Year_Winner: "No" },
+            organization: { metadata: {} },
+          })),
+          ...nonWinners.map((organizationId) => ({
+            organizationId,
+            isWinner: false,
+            metrics: { Current_Year_Winner: "Yes" },
+            organization: { metadata: {} },
+          })),
+        ],
+      },
+      survey: {
+        findFirst: () => ({
+          id: "survey-1",
+          title: "Test survey",
+          startsAt: null,
+          endsAt: null,
+        }),
+      },
+      question: { findMany: () => [question] },
+      response: {
+        findMany: () => [
+          ...winners.map((organizationId) => ({
+            questionId: question.id,
+            value: "Agree",
+            score: null,
+            respondent: { organizationId },
+          })),
+          ...nonWinners.map((organizationId) => ({
+            questionId: question.id,
+            value: "Disagree",
+            score: null,
+            respondent: { organizationId },
+          })),
+        ],
+      },
+    } as unknown as PrismaService;
+
+    const result = await new CompatibilityReportsService(
+      prisma,
+    ).workforceComparison(
+      {
+        sub: "user-1",
+        organizationId: winners[0] ?? null,
+        roles: ["admin"],
+        permissions: [],
+      },
+      { selectedProgramId: "program-1", isDummy: false },
+    );
+
+    assert.deepEqual(result.data.data[0]?.dataValues, [100, 0]);
+    assert.equal(result.data.cohortOrganizationCount, 10);
+  });
 });

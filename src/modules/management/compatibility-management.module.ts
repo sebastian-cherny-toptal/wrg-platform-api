@@ -230,15 +230,15 @@ export class CompatibilityManagementService {
     const categoryCounts: Record<string, number> = {};
     for (const enrollment of program.organizations) {
       const metrics = jsonObject(enrollment.metrics);
-      const winner = metadataString(metrics, "Current_Year_Winner", "winner");
+      const winner = enrollment.isWinner ? "Yes" : "No";
       const category = metadataString(
         metrics,
         "Current_Year_Category",
         "category",
       );
-      if (winner === "Yes") winnersCount += 1;
-      if (winner === "No") nonWinnersCount += 1;
-      if (winner && category) {
+      if (enrollment.isWinner) winnersCount += 1;
+      else nonWinnersCount += 1;
+      if (category) {
         const key = `${category} ${
           winner === "Yes" ? "Winners" : "Non-Winners"
         }`;

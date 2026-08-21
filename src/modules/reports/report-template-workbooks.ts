@@ -285,11 +285,7 @@ function rotateWorkforceFeedbackHeaders(workbook: ExcelJS.Workbook): void {
   sheet.getRow(3).eachCell({ includeEmpty: false }, (cell) => {
     // Column B is the report title. The remaining non-separator cells are the
     // demographic headers that should read vertically in generated reports.
-    if (
-      cell.fullAddress.col < 4 ||
-      cell.value === 0 ||
-      cell.value === "0"
-    )
+    if (cell.fullAddress.col < 4 || cell.value === 0 || cell.value === "0")
       return;
     cell.alignment = {
       ...cell.alignment,
@@ -411,22 +407,51 @@ export async function createWorkforceFeedbackWorkbook(input: {
 
 export async function createBenchmarkWorkbook(input: {
   metadata: ReportWorkbookMetadata;
+  headerTypes: string[];
   categories: BenchmarkWorkbookCategory[];
   surveyAverage: Array<number | string>;
   cohortOrganizationCount?: number;
 }): Promise<Buffer> {
   const workbook = await loadTemplate("benchmark-comparison.xlsx");
+  const groupTypes = {
+    ALL_WINNER: "All_Yes",
+    ALL_NON_WINNER: "All_No",
+    SMALL_WINNER: "Small_Yes",
+    SMALL_NON_WINNER: "Small_No",
+    MEDIUM_WINNER: "Medium_Yes",
+    MEDIUM_NON_WINNER: "Medium_No",
+    LARGE_WINNER: "Large_Yes",
+    LARGE_NON_WINNER: "Large_No",
+  } as const;
+  type GroupToken = keyof typeof groupTypes;
+  const groupIndex = (token: GroupToken): number => {
+    const expected = groupTypes[token].replaceAll("_", "").toLowerCase();
+    return input.headerTypes.findIndex(
+      (type) => type.replaceAll("_", "").toLowerCase() === expected,
+    );
+  };
+  const groupValue = (
+    values: Array<number | string> | undefined,
+    token: GroupToken,
+  ): number | string => {
+    const index = groupIndex(token);
+    return index >= 0 ? (values?.[index] ?? "x") : "x";
+  };
   fillTokens(workbook, (name) => {
     if (name === "PROGRAM_NAME") return input.metadata.programName;
-    if (name === "COHORT_TITLE") return "All Size Categories";
     if (name === "COHORT_ORGANIZATION_COUNT") {
       return input.cohortOrganizationCount ?? "";
     }
-    if (name === "WINNER_TITLE") return "All Winners";
-    if (name === "NON_WINNER_TITLE") return "All Non-Winners";
-    if (name === "SURVEY_AVERAGE_WINNER") return input.surveyAverage[0] ?? "x";
-    if (name === "SURVEY_AVERAGE_NON_WINNER")
-      return input.surveyAverage[1] ?? "x";
+    const surveyAverageMatch =
+      /^SURVEY_AVERAGE_(ALL_WINNER|ALL_NON_WINNER|SMALL_WINNER|SMALL_NON_WINNER|MEDIUM_WINNER|MEDIUM_NON_WINNER|LARGE_WINNER|LARGE_NON_WINNER)$/u.exec(
+        name,
+      );
+    if (surveyAverageMatch?.[1]) {
+      return groupValue(
+        input.surveyAverage,
+        surveyAverageMatch[1] as GroupToken,
+      );
+    }
     const categoryMatch = /^CATEGORY_(\d+)_TITLE$/u.exec(name);
     if (categoryMatch) {
       return input.categories[
@@ -439,20 +464,24 @@ export async function createBenchmarkWorkbook(input: {
       return title ? `${title.toUpperCase()} - AVERAGE` : null;
     }
     const averageValueMatch =
-      /^CATEGORY_(\d+)_AVERAGE_(WINNER|NON_WINNER)$/u.exec(name);
+      /^CATEGORY_(\d+)_AVERAGE_(ALL_WINNER|ALL_NON_WINNER|SMALL_WINNER|SMALL_NON_WINNER|MEDIUM_WINNER|MEDIUM_NON_WINNER|LARGE_WINNER|LARGE_NON_WINNER)$/u.exec(
+        name,
+      );
     if (averageValueMatch) {
       const category = input.categories[Number(averageValueMatch[1]) - 1];
-      return category?.values[averageValueMatch[2] === "WINNER" ? 0 : 1] ?? "x";
+      return groupValue(category?.values, averageValueMatch[2] as GroupToken);
     }
     const questionMatch =
-      /^CATEGORY_(\d+)_QUESTION_(\d+)_(TEXT|WINNER|NON_WINNER)$/u.exec(name);
+      /^CATEGORY_(\d+)_QUESTION_(\d+)_(TEXT|ALL_WINNER|ALL_NON_WINNER|SMALL_WINNER|SMALL_NON_WINNER|MEDIUM_WINNER|MEDIUM_NON_WINNER|LARGE_WINNER|LARGE_NON_WINNER)$/u.exec(
+        name,
+      );
     if (questionMatch) {
       const question =
         input.categories[Number(questionMatch[1]) - 1]?.questions[
           Number(questionMatch[2]) - 1
         ];
       if (questionMatch[3] === "TEXT") return question?.text;
-      return question?.values[questionMatch[3] === "WINNER" ? 0 : 1] ?? "x";
+      return groupValue(question?.values, questionMatch[3] as GroupToken);
     }
     return null;
   });
