@@ -94,8 +94,11 @@ export class HistoricalImportController {
     const { files } = await multipartPayload(request);
     const resolvedEa = files.eaFile;
     const resolvedEfs = files.efsFile;
+    if ((!resolvedEa && resolvedEfs) || (resolvedEa && !resolvedEfs)) {
+      throw new BadRequestException("Upload both workbooks, or leave both empty");
+    }
     if (!resolvedEa || !resolvedEfs) {
-      throw new BadRequestException("Both eaFile and efsFile uploads are required");
+      throw new BadRequestException("No workbooks were uploaded");
     }
     const data = await this.imports.uploadWorkbooks(
       principal,

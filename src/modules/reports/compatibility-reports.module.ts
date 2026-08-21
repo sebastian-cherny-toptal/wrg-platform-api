@@ -1824,8 +1824,7 @@ export class CompatibilityReportsService {
       "Surveys_Sent",
     );
     const sendSurvey = configuredSent ?? sent;
-    const completedSurvey =
-      this.numericMetadata(metrics, "surveys_completed") ?? completed;
+    const completedSurvey = completed;
     return {
       success: true,
       message: "success",
@@ -1841,8 +1840,7 @@ export class CompatibilityReportsService {
         Total_Number_of_National_EEs:
           this.numericMetadata(metrics, "National_EE_Count") ?? 0,
         responseRate:
-          this.numericMetadata(metrics, "response_rate", "Response_Rate") ??
-          (sendSurvey === 0 ? 0 : (completedSurvey * 100) / sendSurvey),
+          sendSurvey === 0 ? 0 : (completedSurvey * 100) / sendSurvey,
       },
     };
   }

@@ -753,6 +753,7 @@ export class CompatibilityAdminService {
               Last_time_deal_synced: enrollment.updatedAt,
               _id: enrollment.legacyId ?? enrollment.id,
               id: enrollment.externalId ?? enrollment.id,
+              databaseId: enrollment.id,
               DealId: enrollment.dealExternalId,
               organizationId:
                 organization.legacyId ??

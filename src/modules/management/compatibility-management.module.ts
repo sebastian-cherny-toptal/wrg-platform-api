@@ -353,6 +353,7 @@ export class CompatibilityManagementService {
       ...jsonObject(program.metadata),
       _id: program.legacyId ?? program.id,
       id: program.externalId ?? program.id,
+      databaseId: program.id,
       Name: program.name,
       Program_Year: program.year,
       Currency: program.currency,

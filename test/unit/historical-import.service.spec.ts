@@ -101,6 +101,8 @@ describe("historical import service", () => {
             projectName: "Test Project",
             programName: "Test Program",
             programYear: 2026,
+            efsLaunchDate: "2026-01-01",
+            efsDeadline: "2026-12-31",
             status: "draft",
             eaFile: {
               kind: "EA",
