@@ -18,6 +18,7 @@ COPY prisma.config.ts ./prisma.config.ts
 # Railway pre-deploy containers cannot access mounted volumes, so keep the
 # explicitly committed production seed inputs in the runtime image.
 COPY secure ./secure
+COPY ["BR 2026 Ranking Data Extract.xlsx", "./BR 2026 Ranking Data Extract.xlsx"]
 RUN mkdir -p var/historical-imports && chown -R node:node var
 USER node
 CMD ["node", "--max-old-space-size=3000", "dist/main.js"]

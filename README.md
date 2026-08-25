@@ -50,6 +50,12 @@ workbooks are not beside the raw ZIP. Every non-dry run automatically reconciles
 survey/question/response totals, round-trips the published XLSX snapshots, and
 asserts that the report user has every imported program grant.
 
+The seed reads `BR 2026 Ranking Data Extract.xlsx` from the repository root and
+matches its `Alias Name` values to 2026 organizations. Use
+`--ranking-source <file>` or `BR_RANKING_SOURCE` to override that path. Valid
+`CY Winner` values (`Yes` or `No`) set each matching organization-program's
+winner status; other values are ignored.
+
 The command is idempotent: each run replaces only records in the `seed-br`
 namespace, leaving ordinary application data untouched. The ZIP can instead be
 an extracted directory when passed via `--source` or `BR_SEED_SOURCE`. The

@@ -30,9 +30,19 @@ import {
   type BenefitsBestPracticesSnapshot,
   type PublishedReportHeader,
 } from "../modules/reports/benefits-best-practices-workbook.js";
+import {
+  batonRougeRankingYear,
+  loadBatonRougeWinnerStatuses,
+  normalizeRankingOrganizationName,
+  rankingWinnerStatus,
+} from "./baton-rouge-rankings.js";
 
 const seedPrefix = "seed-br";
 const defaultSource = resolve(process.cwd(), "..", "Baton Rouge 24-26.zip");
+const defaultRankingSource = resolve(
+  process.cwd(),
+  "BR 2026 Ranking Data Extract.xlsx",
+);
 const responseBatchSize = 2_000;
 const testUsername = "test.baton";
 const testUserEmail = "test.baton@example.test";
@@ -63,6 +73,7 @@ interface LoadedSources {
 
 interface CliOptions {
   dryRun: boolean;
+  rankingSource: string;
   reportSourceExplicit: boolean;
   reportSource: string;
   skipIfPresent: boolean;
@@ -113,6 +124,9 @@ function parseOptions(argv: string[]): CliOptions {
     ? resolve(process.env.BR_SEED_SOURCE)
     : defaultSource;
   let dryRun = false;
+  let rankingSource = process.env.BR_RANKING_SOURCE
+    ? resolve(process.env.BR_RANKING_SOURCE)
+    : defaultRankingSource;
   let skipIfPresent = false;
   let reportSourceExplicit = Boolean(process.env.BR_REPORT_SOURCE);
   let reportSource = process.env.BR_REPORT_SOURCE
@@ -144,10 +158,18 @@ function parseOptions(argv: string[]): CliOptions {
       index += 1;
       continue;
     }
+    if (argument === "--ranking-source") {
+      const value = argv[index + 1];
+      if (!value) throw new Error("--ranking-source requires an XLSX path");
+      rankingSource = resolve(value);
+      index += 1;
+      continue;
+    }
     throw new Error(`Unknown argument: ${argument}`);
   }
   return {
     dryRun,
+    rankingSource,
     reportSource,
     reportSourceExplicit,
     skipIfPresent,
@@ -509,6 +531,7 @@ async function verifyImportedData(
   sources: SourceWorkbook[],
   expectedStats: Map<string, SurveyStats>,
   reportsByYear: Map<number, PublishedReports>,
+  winnerStatuses: Map<string, boolean>,
 ): Promise<void> {
   for (const source of sources) {
     const key = `${source.year}-${source.kind}`;
@@ -564,7 +587,11 @@ async function verifyImportedData(
     }
     const enrollments = await prisma.organizationProgram.findMany({
       where: { programId: program.id },
-      select: { metadata: true },
+      select: {
+        isWinner: true,
+        metadata: true,
+        organization: { select: { name: true } },
+      },
     });
     const expectedEnrollmentReports = {
       benefitsBestPractices: expected.benefitsBestPractices,
@@ -587,6 +614,19 @@ async function verifyImportedData(
     ) {
       throw new Error(
         `${program.year} organization benefits workbook snapshots did not round-trip through PostgreSQL`,
+      );
+    }
+    if (
+      program.year === batonRougeRankingYear &&
+      enrollments.some((enrollment) => {
+        const expectedWinner = winnerStatuses.get(
+          normalizeRankingOrganizationName(enrollment.organization.name),
+        );
+        return expectedWinner !== undefined && enrollment.isWinner !== expectedWinner;
+      })
+    ) {
+      throw new Error(
+        `${program.year} organization winner assignments did not match the ranking workbook`,
       );
     }
   }
@@ -622,6 +662,7 @@ async function seedSurvey(
   source: SourceWorkbook,
   projectId: string,
   reports: PublishedReports,
+  winnerStatuses: Map<string, boolean>,
 ): Promise<SurveyStats> {
   const surveyId = deterministicUuid(
     `${seedPrefix}:survey:${source.year}:${source.kind}`,
@@ -776,6 +817,11 @@ async function seedSurvey(
           ? { Source_Organization_Name: details.sourceOrganizationName }
           : {}),
       };
+      const isWinner = rankingWinnerStatus(
+        source.year,
+        details.sourceOrganizationName ?? organization.name,
+        winnerStatuses,
+      );
       await prisma.organizationProgram.upsert({
         where: {
           organizationId_programId: {
@@ -784,6 +830,7 @@ async function seedSurvey(
           },
         },
         update: {
+          isWinner,
           metadata: {
             publishedReports: JSON.parse(
               JSON.stringify({
@@ -819,6 +866,7 @@ async function seedSurvey(
           programId,
           externalId: `${seedPrefix}-enrollment-${source.year}-${digest(key, 12)}`,
           stage: "Active",
+          isWinner,
           metadata: {
             publishedReports: JSON.parse(
               JSON.stringify({
@@ -990,6 +1038,9 @@ async function main(): Promise<void> {
     }
   }
   const loadedSources = loadSourceWorkbooks(options.source);
+  const winnerStatuses = await loadBatonRougeWinnerStatuses(
+    options.rankingSource,
+  );
   const sources = loadedSources.workbooks;
   const reportYears = [...new Set(sources.map(({ year }) => year))];
   let reportSource =
@@ -1024,6 +1075,9 @@ async function main(): Promise<void> {
     ({ fileName, year, kind }) => `${year} ${kind} (${fileName})`,
   );
   console.log(`Baton Rouge source: ${options.source}`);
+  console.log(
+    `2026 ranking source: ${options.rankingSource} (${winnerStatuses.size} valid assignments)`,
+  );
   console.log(`Published report source: ${reportSource}`);
   console.log(`Found ${sources.length} raw workbooks: ${actual.join(", ")}`);
 
@@ -1055,7 +1109,13 @@ async function main(): Promise<void> {
       const reports = publishedReports.get(source.year);
       if (!reports)
         throw new Error(`Published reports not loaded for ${source.year}`);
-      const stats = await seedSurvey(prisma, source, projectId, reports);
+      const stats = await seedSurvey(
+        prisma,
+        source,
+        projectId,
+        reports,
+        winnerStatuses,
+      );
       totalRespondents += stats.respondents;
       totalResponses += stats.responses;
       expectedStats.set(`${source.year}-${source.kind}`, stats);
@@ -1073,6 +1133,7 @@ async function main(): Promise<void> {
         sources,
         expectedStats,
         publishedReports,
+        winnerStatuses,
       );
     }
     console.log(
