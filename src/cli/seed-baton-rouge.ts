@@ -36,6 +36,7 @@ import {
   normalizeRankingOrganizationName,
   rankingWinnerStatus,
 } from "./baton-rouge-rankings.js";
+import { clearPreviousBatonRougeSeed } from "./baton-rouge-seed-cleanup.js";
 
 const seedPrefix = "seed-br";
 const defaultSource = resolve(process.cwd(), "..", "Baton Rouge 24-26.zip");
@@ -420,24 +421,6 @@ function categoryFromOrdinal(
   if (respondentCount < 50) return "Small";
   if (respondentCount < 250) return "Medium";
   return "Large";
-}
-
-async function clearPreviousSeed(prisma: PrismaClient): Promise<void> {
-  await prisma.user.deleteMany({
-    where: {
-      OR: [
-        { externalId: `${seedPrefix}-user-${testUsername}` },
-        { username: testUsername },
-        { email: testUserEmail },
-      ],
-    },
-  });
-  await prisma.project.deleteMany({
-    where: { externalId: `${seedPrefix}-project` },
-  });
-  await prisma.organization.deleteMany({
-    where: { externalId: { startsWith: `${seedPrefix}-org-` } },
-  });
 }
 
 async function createReportUser(
@@ -1091,7 +1074,7 @@ async function main(): Promise<void> {
   try {
     if (prisma) {
       console.log("Replacing the previous Baton Rouge seed namespace...");
-      await clearPreviousSeed(prisma);
+      await clearPreviousBatonRougeSeed(prisma);
       await prisma.project.create({
         data: {
           id: projectId,
