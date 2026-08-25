@@ -217,12 +217,13 @@ function weightedAverage(
       typeof item.weight === "number" && item.weight > 0,
   );
   if (weighted.length === values.length && weighted.length > 0) {
-    const totalWeight = weighted.reduce((total, item) => total + item.weight, 0);
+    const totalWeight = weighted.reduce(
+      (total, item) => total + item.weight,
+      0,
+    );
     return (
-      weighted.reduce(
-        (total, item) => total + item.value * item.weight,
-        0,
-      ) / totalWeight
+      weighted.reduce((total, item) => total + item.value * item.weight, 0) /
+      totalWeight
     );
   }
   return average(values.map((item) => item.value));
@@ -569,10 +570,11 @@ export async function createBenefitsWorkbook(input: {
 
 export async function createVerbatimWorkbook(input: {
   metadata: ReportWorkbookMetadata;
-  demographicTitle: string;
+  demographicTitle?: string;
   questions: VerbatimWorkbookQuestion[];
 }): Promise<Buffer> {
   const workbook = await loadTemplate("employee-verbatims.xlsx");
+  const includeDemographic = Boolean(input.demographicTitle?.trim());
   fillTokens(workbook, (name) => {
     if (name === "ORGANIZATION_NAME") return input.metadata.organizationName;
     if (name === "PROGRAM_NAME") return input.metadata.programName;
@@ -601,6 +603,7 @@ export async function createVerbatimWorkbook(input: {
     if (firstUnusedRow <= sheet.rowCount) {
       sheet.spliceRows(firstUnusedRow, sheet.rowCount - firstUnusedRow + 1);
     }
+    if (!includeDemographic) sheet.spliceColumns(2, 1);
   });
   return workbookBuffer(workbook);
 }

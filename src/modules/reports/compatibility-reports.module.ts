@@ -761,6 +761,7 @@ export function reportResponseCaption(
   const mapped = demographicResponseCaption(value, question, programYear);
   if (!mapped || !isLikertQuestion(question)) return mapped;
   const numeric = Number(mapped);
+  if (numeric === 99) return "N/A";
   if (Number.isInteger(numeric) && numeric >= 1 && numeric <= 6) {
     return responseDetailOptions[numeric - 1] ?? null;
   }
@@ -1472,8 +1473,13 @@ export class CompatibilityReportsService {
         dummyOpenQuestions.find(({ id }) => id === questionReference) ??
         dummyOpenQuestions[0];
       const respondentData = [...dummyVerbatims]
-        .sort(() => Math.random() - 0.5)
         .slice(0, randomInteger(3, dummyVerbatims.length))
+        .sort((left, right) =>
+          left.localeCompare(right, "en", {
+            numeric: true,
+            sensitivity: "base",
+          }),
+        )
         .map((Value, index) => ({
           _id: `dummy-respondent-${index + 1}`,
           RespondentId: `dummy-respondent-${index + 1}`,
@@ -1652,10 +1658,12 @@ export class CompatibilityReportsService {
       data: selected.map((question) => ({
         question: question.caption,
         questionId: question.legacyId ?? question.externalId ?? question.id,
-        responses: this.distribution(
+        responses: this.detailedDistribution(
           respondents.flatMap(({ responses }) =>
             responses.filter((response) => response.questionId === question.id),
           ),
+          question,
+          context.program.year,
         ),
       })),
     };
@@ -1771,7 +1779,12 @@ export class CompatibilityReportsService {
               .replace(/^Demographics\s*/u, "")
               .trim(),
           type: "Demographics",
-          filterOption: [...values]
+          filterOption: [
+            ...new Set([
+              ...demographicOptionOrder(question, context.program.year),
+              ...values,
+            ]),
+          ]
             .sort((left, right) =>
               compareDemographicOptions(
                 left,
@@ -2222,13 +2235,16 @@ export class CompatibilityReportsService {
         grouped.set(group, groupedByLabel);
       }
     }
-    const distributions = [...grouped].map(([group, labels]) => [
-      group,
-      [...labels].map(([label, responses]) => [
-        label,
-        this.trendDistribution(responses),
-      ] as const),
-    ] as const);
+    const distributions = [...grouped].map(
+      ([group, labels]) =>
+        [
+          group,
+          [...labels].map(
+            ([label, responses]) =>
+              [label, this.trendDistribution(responses)] as const,
+          ),
+        ] as const,
+    );
     return {
       agreement: Object.fromEntries(
         distributions.map(([group, labels]) => [
@@ -2504,10 +2520,15 @@ export class CompatibilityReportsService {
           QuestionId: question.legacyId ?? question.externalId ?? question.id,
           category: this.demographicCategory(categoryLabel),
           categoryLabel,
-          options: [...(counts.get(questionId) ?? new Map<string, number>())]
-            .map(([Caption, Count]) => ({
+          options: [
+            ...new Set([
+              ...demographicOptionOrder(question, context.program.year),
+              ...(counts.get(questionId)?.keys() ?? []),
+            ]),
+          ]
+            .map((Caption) => ({
               Caption,
-              Count,
+              Count: counts.get(questionId)?.get(Caption) ?? 0,
               Position: demographicResponsePosition(
                 Caption,
                 question,
@@ -3035,13 +3056,17 @@ export class CompatibilityReportsService {
     if (query.isDummy) {
       return createVerbatimWorkbook({
         metadata: await this.reportWorkbookMetadata(principal, query, context),
-        demographicTitle: "All respondents",
         questions: dummyOpenQuestions.map((question) => ({
           text: question.caption,
           responses: [...dummyVerbatims]
-            .sort(() => Math.random() - 0.5)
             .slice(0, randomInteger(3, dummyVerbatims.length))
-            .map((answer) => ({ answer, demographic: "All respondents" })),
+            .sort((left, right) =>
+              left.localeCompare(right, "en", {
+                numeric: true,
+                sensitivity: "base",
+              }),
+            )
+            .map((answer) => ({ answer })),
         })),
       });
     }
@@ -3062,23 +3087,22 @@ export class CompatibilityReportsService {
     });
     return createVerbatimWorkbook({
       metadata: await this.reportWorkbookMetadata(principal, query, context),
-      demographicTitle: "All respondents",
       questions: questions.map((question) => ({
         text: question.caption,
-        responses: respondents.flatMap((respondent) => {
-          const response = respondent.responses.find(
-            (item) => item.questionId === question.id,
-          );
-          const answer = response ? responseCaption(response.value) : null;
-          return answer
-            ? [
-                {
-                  answer: safeSpreadsheetValue(answer),
-                  demographic: "All respondents",
-                },
-              ]
-            : [];
-        }),
+        responses: respondents
+          .flatMap((respondent) => {
+            const response = respondent.responses.find(
+              (item) => item.questionId === question.id,
+            );
+            const answer = response ? responseCaption(response.value) : null;
+            return answer ? [{ answer: safeSpreadsheetValue(answer) }] : [];
+          })
+          .sort((left, right) =>
+            left.answer.localeCompare(right.answer, "en", {
+              numeric: true,
+              sensitivity: "base",
+            }),
+          ),
       })),
     });
   }
@@ -3638,6 +3662,7 @@ export class CompatibilityReportsService {
       const numericCaption = /^-?\d+(?:\.\d+)?$/u.test(caption)
         ? Number(caption)
         : null;
+      if (numericCaption === 6 || numericCaption === 99) continue;
       // WRG Likert exports use numeric codes 1–5 for scored answers and 6 for
       // N/A. Exclude any out-of-range code instead of counting it as agreement.
       if (
@@ -3775,6 +3800,39 @@ export class CompatibilityReportsService {
       }));
   }
 
+  private detailedDistribution(
+    responses: DetailedResponse[],
+    question: BenchmarkQuestion,
+    programYear?: number | null,
+  ) {
+    const counts = new Map<string, number>();
+    for (const response of responses) {
+      const caption = reportResponseCaption(
+        response.value,
+        question,
+        programYear,
+      );
+      if (!caption || caption === "N/A") continue;
+      counts.set(caption, (counts.get(caption) ?? 0) + 1);
+    }
+    const denominator = [...counts.values()].reduce(
+      (sum, count) => sum + count,
+      0,
+    );
+    return responseDetailOptions
+      .filter((caption) => caption !== "N/A")
+      .map((ResponseCaption) => {
+        const numberOfResponses = counts.get(ResponseCaption) ?? 0;
+        return {
+          ResponseCaption,
+          numberOfResponses,
+          percent:
+            denominator === 0 ? 0 : (numberOfResponses * 100) / denominator,
+          colorCode: responseColor(ResponseCaption),
+        };
+      });
+  }
+
   private positivePercentage(responses: DetailedResponse[]): number {
     let positive = 0;
     let denominator = 0;
@@ -3783,13 +3841,14 @@ export class CompatibilityReportsService {
       if (!caption || caption === "n/a" || caption === "not applicable") {
         continue;
       }
-      denominator += 1;
       const score =
         response.score === null
           ? /^-?\d+(?:\.\d+)?$/u.test(caption)
             ? Number(caption)
             : null
           : Number(response.score);
+      if (score === 6 || score === 99) continue;
+      denominator += 1;
       if (
         caption === "agree" ||
         caption === "strongly agree" ||

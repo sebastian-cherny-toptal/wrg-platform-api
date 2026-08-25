@@ -74,10 +74,9 @@ describe("historical import service", () => {
       missingQuestionTemplateLabels([question], new Set([question.dataLabel])),
       [],
     );
-    assert.deepEqual(
-      missingQuestionTemplateLabels([question], new Set()),
-      [question.dataLabel],
-    );
+    assert.deepEqual(missingQuestionTemplateLabels([question], new Set()), [
+      question.dataLabel,
+    ]);
   });
 
   it("validates uploaded workbooks and returns a summary", async () => {
@@ -140,6 +139,42 @@ describe("historical import service", () => {
       assert.equal(summary.blockingErrorCount, 0);
       assert.equal(summary.workbooks.length, 2);
       assert.equal(summary.organizations.length, 1);
+
+      const rankingWorkbook = new ExcelJS.Workbook();
+      const rankingSheet = rankingWorkbook.addWorksheet("Ranking");
+      rankingSheet.addRow([
+        "Stage",
+        "Alias Name",
+        "Organization ID",
+        "CY Winner",
+        "CY Category",
+      ]);
+      rankingSheet.addRow(["Promote", "Acme Corp", "1", "Yes", "Medium"]);
+      rankingSheet.addRow(["Promote", "Pending Corp", "2", "7", "7"]);
+      const rankingBuffer = Buffer.from(
+        await rankingWorkbook.xlsx.writeBuffer(),
+      );
+      const ranking = await service.matchRankingWorkbook(
+        {
+          sub: "user-1",
+          roles: ["admin"],
+          permissions: [],
+          organizationId: null,
+        },
+        importId,
+        { filename: "ranking.xlsx", buffer: rankingBuffer },
+      );
+      assert.equal(ranking.matchedOrganizations, 1);
+      assert.equal(ranking.invalidRows, 1);
+      assert.deepEqual(ranking.organizationPrograms, [
+        {
+          organizationKey: "name:acme corp",
+          organizationName: "Acme Corp",
+          surveysSent: 1,
+          isWinner: true,
+          currentYearCategory: "Medium",
+        },
+      ]);
     } finally {
       process.chdir(previousCwd);
       rmSync(root, { recursive: true, force: true });

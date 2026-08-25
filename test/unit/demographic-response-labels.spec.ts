@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import {
   demographicResponseCaption,
   demographicResponsePosition,
+  reportResponseCaption,
 } from "../../src/modules/reports/compatibility-reports.module.js";
 
 describe("demographic response labels", () => {
@@ -109,5 +110,18 @@ describe("demographic response labels", () => {
       ),
       "1",
     );
+  });
+
+  it("maps Likert ordinals to labels and treats 6 and 99 as N/A", () => {
+    const question = {
+      dataLabel: "q_Core_1",
+      metadata: { QuestionTypeId: 5 },
+      type: "likert",
+    };
+
+    assert.equal(reportResponseCaption(1, question, 2026), "Strongly Disagree");
+    assert.equal(reportResponseCaption(5, question, 2026), "Strongly Agree");
+    assert.equal(reportResponseCaption(6, question, 2026), "N/A");
+    assert.equal(reportResponseCaption(99, question, 2026), "N/A");
   });
 });

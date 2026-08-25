@@ -81,17 +81,52 @@ export class CompatibilityZohoService {
       const value = Number(raw);
       return Number.isInteger(value) ? value : null;
     };
+    const categoryPricing = (record: ZohoRecord) => {
+      const definitions = [
+        ["Boutique", "Boutique_EE_Size", "Category_15_24_Fee"],
+        ["Small", "Small_EE_Size", "Category_25_99_Fee"],
+        ["Medium", "Medium_EE_Size", "Category_100_199_Fee"],
+        ["Large", "Large_EE_Size", "Category_200_499_Fee"],
+        ["Mega", "Mega_EE_Size", "Category_500_999_Fee"],
+        ["Major", "Major_EE_Size", "Category_1000_Fee"],
+      ] as const;
+      const pricing = definitions.map(([tier, sizeKey, feeKey]) => {
+        const employeeSize = text(record, sizeKey);
+        const rawFee = record[feeKey];
+        const amount = Number(
+          String(rawFee ?? "")
+            .replace(/[^0-9.-]+/gu, "")
+            .trim(),
+        );
+        return employeeSize && Number.isFinite(amount)
+          ? {
+              tier,
+              employeeSize,
+              priceCents: Math.max(0, Math.round(amount * 100)),
+            }
+          : null;
+      });
+      const completed = pricing.filter(
+        (entry): entry is NonNullable<typeof entry> => entry !== null,
+      );
+      return completed.length === definitions.length ? completed : undefined;
+    };
     return records
-      .map((record) => ({
-        id: record.id,
-        name: text(record, "Name") ?? record.id,
-        year: year(record),
-        efsLaunchDate: text(record, "EFS_Launch_Date"),
-        efsDeadline: text(record, "EFS_end_Date"),
-      }))
-      .sort((left, right) =>
-        (right.year ?? 0) - (left.year ?? 0) ||
-        left.name.localeCompare(right.name),
+      .map((record) => {
+        const pricing = categoryPricing(record);
+        return {
+          id: record.id,
+          name: text(record, "Name") ?? record.id,
+          year: year(record),
+          efsLaunchDate: text(record, "EFS_Launch_Date"),
+          efsDeadline: text(record, "EFS_end_Date"),
+          ...(pricing ? { categoryPricing: pricing } : {}),
+        };
+      })
+      .sort(
+        (left, right) =>
+          (right.year ?? 0) - (left.year ?? 0) ||
+          left.name.localeCompare(right.name),
       );
   }
 }

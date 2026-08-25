@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import ExcelJS from "exceljs";
 import {
   createBenchmarkWorkbook,
+  createVerbatimWorkbook,
   createWorkforceFeedbackWorkbook,
 } from "../../src/modules/reports/report-template-workbooks.js";
 
@@ -62,6 +63,31 @@ describe("workforce feedback workbook generation", () => {
     assert.equal(sheet.getCell("B101").value, "SURVEY AVERAGE");
     assert.equal(sheet.getCell("D101").value, 73.33333333333333);
     assert.equal(sheet.getCell("E101").value, 16.666666666666668);
+  });
+});
+
+describe("employee verbatim workbook generation", () => {
+  it("removes the demographic column when no filter is applied", async () => {
+    const buffer = await createVerbatimWorkbook({
+      metadata: {
+        organizationName: "Test organization",
+        programName: "Test program",
+        surveyDates: "2026",
+      },
+      questions: [
+        {
+          text: "What do you value?",
+          responses: [{ answer: "Autonomy" }, { answer: "People" }],
+        },
+      ],
+    });
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer as never);
+    const sheet = workbook.getWorksheet("Verbatims Q1");
+    assert.ok(sheet);
+    assert.equal(sheet.columnCount, 1);
+    assert.equal(sheet.getCell("A5").value, "Autonomy");
+    assert.equal(sheet.getCell("A6").value, "People");
   });
 });
 

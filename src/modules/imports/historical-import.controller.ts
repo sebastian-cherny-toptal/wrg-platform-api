@@ -29,7 +29,10 @@ interface UploadedPart {
 
 async function multipartPayload(
   request: FastifyRequest,
-): Promise<{ fields: Record<string, string>; files: Record<string, UploadedPart> }> {
+): Promise<{
+  fields: Record<string, string>;
+  files: Record<string, UploadedPart>;
+}> {
   if (!request.isMultipart()) {
     throw new BadRequestException("multipart/form-data is required");
   }
@@ -76,11 +79,13 @@ export class HistoricalImportController {
     @Param("importId") importId: string,
     @Body() body: unknown,
   ) {
-    return this.imports.updateMetadata(principal, importId, body).then((data) => ({
-      success: true,
-      message: "Historical import metadata saved",
-      data,
-    }));
+    return this.imports
+      .updateMetadata(principal, importId, body)
+      .then((data) => ({
+        success: true,
+        message: "Historical import metadata saved",
+        data,
+      }));
   }
 
   @Post(":importId/workbooks")
@@ -95,7 +100,9 @@ export class HistoricalImportController {
     const resolvedEa = files.eaFile;
     const resolvedEfs = files.efsFile;
     if ((!resolvedEa && resolvedEfs) || (resolvedEa && !resolvedEfs)) {
-      throw new BadRequestException("Upload both workbooks, or leave both empty");
+      throw new BadRequestException(
+        "Upload both workbooks, or leave both empty",
+      );
     }
     if (!resolvedEa || !resolvedEfs) {
       throw new BadRequestException("No workbooks were uploaded");
@@ -113,9 +120,37 @@ export class HistoricalImportController {
     };
   }
 
+  @Post(":importId/ranking")
+  @HttpCode(200)
+  @ApiConsumes("multipart/form-data")
+  async matchRankingWorkbook(
+    @CurrentUser() principal: Principal,
+    @Param("importId") importId: string,
+    @Req() request: FastifyRequest,
+  ) {
+    const { files } = await multipartPayload(request);
+    const rankingFile = files.rankingFile;
+    if (!rankingFile) {
+      throw new BadRequestException("Upload a ranking workbook");
+    }
+    const data = await this.imports.matchRankingWorkbook(
+      principal,
+      importId,
+      rankingFile,
+    );
+    return {
+      success: true,
+      message: "Ranking workbook matched",
+      data,
+    };
+  }
+
   @Post(":importId/validate")
   @HttpCode(200)
-  validate(@CurrentUser() principal: Principal, @Param("importId") importId: string) {
+  validate(
+    @CurrentUser() principal: Principal,
+    @Param("importId") importId: string,
+  ) {
     return this.imports.validate(principal, importId).then((data) => ({
       success: true,
       message: "Historical import validated",
@@ -125,7 +160,10 @@ export class HistoricalImportController {
 
   @Post(":importId/commit")
   @HttpCode(200)
-  commit(@CurrentUser() principal: Principal, @Param("importId") importId: string) {
+  commit(
+    @CurrentUser() principal: Principal,
+    @Param("importId") importId: string,
+  ) {
     return this.imports.commit(principal, importId).then((data) => ({
       success: true,
       message: "Historical import completed",
@@ -134,7 +172,10 @@ export class HistoricalImportController {
   }
 
   @Get(":importId")
-  status(@CurrentUser() principal: Principal, @Param("importId") importId: string) {
+  status(
+    @CurrentUser() principal: Principal,
+    @Param("importId") importId: string,
+  ) {
     return this.imports.getStatus(principal, importId).then((data) => ({
       success: true,
       message: "Historical import status",

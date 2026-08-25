@@ -12,6 +12,7 @@ import type { PrismaClient } from "@prisma/client";
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { basename, extname, join } from "node:path";
+import ExcelJS from "exceljs";
 import { PrismaService } from "../../database/prisma.service.js";
 import type { Principal } from "../auth/auth.module.js";
 import {
@@ -43,6 +44,41 @@ const standardOpenQuestionCaptions: Record<string, string> = {
 
 export type HistoricalSurveyKind = "EA" | "EFS";
 
+export const categoryPricingTiers = [
+  "Boutique",
+  "Small",
+  "Medium",
+  "Large",
+  "Mega",
+  "Major",
+] as const;
+
+export interface HistoricalCategoryPricing {
+  tier: (typeof categoryPricingTiers)[number];
+  employeeSize: string;
+  priceCents: number;
+}
+
+function categoryPricingMetadata(
+  pricing: HistoricalCategoryPricing[] | undefined,
+): Record<string, string | number> {
+  const fields = {
+    Boutique: ["Boutique_EE_Size", "Category_15_24_Fee"],
+    Small: ["Small_EE_Size", "Category_25_99_Fee"],
+    Medium: ["Medium_EE_Size", "Category_100_199_Fee"],
+    Large: ["Large_EE_Size", "Category_200_499_Fee"],
+    Mega: ["Mega_EE_Size", "Category_500_999_Fee"],
+    Major: ["Major_EE_Size", "Category_1000_Fee"],
+  } as const;
+  const metadata: Record<string, string | number> = {};
+  for (const { tier, employeeSize, priceCents } of pricing ?? []) {
+    const [sizeField, priceField] = fields[tier];
+    metadata[sizeField] = employeeSize;
+    metadata[priceField] = priceCents / 100;
+  }
+  return metadata;
+}
+
 export interface HistoricalImportMetadata {
   projectId?: string;
   projectName?: string;
@@ -59,8 +95,10 @@ export interface HistoricalImportMetadata {
     organizationName?: string;
     surveysSent: number;
     isWinner: boolean;
+    currentYearCategory?: string;
   }>;
   reportCatalog?: ReportCatalogProduct[];
+  categoryPricing?: HistoricalCategoryPricing[];
 }
 
 interface StoredWorkbook {
@@ -377,6 +415,10 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
           );
           const organizationKey = optionalString(entry, "organizationKey");
           const organizationName = optionalString(entry, "organizationName");
+          const currentYearCategory = optionalString(
+            entry,
+            "currentYearCategory",
+          );
           const isWinner = entry.isWinner === true;
           if (!organizationProgramId && !organizationKey) {
             throw new BadRequestException(
@@ -387,6 +429,7 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
             ...(organizationProgramId ? { organizationProgramId } : {}),
             ...(organizationKey ? { organizationKey } : {}),
             ...(organizationName ? { organizationName } : {}),
+            ...(currentYearCategory ? { currentYearCategory } : {}),
             surveysSent,
             isWinner,
           };
@@ -395,6 +438,44 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
     value.reportCatalog === undefined
       ? undefined
       : parseReportCatalog(value.reportCatalog);
+  const categoryPricing =
+    value.categoryPricing === undefined
+      ? undefined
+      : (Array.isArray(value.categoryPricing) ? value.categoryPricing : []).map(
+          (raw) => {
+            const entry = objectBody(raw);
+            const tier = requiredString(entry, "tier");
+            if (
+              !categoryPricingTiers.includes(
+                tier as (typeof categoryPricingTiers)[number],
+              )
+            ) {
+              throw new BadRequestException(`Invalid category tier: ${tier}`);
+            }
+            const employeeSize = requiredString(entry, "employeeSize");
+            const priceCents = Number(entry.priceCents);
+            if (!Number.isInteger(priceCents) || priceCents < 0) {
+              throw new BadRequestException(
+                `${tier} category price must be a non-negative amount`,
+              );
+            }
+            return {
+              tier: tier as (typeof categoryPricingTiers)[number],
+              employeeSize,
+              priceCents,
+            };
+          },
+        );
+  if (
+    categoryPricing &&
+    (categoryPricing.length !== categoryPricingTiers.length ||
+      new Set(categoryPricing.map(({ tier }) => tier)).size !==
+        categoryPricingTiers.length)
+  ) {
+    throw new BadRequestException(
+      "Category pricing must include Boutique, Small, Medium, Large, Mega, and Major once each",
+    );
+  }
   return {
     ...(projectId ? { projectId } : {}),
     ...(projectName ? { projectName } : {}),
@@ -407,6 +488,7 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
     ...(projectAbbreviation ? { projectAbbreviation } : {}),
     ...(organizationPrograms ? { organizationPrograms } : {}),
     ...(reportCatalog ? { reportCatalog } : {}),
+    ...(categoryPricing ? { categoryPricing } : {}),
   };
 }
 
@@ -956,6 +1038,140 @@ export class HistoricalImportService {
     };
   }
 
+  async matchRankingWorkbook(
+    principal: Principal,
+    importId: string,
+    file: UploadedWorkbookFile,
+  ) {
+    this.assertAccess(principal);
+    assertXlsxFile(file);
+    const draft = await this.loadDraft(importId);
+    if (
+      (!draft.eaFile || !draft.efsFile) &&
+      !draft.organizationPrograms?.length
+    ) {
+      throw new BadRequestException(
+        "Upload EA/EFS workbooks or load existing organizations before matching rankings",
+      );
+    }
+
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(file.buffer as never);
+    const sheet = workbook.worksheets[0];
+    if (!sheet) throw new BadRequestException("Ranking workbook has no sheets");
+    const normalizedHeader = (value: string) =>
+      value.toLowerCase().replace(/[^a-z0-9]+/gu, "");
+    const headers = new Map<string, number>();
+    sheet.getRow(1).eachCell((cell, column) => {
+      headers.set(normalizedHeader(cell.text), column);
+    });
+    const organizationIdColumn = headers.get("organizationid");
+    const organizationNameColumn = headers.get("aliasname");
+    const winnerColumn = headers.get("cywinner");
+    const categoryColumn = headers.get("cycategory");
+    if (!winnerColumn || (!organizationIdColumn && !organizationNameColumn)) {
+      throw new BadRequestException(
+        'Ranking workbook must include "CY Winner" and either "Organization ID" or "Alias Name"',
+      );
+    }
+
+    interface RankingEntry {
+      isWinner: boolean;
+      category?: string;
+    }
+    const byId = new Map<string, RankingEntry>();
+    const byName = new Map<string, RankingEntry>();
+    let invalidRows = 0;
+    for (let rowNumber = 2; rowNumber <= sheet.rowCount; rowNumber += 1) {
+      const row = sheet.getRow(rowNumber);
+      const rawWinner = row.getCell(winnerColumn).text.trim().toLowerCase();
+      if (rawWinner !== "yes" && rawWinner !== "no") {
+        if (row.cellCount > 0) invalidRows += 1;
+        continue;
+      }
+      const rawCategory = categoryColumn
+        ? row.getCell(categoryColumn).text.trim()
+        : "";
+      const entry: RankingEntry = {
+        isWinner: rawWinner === "yes",
+        ...(rawCategory && rawCategory !== "7"
+          ? { category: rawCategory }
+          : {}),
+      };
+      const organizationId = organizationIdColumn
+        ? row.getCell(organizationIdColumn).text.trim()
+        : "";
+      const organizationName = organizationNameColumn
+        ? normalizeOrganizationName(row.getCell(organizationNameColumn).text)
+        : "";
+      if (organizationId) byId.set(organizationId, entry);
+      if (organizationName) byName.set(organizationName, entry);
+    }
+
+    const organizationRows: Map<
+      string,
+      {
+        displayName: string;
+        workbookOrganizationId?: string;
+        eaRespondents: number;
+        efsRespondents: number;
+        companySize?: number;
+      }
+    > =
+      draft.eaFile && draft.efsFile
+        ? await this.collectOrganizationRows(draft.eaFile, draft.efsFile)
+        : new Map(
+            (draft.organizationPrograms ?? []).map((entry) => [
+              entry.organizationKey ??
+                entry.organizationProgramId ??
+                normalizeOrganizationName(entry.organizationName),
+              {
+                displayName: entry.organizationName ?? "Organization",
+                eaRespondents: 0,
+                efsRespondents: entry.surveysSent,
+              },
+            ]),
+          );
+    const current = new Map(
+      (draft.organizationPrograms ?? []).flatMap((entry) => {
+        const key = entry.organizationKey ?? entry.organizationProgramId;
+        return key ? ([[key, entry]] as const) : [];
+      }),
+    );
+    let matchedOrganizations = 0;
+    const unmatchedOrganizations: string[] = [];
+    const organizationPrograms = [...organizationRows].map(([key, details]) => {
+      const existing = current.get(key);
+      const ranking =
+        (details.workbookOrganizationId
+          ? byId.get(details.workbookOrganizationId)
+          : undefined) ??
+        byName.get(normalizeOrganizationName(details.displayName));
+      if (!ranking) unmatchedOrganizations.push(details.displayName);
+      else matchedOrganizations += 1;
+      return {
+        ...(existing?.organizationProgramId
+          ? { organizationProgramId: existing.organizationProgramId }
+          : {}),
+        organizationKey: key,
+        organizationName: details.displayName,
+        surveysSent: existing?.surveysSent ?? details.efsRespondents,
+        isWinner: ranking?.isWinner ?? existing?.isWinner ?? false,
+        ...(ranking?.category
+          ? { currentYearCategory: ranking.category }
+          : existing?.currentYearCategory
+            ? { currentYearCategory: existing.currentYearCategory }
+            : {}),
+      };
+    });
+    return {
+      organizationPrograms,
+      matchedOrganizations,
+      unmatchedOrganizations,
+      invalidRows,
+    };
+  }
+
   async validate(
     principal: Principal,
     importId: string,
@@ -1178,8 +1394,12 @@ export class HistoricalImportService {
           historicalImportId: importId,
           efsLaunchDate: draft.efsLaunchDate,
           efsDeadline: draft.efsDeadline,
+          ...categoryPricingMetadata(draft.categoryPricing),
           reportCatalog: JSON.parse(
             JSON.stringify(draft.reportCatalog ?? []),
+          ) as Prisma.InputJsonValue,
+          categoryPricing: JSON.parse(
+            JSON.stringify(draft.categoryPricing ?? []),
           ) as Prisma.InputJsonValue,
         },
         fees: Object.fromEntries(
@@ -1406,6 +1626,21 @@ export class HistoricalImportService {
         )
         .map(({ organizationKey, isWinner }) => [organizationKey, isWinner]),
     );
+    const configuredCategories = new Map(
+      (draft.organizationPrograms ?? [])
+        .filter(
+          (
+            entry,
+          ): entry is typeof entry & {
+            organizationKey: string;
+            currentYearCategory: string;
+          } => Boolean(entry.organizationKey && entry.currentYearCategory),
+        )
+        .map(({ organizationKey, currentYearCategory }) => [
+          organizationKey,
+          currentYearCategory,
+        ]),
+    );
     const existingEnrollments = draft.programId
       ? await prisma.organizationProgram.findMany({
           where: { programId },
@@ -1415,6 +1650,7 @@ export class HistoricalImportService {
     for (const [key, details] of organizationRows) {
       const surveysSent = configuredSent.get(key) ?? details.efsRespondents;
       const isWinner = configuredWinners.get(key) ?? false;
+      const currentYearCategory = configuredCategories.get(key);
       const normalizedName = normalizeOrganizationName(details.displayName);
       const matched = existingEnrollments.find(({ metrics }) => {
         const values = objectBody(metrics);
@@ -1472,6 +1708,9 @@ export class HistoricalImportService {
               ...(details.companySize !== undefined
                 ? { Company_Size: details.companySize }
                 : {}),
+              ...(currentYearCategory
+                ? { Current_Year_Category: currentYearCategory }
+                : {}),
             },
           },
         });
@@ -1503,6 +1742,9 @@ export class HistoricalImportService {
             ...(details.companySize !== undefined
               ? { Company_Size: details.companySize }
               : {}),
+            ...(currentYearCategory
+              ? { Current_Year_Category: currentYearCategory }
+              : {}),
           },
         },
         create: {
@@ -1527,6 +1769,9 @@ export class HistoricalImportService {
             Source_Organization_Name: details.displayName,
             ...(details.companySize !== undefined
               ? { Company_Size: details.companySize }
+              : {}),
+            ...(currentYearCategory
+              ? { Current_Year_Category: currentYearCategory }
               : {}),
           },
         },
@@ -1556,26 +1801,41 @@ export class HistoricalImportService {
     });
     const byId = new Map(current.map((entry) => [entry.id, entry]));
     await Promise.all(
-      changes.map(async ({ organizationProgramId, surveysSent, isWinner }) => {
-        const enrollment = byId.get(organizationProgramId);
-        if (!enrollment)
-          throw new BadRequestException(
-            "An organization program no longer exists",
-          );
-        const metrics = objectBody(enrollment.metrics);
-        if (
-          Number(metrics.Surveys_Sent ?? 0) === surveysSent &&
-          enrollment.isWinner === isWinner
-        )
-          return;
-        await prisma.organizationProgram.update({
-          where: { id: organizationProgramId },
-          data: {
-            isWinner,
-            metrics: { ...metrics, Surveys_Sent: surveysSent },
-          },
-        });
-      }),
+      changes.map(
+        async ({
+          organizationProgramId,
+          surveysSent,
+          isWinner,
+          currentYearCategory,
+        }) => {
+          const enrollment = byId.get(organizationProgramId);
+          if (!enrollment)
+            throw new BadRequestException(
+              "An organization program no longer exists",
+            );
+          const metrics = objectBody(enrollment.metrics);
+          if (
+            Number(metrics.Surveys_Sent ?? 0) === surveysSent &&
+            enrollment.isWinner === isWinner &&
+            (!currentYearCategory ||
+              metrics.Current_Year_Category === currentYearCategory)
+          )
+            return;
+          await prisma.organizationProgram.update({
+            where: { id: organizationProgramId },
+            data: {
+              isWinner,
+              metrics: {
+                ...metrics,
+                Surveys_Sent: surveysSent,
+                ...(currentYearCategory
+                  ? { Current_Year_Category: currentYearCategory }
+                  : {}),
+              },
+            },
+          });
+        },
+      ),
     );
   }
 
