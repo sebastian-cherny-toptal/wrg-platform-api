@@ -271,6 +271,18 @@ function jsonObject(value: Prisma.JsonValue): Prisma.JsonObject {
     : {};
 }
 
+function basicClientReportAccess(
+  value: Prisma.JsonValue,
+): Prisma.InputJsonObject {
+  return {
+    ...jsonObject(value),
+    WFR_Access: "yes",
+    EV_Access: "yes",
+    WBC_Access: "yes",
+    BBP_Access: "yes",
+  };
+}
+
 @Injectable()
 export class AdminRoleGuard implements CanActivate {
   canActivate(context: ExecutionContext): boolean {
@@ -736,6 +748,7 @@ export class UsersService {
             id: true,
             programId: true,
             projectId: true,
+            reportAccess: true,
             project: { select: { id: true, name: true } },
           },
         })
@@ -786,55 +799,74 @@ export class UsersService {
     };
 
     try {
-      const created = await this.prisma.user.create({
-        data: {
-          email,
-          username,
-          fullName,
-          ...(organization ? { organizationId: organization.id } : {}),
-          ...(primaryEnrollment
-            ? { organizationProgramId: primaryEnrollment.id }
-            : {}),
-          passwordHash: await hash(password),
-          status: "INVITED",
-          mfaEnabled: false,
-          metadata,
-          roles: { create: [{ roleId: role.id }] },
-          ...(projects.length > 0
-            ? {
-                projects: {
-                  create: projects.map((project) => ({
-                    projectId: project.id,
-                  })),
-                },
-              }
-            : {}),
-          ...(selectedPrograms.length > 0
-            ? {
-                programs: {
-                  create: selectedPrograms.map((program) => ({
-                    programId: program.id,
-                  })),
-                },
-              }
-            : {}),
-        },
-        select: {
-          id: true,
-        },
-      });
-      // await this.mailer.sendWelcome(email, password);
-      const user = await this.prisma.user.update({
-        where: { id: created.id },
-        data: { status: "ACTIVE" },
-        select: {
-          id: true,
-          email: true,
-          username: true,
-          fullName: true,
-          createdAt: true,
-        },
-      });
+      const createUser = async (
+        database: Pick<Prisma.TransactionClient, "user">,
+      ) => {
+        const created = await database.user.create({
+          data: {
+            email,
+            username,
+            fullName,
+            ...(organization ? { organizationId: organization.id } : {}),
+            ...(primaryEnrollment
+              ? { organizationProgramId: primaryEnrollment.id }
+              : {}),
+            passwordHash: await hash(password),
+            status: "INVITED",
+            mfaEnabled: false,
+            metadata,
+            roles: { create: [{ roleId: role.id }] },
+            ...(projects.length > 0
+              ? {
+                  projects: {
+                    create: projects.map((project) => ({
+                      projectId: project.id,
+                    })),
+                  },
+                }
+              : {}),
+            ...(selectedPrograms.length > 0
+              ? {
+                  programs: {
+                    create: selectedPrograms.map((program) => ({
+                      programId: program.id,
+                    })),
+                  },
+                }
+              : {}),
+          },
+          select: { id: true },
+        });
+        // await this.mailer.sendWelcome(email, password);
+        return database.user.update({
+          where: { id: created.id },
+          data: { status: "ACTIVE" },
+          select: {
+            id: true,
+            email: true,
+            username: true,
+            fullName: true,
+            createdAt: true,
+          },
+        });
+      };
+      const user = role.key === "client"
+        ? await this.prisma.$transaction(async (transaction) => {
+            await Promise.all(
+              enrollments.map((enrollment) =>
+                transaction.organizationProgram.update({
+                  where: { id: enrollment.id },
+                  data: {
+                    reportAccess: basicClientReportAccess(
+                      enrollment.reportAccess,
+                    ),
+                  },
+                }),
+              ),
+            );
+            return createUser(transaction);
+          })
+        : await createUser(this.prisma);
       return {
         success: true,
         message: "User created successfully",

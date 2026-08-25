@@ -54,6 +54,21 @@ export interface VerbatimWorkbookQuestion {
   responses: Array<{ answer: string; demographic?: string }>;
 }
 
+export interface AnnualTrendsWorkbookValue {
+  agreement: number;
+  disagreement: number;
+  responseCount: number;
+}
+
+export interface AnnualTrendsWorkbookSection {
+  title: string;
+  questions: Array<{
+    text: string;
+    current?: AnnualTrendsWorkbookValue;
+    previous?: AnnualTrendsWorkbookValue;
+  }>;
+}
+
 type TemplateValue = string | number | null;
 type TemplateResolver = (
   name: string,
@@ -604,6 +619,107 @@ export async function createVerbatimWorkbook(input: {
       sheet.spliceRows(firstUnusedRow, sheet.rowCount - firstUnusedRow + 1);
     }
     if (!includeDemographic) sheet.spliceColumns(2, 1);
+  });
+  return workbookBuffer(workbook);
+}
+
+function annualAverage(
+  questions: AnnualTrendsWorkbookSection["questions"],
+  period: "current" | "previous",
+  metric: "agreement" | "disagreement",
+): number | string {
+  const values = questions.flatMap((question) => {
+    const snapshot = question[period];
+    return snapshot
+      ? [{ value: snapshot[metric], weight: snapshot.responseCount }]
+      : [];
+  });
+  return values.length ? weightedAverage(values) : "*";
+}
+
+export async function createAnnualTrendsWorkbook(input: {
+  metadata: ReportWorkbookMetadata;
+  currentYear: string;
+  previousYear: string;
+  currentTotalResponses: number;
+  previousTotalResponses: number;
+  sections: AnnualTrendsWorkbookSection[];
+}): Promise<Buffer> {
+  const workbook = await loadTemplate("annual-trends.xlsx");
+  fillTokens(workbook, (name) => {
+    if (name === "ORGANIZATION_NAME") return input.metadata.organizationName;
+    if (name === "PROGRAM_NAME") return input.metadata.programName;
+    if (name === "CURRENT_YEAR") return input.currentYear;
+    if (name === "PREVIOUS_YEAR") return input.previousYear;
+    if (name === "CURRENT_TOTAL_RESPONSES") {
+      return input.currentTotalResponses;
+    }
+    if (name === "PREVIOUS_TOTAL_RESPONSES") {
+      return input.previousTotalResponses;
+    }
+    const categoryTitleMatch = /^CATEGORY_(\d+)_TITLE$/u.exec(name);
+    if (categoryTitleMatch) {
+      return input.sections[
+        Number(categoryTitleMatch[1]) - 1
+      ]?.title.toUpperCase();
+    }
+    const categoryAverageTitleMatch = /^CATEGORY_(\d+)_AVERAGE_TITLE$/u.exec(
+      name,
+    );
+    if (categoryAverageTitleMatch) {
+      const title =
+        input.sections[Number(categoryAverageTitleMatch[1]) - 1]?.title;
+      return title ? `${title.toUpperCase()} - AVERAGE` : null;
+    }
+    const questionTextMatch = /^CATEGORY_(\d+)_QUESTION_(\d+)_TEXT$/u.exec(
+      name,
+    );
+    if (questionTextMatch) {
+      return input.sections[Number(questionTextMatch[1]) - 1]?.questions[
+        Number(questionTextMatch[2]) - 1
+      ]?.text;
+    }
+    const questionValueMatch =
+      /^CATEGORY_(\d+)_QUESTION_(\d+)_(CURRENT|PREVIOUS)_(AGREEMENT|DISAGREEMENT)$/u.exec(
+        name,
+      );
+    if (questionValueMatch) {
+      const question =
+        input.sections[Number(questionValueMatch[1]) - 1]?.questions[
+          Number(questionValueMatch[2]) - 1
+        ];
+      if (!question) return null;
+      const period = questionValueMatch[3]?.toLowerCase() as
+        "current" | "previous";
+      const metric = questionValueMatch[4]?.toLowerCase() as
+        "agreement" | "disagreement";
+      return question[period]?.[metric] ?? "*";
+    }
+    const categoryAverageMatch =
+      /^CATEGORY_(\d+)_AVERAGE_(CURRENT|PREVIOUS)_(AGREEMENT|DISAGREEMENT)$/u.exec(
+        name,
+      );
+    if (categoryAverageMatch) {
+      const section = input.sections[Number(categoryAverageMatch[1]) - 1];
+      if (!section) return null;
+      return annualAverage(
+        section.questions,
+        categoryAverageMatch[2]?.toLowerCase() as "current" | "previous",
+        categoryAverageMatch[3]?.toLowerCase() as "agreement" | "disagreement",
+      );
+    }
+    const surveyAverageMatch =
+      /^SURVEY_AVERAGE_(CURRENT|PREVIOUS)_(AGREEMENT|DISAGREEMENT)$/u.exec(
+        name,
+      );
+    if (surveyAverageMatch) {
+      return annualAverage(
+        input.sections.flatMap((section) => section.questions),
+        surveyAverageMatch[1]?.toLowerCase() as "current" | "previous",
+        surveyAverageMatch[2]?.toLowerCase() as "agreement" | "disagreement",
+      );
+    }
+    return null;
   });
   return workbookBuffer(workbook);
 }

@@ -46,12 +46,14 @@ import {
   type PublishedReportHeader,
 } from "./benefits-best-practices-workbook.js";
 import {
+  createAnnualTrendsWorkbook,
   createBenchmarkWorkbook,
   createBenefitsWorkbook,
   createResponseDetailWorkbook,
   createVerbatimWorkbook,
   createWorkforceFeedbackWorkbook,
   type FeedbackWorkbookSection,
+  type AnnualTrendsWorkbookValue,
   type ReportWorkbookDemographic,
   type ReportWorkbookMetadata,
   type ResponsePatternRanges,
@@ -3000,50 +3002,91 @@ export class CompatibilityReportsService {
     principal: Principal,
     query: ReportQuery,
   ): Promise<Buffer> {
-    const report = await this.annualCategories(principal, query);
-    const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet("Annual Trends Report");
-    const years = [
-      ...new Set(
-        report.data.flatMap((category) =>
-          Object.keys(category).filter((key) => /^\d{4}$/u.test(key)),
+    const { current, previous } = await this.annualContexts(principal, query);
+    this.requiresDemo(principal, current, "WFR_Access");
+    const currentYear = this.contextYear(current);
+    const previousYear = previous
+      ? this.contextYear(previous)
+      : String(Number(currentYear) - 1);
+    const [
+      currentQuestions,
+      previousQuestions,
+      currentRespondents,
+      previousRespondents,
+    ] = await Promise.all([
+      this.benchmarkQuestions(current.survey.id),
+      previous ? this.benchmarkQuestions(previous.survey.id) : [],
+      this.organizationRespondents(current),
+      previous ? this.organizationRespondents(previous) : [],
+    ]);
+    const currentGrouped = this.questionsByCategory(currentQuestions);
+    const previousGrouped = this.questionsByCategory(previousQuestions);
+    const categories = sortedCategories(
+      new Set([...currentGrouped.keys(), ...previousGrouped.keys()]),
+    );
+    const snapshot = (
+      question: BenchmarkQuestion | undefined,
+      respondents: DetailedRespondent[],
+    ): AnnualTrendsWorkbookValue | undefined => {
+      if (!question) return undefined;
+      const distribution = this.trendDistribution(
+        respondents.flatMap(({ responses }) =>
+          responses.filter((response) => response.questionId === question.id),
         ),
-      ),
-    ].sort((left, right) => Number(right) - Number(left));
-    worksheet.columns = [
-      { header: "Section", key: "section", width: 50 },
-      ...years.flatMap((year) => [
-        { header: `${year} Agreement`, key: `${year}Agree`, width: 18 },
-        { header: `${year} Neutral`, key: `${year}Neutral`, width: 18 },
-        {
-          header: `${year} Disagreement`,
-          key: `${year}Disagree`,
-          width: 20,
-        },
-      ]),
-    ];
-    for (const category of report.data) {
-      const row: Record<string, string | number> = {
-        section: category.category.category,
+      );
+      const percentage = (caption: "Agree" | "Disagree") =>
+        distribution.find((item) => item.ResponseCaption === caption)
+          ?.percentage ?? 0;
+      return {
+        agreement: percentage("Agree"),
+        disagreement: percentage("Disagree"),
+        responseCount: distribution.reduce(
+          (total, item) => total + item.numberOfResponses,
+          0,
+        ),
       };
-      for (const year of years) {
-        const snapshot = (category as unknown as Record<string, unknown>)[
-          year
-        ] as
-          | {
-              data: ReturnType<
-                CompatibilityReportsService["trendDistribution"]
-              >;
-            }
-          | undefined;
-        for (const item of snapshot?.data ?? []) {
-          row[`${year}${item.ResponseCaption}`] = item.percentage;
-        }
-      }
-      worksheet.addRow(row);
-    }
-    this.styleWorkbook(worksheet);
-    return Buffer.from(await workbook.xlsx.writeBuffer());
+    };
+    const sections = categories.map((title) => {
+      const currentCategoryQuestions = currentGrouped.get(title) ?? [];
+      const previousCategoryQuestions = previousGrouped.get(title) ?? [];
+      const previousByLabel = new Map(
+        previousCategoryQuestions.map((question) => [
+          question.dataLabel,
+          question,
+        ]),
+      );
+      const sourceQuestions = currentCategoryQuestions.length
+        ? currentCategoryQuestions
+        : previousCategoryQuestions;
+      return {
+        title,
+        questions: sourceQuestions.map((question) => {
+          const currentSnapshot = snapshot(
+            currentCategoryQuestions.find(
+              (candidate) => candidate.dataLabel === question.dataLabel,
+            ),
+            currentRespondents,
+          );
+          const previousSnapshot = snapshot(
+            previousByLabel.get(question.dataLabel),
+            previousRespondents,
+          );
+          return {
+            text: question.caption,
+            ...(currentSnapshot ? { current: currentSnapshot } : {}),
+            ...(previousSnapshot ? { previous: previousSnapshot } : {}),
+          };
+        }),
+      };
+    });
+    return createAnnualTrendsWorkbook({
+      metadata: await this.reportWorkbookMetadata(principal, query, current),
+      currentYear,
+      previousYear,
+      currentTotalResponses: currentRespondents.length,
+      previousTotalResponses: previousRespondents.length,
+      sections,
+    });
   }
 
   async openResponsesWorkbook(

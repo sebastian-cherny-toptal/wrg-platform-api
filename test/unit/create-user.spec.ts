@@ -255,7 +255,10 @@ describe("create user endpoint", () => {
 
   it("creates client users with organization and enrolled program access", async () => {
     let createdData: Record<string, unknown> | undefined;
+    let updatedReportAccess: unknown;
     const prisma = {
+      $transaction: (operation: (transaction: unknown) => unknown) =>
+        operation(prisma),
       user: {
         findUnique: () => Promise.resolve(null),
         create: (args: { data: Record<string, unknown> }) => {
@@ -293,12 +296,20 @@ describe("create user endpoint", () => {
           ]),
       },
       organizationProgram: {
+        update: (args: { data: { reportAccess: unknown } }) => {
+          updatedReportAccess = args.data.reportAccess;
+          return Promise.resolve({ id: "organization-program-id" });
+        },
         findMany: () =>
           Promise.resolve([
             {
               id: "organization-program-id",
               programId: "program-id",
               projectId: "project-id",
+              reportAccess: {
+                WFR_Access: "no",
+                RD_Access: "yes",
+              },
               project: { id: "project-id", name: "Feedback Project" },
             },
           ]),
@@ -329,6 +340,13 @@ describe("create user endpoint", () => {
     });
     assert.deepEqual(createdData.programs, {
       create: [{ programId: "program-id" }],
+    });
+    assert.deepEqual(updatedReportAccess, {
+      WFR_Access: "yes",
+      EV_Access: "yes",
+      WBC_Access: "yes",
+      BBP_Access: "yes",
+      RD_Access: "yes",
     });
     assert.deepEqual(response.data.projects, [
       { id: "project-id", name: "Feedback Project" },
