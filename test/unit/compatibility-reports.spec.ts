@@ -411,11 +411,11 @@ describe("compatibility report categories", () => {
     );
   });
 
-  it("calculates winner cohorts from OrganizationProgram.isWinner", async () => {
+  it("calculates winner cohorts from every organization in the program", async () => {
     const question = benchmarkQuestion("q-core", "Core Employee Experience", 1);
-    const winners = Array.from({ length: 5 }, (_, index) => `winner-${index}`);
+    const winners = Array.from({ length: 2 }, (_, index) => `winner-${index}`);
     const nonWinners = Array.from(
-      { length: 5 },
+      { length: 2 },
       (_, index) => `non-winner-${index}`,
     );
     const prisma = {
@@ -492,6 +492,6 @@ describe("compatibility report categories", () => {
     );
 
     assert.deepEqual(result.data.data[0]?.dataValues, [100, 0]);
-    assert.equal(result.data.cohortOrganizationCount, 10);
+    assert.equal(result.data.cohortOrganizationCount, 4);
   });
 });

@@ -3431,7 +3431,7 @@ export class CompatibilityReportsService {
           size,
           winner,
           organizationIds,
-          hidden: organizationIds.length < privacyThreshold,
+          hidden: organizationIds.length === 0,
         };
       }),
     );
