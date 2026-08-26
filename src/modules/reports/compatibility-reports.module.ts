@@ -65,7 +65,29 @@ const promotionalPreviewAccess = new Set([
   "EV_Access",
   "WBC_Access",
   "BBP_Access",
+  "RD_Access",
 ]);
+const clientDemoAccess = new Set(["EV_Access", "RD_Access"]);
+const dummyResponseDetailSections = [
+  {
+    Engagement: [
+      { QuestionId: "dummy-detail-1", Caption: "I feel valued for the work I contribute." },
+      { QuestionId: "dummy-detail-2", Caption: "I would recommend this organization as a great place to work." },
+    ],
+  },
+  {
+    Leadership: [
+      { QuestionId: "dummy-detail-3", Caption: "Leaders communicate a clear direction for the organization." },
+    ],
+  },
+];
+const dummyResponseDetailResult = [
+  ["Response", "All employees", "Female", "Male", "Hybrid"],
+  ["Strongly Agree", { percentile: "41%", respondentCount: 74 }, { percentile: "45%", respondentCount: 42 }, { percentile: "36%", respondentCount: 29 }, { percentile: "47%", respondentCount: 31 }],
+  ["Agree", { percentile: "35%", respondentCount: 63 }, { percentile: "33%", respondentCount: 31 }, { percentile: "38%", respondentCount: 31 }, { percentile: "32%", respondentCount: 21 }],
+  ["Neutral", { percentile: "12%", respondentCount: 22 }, { percentile: "11%", respondentCount: 10 }, { percentile: "14%", respondentCount: 11 }, { percentile: "10%", respondentCount: 7 }],
+  ["Question Total", { average: "4.8", respondentCount: 180 }, { average: "4.9", respondentCount: 94 }, { average: "4.6", respondentCount: 81 }, { average: "5.0", respondentCount: 66 }],
+];
 const dummyDemographicOptions = [
   {
     category: "Personal Demographics",
@@ -2416,8 +2438,9 @@ export class CompatibilityReportsService {
 
   async responseDetailSections(principal: Principal, query: ReportQuery) {
     const context = await this.context(principal, query);
-    const questions = await this.benchmarkQuestions(context.survey.id);
     this.requiresDemo(principal, context, "RD_Access");
+    if (query.isDummy) return { success: true, message: "success", data: dummyResponseDetailSections };
+    const questions = await this.benchmarkQuestions(context.survey.id);
     const respondents = await this.organizationRespondents(context);
     if (respondents.length < privacyThreshold) {
       return {
@@ -2449,6 +2472,7 @@ export class CompatibilityReportsService {
   ) {
     const context = await this.context(principal, query);
     this.requiresDemo(principal, context, "RD_Access");
+    if (query.isDummy) return { success: true, message: "success", data: dummyResponseDetailResult };
     const allQuestions = await this.prisma.question.findMany({
       where: { surveyId: context.survey.id },
       orderBy: { position: "asc" },
@@ -3351,11 +3375,6 @@ export class CompatibilityReportsService {
     principal: Principal,
     query: ReportQuery,
   ): Promise<ReportContext> {
-    if (query.isDummy && !principal.roles.includes("promotional")) {
-      throw new ForbiddenException(
-        "Dummy report data is only available to promotional users",
-      );
-    }
     const programSelect = {
       id: true,
       projectId: true,
@@ -3459,11 +3478,20 @@ export class CompatibilityReportsService {
       | "SEV_Access",
   ): false {
     if (
+      context.isDummy &&
+      principal.roles.includes("client") &&
+      !clientDemoAccess.has(accessKey)
+    ) {
+      throw new ForbiddenException(
+        "Dummy report data is only available to promotional users",
+      );
+    }
+    if (
       principal.roles.includes("admin") ||
       principal.roles.includes("super_admin") ||
       (context.isDummy &&
-        principal.roles.includes("promotional") &&
-        promotionalPreviewAccess.has(accessKey))
+        ((principal.roles.includes("promotional") && promotionalPreviewAccess.has(accessKey)) ||
+          (principal.roles.includes("client") && clientDemoAccess.has(accessKey))))
     )
       return false;
     const access = jsonObject(context.reportAccess);
@@ -4799,7 +4827,7 @@ export class CompatibilityReportsController {
   ) {
     return this.reports.responseDetailSections(
       principal,
-      this.reportQuery(selectedProgramId, organizationId, isDummy),
+      this.reportQuery(selectedProgramId, organizationId, isDummy, false, true),
     );
   }
 
@@ -4816,7 +4844,7 @@ export class CompatibilityReportsController {
   ) {
     return this.reports.responseDetailQuestionResult(
       principal,
-      this.reportQuery(selectedProgramId, organizationId, isDummy),
+      this.reportQuery(selectedProgramId, organizationId, isDummy, false, true),
       body.QuestionId,
       body.filterQuestion,
       scalarQuery("version", version) ?? "1",

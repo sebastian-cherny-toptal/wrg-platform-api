@@ -923,9 +923,9 @@ async function seedSurvey(
                 reportAccess: {
                   BBP_Access: "yes",
                   CR_Access: "no",
-                  EV_Access: "yes",
+                  EV_Access: "no",
                   KIA_Access: "no",
-                  RD_Access: "yes",
+                  RD_Access: "no",
                   WBC_Access: "yes",
                   WFR_Access: "yes",
                 },
@@ -956,9 +956,9 @@ async function seedSurvey(
           },
           reportAccess: {
             BBP_Access: "yes",
-            EV_Access: "yes",
+            EV_Access: "no",
             KIA_Access: "no",
-            RD_Access: "yes",
+            RD_Access: "no",
             WBC_Access: "yes",
             WFR_Access: "yes",
             CR_Access: "no",

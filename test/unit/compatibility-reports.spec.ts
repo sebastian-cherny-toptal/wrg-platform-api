@@ -360,26 +360,26 @@ describe("compatibility report categories", () => {
     assert.ok(verbatimWorkbook.byteLength > 0);
     assert.ok(benchmarkWorkbook.byteLength > 0);
     assert.ok(benefitsWorkbook.byteLength > 0);
+    const client = {
+      sub: "client-user",
+      organizationId: "organization-1",
+      roles: ["client"],
+      permissions: [],
+    };
+    const clientVerbatimsDemo = await service.openResponseQuestions(client, dummyQuery);
+    const clientResponseDetailDemo = await service.responseDetailSections(client, dummyQuery);
+    assert.ok(clientVerbatimsDemo.data.every(({ id }) => id.startsWith("dummy-")));
+    assert.ok(clientResponseDetailDemo.data.length > 0);
     await assert.rejects(
       service.demographicResponseCounts(
-        {
-          sub: "client-user",
-          organizationId: "organization-1",
-          roles: ["client"],
-          permissions: [],
-        },
+        client,
         { ...query, isDummy: true },
       ),
       /Dummy report data is only available to promotional users/u,
     );
     await assert.rejects(
       service.sectionComparison(
-        {
-          sub: "client-user",
-          organizationId: "organization-1",
-          roles: ["client"],
-          permissions: [],
-        },
+        client,
         query,
       ),
       /This program does not include access to the requested report/u,
