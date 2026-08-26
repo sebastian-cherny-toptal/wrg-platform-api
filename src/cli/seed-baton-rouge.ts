@@ -50,6 +50,81 @@ const testUserEmail = "test.baton@example.test";
 const testUserPassword = "BatonRouge123!";
 const targetOrganizationName = "Commerce Title & Abstract Company";
 const sanitizedTargetOrganizationName = "Synthetic 06f796de0c9331b9";
+let currentSeedStage = "startup";
+
+function seedLog(
+  message: string,
+  details?: Record<string, number | string | boolean>,
+): void {
+  const rssMiB = Math.round(process.memoryUsage().rss / 1024 / 1024);
+  const suffix = details ? ` ${JSON.stringify(details)}` : "";
+  console.log(
+    `[BR seed ${new Date().toISOString()}] ${message} (rss=${rssMiB}MiB)${suffix}`,
+  );
+}
+
+function setSeedStage(
+  stage: string,
+  details?: Record<string, number | string | boolean>,
+): void {
+  currentSeedStage = stage;
+  seedLog(`STAGE ${stage}`, details);
+}
+
+function seedErrorDetails(error: unknown): Record<string, unknown> {
+  if (!(error instanceof Error)) return { thrownValue: String(error) };
+  const prismaError = error as Error & {
+    clientVersion?: string;
+    code?: string;
+    meta?: unknown;
+  };
+  return {
+    name: error.name,
+    message: error.message,
+    code: prismaError.code,
+    clientVersion: prismaError.clientVersion,
+    meta: prismaError.meta,
+    stack: error.stack,
+    cause: error.cause ? seedErrorDetails(error.cause) : undefined,
+  };
+}
+
+function safeErrorJson(error: unknown): string {
+  const seen = new WeakSet<object>();
+  try {
+    return JSON.stringify(
+      seedErrorDetails(error),
+      (_key, value: unknown) => {
+        if (typeof value === "bigint") return value.toString();
+        if (value && typeof value === "object") {
+          if (seen.has(value)) return "[Circular]";
+          seen.add(value);
+        }
+        return value;
+      },
+      2,
+    );
+  } catch (serializationError) {
+    return JSON.stringify({
+      error: String(error),
+      serializationError: String(serializationError),
+    });
+  }
+}
+
+process.once("SIGTERM", () => {
+  seedLog(`PROCESS received SIGTERM during stage ${currentSeedStage}.`, {
+    exitCode: 143,
+  });
+  process.exit(143);
+});
+
+process.once("SIGINT", () => {
+  seedLog(`PROCESS received SIGINT during stage ${currentSeedStage}.`, {
+    exitCode: 130,
+  });
+  process.exit(130);
+});
 const standardOpenQuestionCaptions: Record<string, string> = {
   q_OpenEnded_1:
     "What are the top two or three reasons people like working for this organization?",
@@ -605,7 +680,9 @@ async function verifyImportedData(
         const expectedWinner = winnerStatuses.get(
           normalizeRankingOrganizationName(enrollment.organization.name),
         );
-        return expectedWinner !== undefined && enrollment.isWinner !== expectedWinner;
+        return (
+          expectedWinner !== undefined && enrollment.isWinner !== expectedWinner
+        );
       })
     ) {
       throw new Error(
@@ -647,10 +724,14 @@ async function seedSurvey(
   reports: PublishedReports,
   winnerStatuses: Map<string, boolean>,
 ): Promise<SurveyStats> {
+  const surveyLabel = `${source.year} ${source.kind}`;
   const surveyId = deterministicUuid(
     `${seedPrefix}:survey:${source.year}:${source.kind}`,
   );
   const programId = deterministicUuid(`${seedPrefix}:program:${source.year}`);
+  seedLog(`${surveyLabel}: reading workbook definition...`, {
+    file: source.fileName,
+  });
   const definition = await readXlsxSurveyDefinition({
     fileName: source.fileName,
     filePath: source.filePath,
@@ -658,6 +739,9 @@ async function seedSurvey(
       deterministicUuid(`${surveyId}:question:${dataLabel}`),
   });
   const questions: ParsedQuestion[] = definition.questions;
+  seedLog(`${surveyLabel}: workbook definition loaded.`, {
+    questions: questions.length,
+  });
   for (const question of questions) {
     question.caption =
       standardOpenQuestionCaptions[question.dataLabel] ?? question.caption;
@@ -689,6 +773,7 @@ async function seedSurvey(
   }
   let respondentCount = 0;
   const organizationRows = new Map<string, OrganizationSourceDetails>();
+  seedLog(`${surveyLabel}: scanning source rows...`);
   await forEachXlsxSurveyRow(
     definition,
     { includeOrganization: isTargetOrganization },
@@ -720,8 +805,13 @@ async function seedSurvey(
       `${source.fileName}: no rows found for organization "${targetOrganizationName}"`,
     );
   }
+  seedLog(`${surveyLabel}: source row scan complete.`, {
+    organizations: organizationRows.size,
+    respondents: respondentCount,
+  });
 
   if (prisma) {
+    seedLog(`${surveyLabel}: upserting program...`);
     await prisma.program.upsert({
       where: { externalId: `${seedPrefix}-program-${source.year}` },
       update: {},
@@ -744,6 +834,7 @@ async function seedSurvey(
         },
       },
     });
+    seedLog(`${surveyLabel}: creating survey...`);
     await prisma.survey.create({
       data: {
         id: surveyId,
@@ -766,6 +857,9 @@ async function seedSurvey(
         },
       },
     });
+    seedLog(`${surveyLabel}: upserting organizations...`, {
+      organizations: organizationRows.size,
+    });
     for (const [key, details] of organizationRows) {
       const organization = sourceOrganization(
         key,
@@ -787,6 +881,9 @@ async function seedSurvey(
         create: { ...organization, metadata },
       });
     }
+    seedLog(`${surveyLabel}: upserting program enrollments...`, {
+      organizations: organizationRows.size,
+    });
     for (const [key, details] of organizationRows) {
       const organization = sourceOrganization(
         key,
@@ -877,6 +974,9 @@ async function seedSurvey(
         },
       });
     }
+    seedLog(`${surveyLabel}: inserting questions...`, {
+      questions: questions.length,
+    });
     await prisma.question.createMany({
       data: questions.map((question, index) => ({
         id: question.id,
@@ -906,9 +1006,13 @@ async function seedSurvey(
         },
       })),
     });
+    seedLog(`${surveyLabel}: survey structure created.`);
   }
 
   let responseCount = 0;
+  let persistedRespondentCount = 0;
+  let persistedResponseCount = 0;
+  let flushCount = 0;
   const respondentBatch: Prisma.RespondentCreateManyInput[] = [];
   const responseBatch: Prisma.ResponseCreateManyInput[] = [];
   const flush = async (): Promise<void> => {
@@ -917,18 +1021,33 @@ async function seedSurvey(
       responseBatch.length = 0;
       return;
     }
+    if (respondentBatch.length === 0 && responseBatch.length === 0) return;
+    const respondentsInBatch = respondentBatch.length;
+    const responsesInBatch = responseBatch.length;
+    flushCount += 1;
+    seedLog(`${surveyLabel}: writing database batch ${flushCount}...`, {
+      respondentsInBatch,
+      responsesInBatch,
+    });
     if (respondentBatch.length > 0) {
       await prisma.respondent.createMany({ data: respondentBatch });
+      persistedRespondentCount += respondentBatch.length;
       respondentBatch.length = 0;
     }
     if (responseBatch.length > 0) {
       await insertBatches(responseBatch, (data) =>
         prisma.response.createMany({ data }),
       );
+      persistedResponseCount += responseBatch.length;
       responseBatch.length = 0;
     }
+    seedLog(`${surveyLabel}: database batch ${flushCount} complete.`, {
+      persistedRespondents: persistedRespondentCount,
+      persistedResponses: persistedResponseCount,
+    });
   };
 
+  seedLog(`${surveyLabel}: parsing rows and inserting responses...`);
   await forEachXlsxSurveyRow(
     definition,
     { includeOrganization: isTargetOrganization },
@@ -988,6 +1107,10 @@ async function seedSurvey(
     },
   );
   await flush();
+  seedLog(`${surveyLabel}: workbook import complete.`, {
+    respondents: respondentCount,
+    responses: responseCount,
+  });
   return {
     organizations: organizationRows.size,
     questions: questions.length,
@@ -997,12 +1120,14 @@ async function seedSurvey(
 }
 
 async function main(): Promise<void> {
+  setSeedStage("parse-options");
   const options = parseOptions(process.argv.slice(2));
   const databaseUrl = process.env.DATABASE_URL;
   if (!options.dryRun && !databaseUrl) {
     throw new Error("DATABASE_URL is required");
   }
   if (options.skipIfPresent && !options.dryRun && databaseUrl) {
+    setSeedStage("inspect-existing-seed");
     const inspectionClient = new PrismaClient({
       adapter: new PrismaPg({ connectionString: databaseUrl }),
     });
@@ -1020,7 +1145,9 @@ async function main(): Promise<void> {
       await inspectionClient.$disconnect();
     }
   }
+  setSeedStage("load-source-workbooks");
   const loadedSources = loadSourceWorkbooks(options.source);
+  setSeedStage("load-ranking-data");
   const winnerStatuses = await loadBatonRougeWinnerStatuses(
     options.rankingSource,
   );
@@ -1033,6 +1160,7 @@ async function main(): Promise<void> {
       : options.reportSource;
   let publishedReports: Map<number, PublishedReports>;
   try {
+    setSeedStage("load-published-reports", { source: reportSource });
     publishedReports = await loadPublishedReports(reportSource, reportYears);
   } catch (error) {
     const canFallBackBesideArchive =
@@ -1048,6 +1176,9 @@ async function main(): Promise<void> {
     }
     reportSource = options.reportSource;
     try {
+      setSeedStage("load-published-reports-fallback", {
+        source: reportSource,
+      });
       publishedReports = await loadPublishedReports(reportSource, reportYears);
     } catch (fallbackError) {
       loadedSources.cleanup();
@@ -1073,8 +1204,9 @@ async function main(): Promise<void> {
   const projectId = deterministicUuid(`${seedPrefix}:project`);
   try {
     if (prisma) {
-      console.log("Replacing the previous Baton Rouge seed namespace...");
-      await clearPreviousBatonRougeSeed(prisma);
+      setSeedStage("cleanup-previous-seed");
+      await clearPreviousBatonRougeSeed(prisma, seedLog);
+      setSeedStage("create-project");
       await prisma.project.create({
         data: {
           id: projectId,
@@ -1084,11 +1216,15 @@ async function main(): Promise<void> {
           metadata: { anonymized: true, seed: seedPrefix },
         },
       });
+      seedLog("Seed project created.", { projectId });
     }
     let totalRespondents = 0;
     let totalResponses = 0;
     const expectedStats = new Map<string, SurveyStats>();
     for (const source of sources) {
+      setSeedStage(`import-${source.year}-${source.kind.toLowerCase()}`, {
+        file: source.fileName,
+      });
       const reports = publishedReports.get(source.year);
       if (!reports)
         throw new Error(`Published reports not loaded for ${source.year}`);
@@ -1109,7 +1245,9 @@ async function main(): Promise<void> {
       );
     }
     if (prisma) {
+      setSeedStage("create-report-user");
       await createReportUser(prisma, projectId);
+      setSeedStage("verify-imported-data");
       await verifyImportedData(
         prisma,
         projectId,
@@ -1119,6 +1257,7 @@ async function main(): Promise<void> {
         winnerStatuses,
       );
     }
+    setSeedStage("complete");
     console.log(
       `${options.dryRun ? "Dry run complete" : "Baton Rouge seed complete"}: ` +
         `${totalRespondents} respondents and ${totalResponses} responses.`,
@@ -1130,6 +1269,9 @@ async function main(): Promise<void> {
 }
 
 void main().catch((error: unknown) => {
-  console.error(error);
+  console.error(
+    `[BR seed ${new Date().toISOString()}] FATAL during stage ${currentSeedStage}:`,
+    safeErrorJson(error),
+  );
   process.exitCode = 1;
 });
