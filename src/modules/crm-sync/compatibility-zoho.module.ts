@@ -66,6 +66,10 @@ export class CompatibilityZohoService {
   async listPrograms(principal: Principal) {
     this.assertAccess(principal);
     const records = await this.zoho.listAllRecords("Programs");
+    const [projects, deals] = await Promise.all([
+      this.zoho.listAllRecords("Main_Projects").catch(() => []),
+      this.zoho.listAllRecords("Deals").catch(() => []),
+    ]);
     const text = (record: ZohoRecord, key: string): string | null => {
       const value = record[key];
       return typeof value === "string" && value.trim() ? value.trim() : null;
@@ -111,15 +115,66 @@ export class CompatibilityZohoService {
       );
       return completed.length === definitions.length ? completed : undefined;
     };
+    const lookup = (record: ZohoRecord, key: string) => {
+      const value = record[key];
+      if (value === null || typeof value !== "object" || Array.isArray(value)) {
+        return undefined;
+      }
+      const entry = value as Record<string, unknown>;
+      const id = typeof entry.id === "string" ? entry.id.trim() : "";
+      const name = typeof entry.name === "string" ? entry.name.trim() : "";
+      return id ? { id, ...(name ? { name } : {}) } : undefined;
+    };
+    const projectsById = new Map(
+      projects.map((project) => [project.id, project]),
+    );
+    const winnerOrganizationsByProgram = new Map<
+      string,
+      Array<{
+        organizationId: string;
+        organizationName: string | null;
+        currentYearCategory: string | null;
+      }>
+    >();
+    for (const deal of deals) {
+      if (text(deal, "Current_Year_Winner")?.toLowerCase() !== "yes") continue;
+      const program = lookup(deal, "Program");
+      if (!program) continue;
+      const account = lookup(deal, "Account_Name");
+      const organizationId =
+        text(deal, "Deal_Organization_ID") ?? account?.id ?? "";
+      if (!organizationId) continue;
+      const winners = winnerOrganizationsByProgram.get(program.id) ?? [];
+      if (!winners.some((winner) => winner.organizationId === organizationId)) {
+        winners.push({
+          organizationId,
+          organizationName: account?.name ?? null,
+          currentYearCategory: text(deal, "Current_Year_Category"),
+        });
+      }
+      winnerOrganizationsByProgram.set(program.id, winners);
+    }
     return records
       .map((record) => {
         const pricing = categoryPricing(record);
+        const projectLookup = lookup(record, "Project");
+        const project = projectLookup
+          ? projectsById.get(projectLookup.id)
+          : undefined;
         return {
           id: record.id,
           name: text(record, "Name") ?? record.id,
           year: year(record),
+          projectId: projectLookup?.id ?? null,
+          projectName:
+            projectLookup?.name ?? (project ? text(project, "Name") : null),
+          projectAbbreviation: project
+            ? text(project, "Project_Abbreviation")
+            : null,
           efsLaunchDate: text(record, "EFS_Launch_Date"),
           efsDeadline: text(record, "EFS_end_Date"),
+          winnerOrganizations:
+            winnerOrganizationsByProgram.get(record.id) ?? [],
           ...(pricing ? { categoryPricing: pricing } : {}),
         };
       })

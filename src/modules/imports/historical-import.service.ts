@@ -89,9 +89,15 @@ export interface HistoricalImportMetadata {
   projectAbbreviation?: string;
   efsLaunchDate: string;
   efsDeadline: string;
+  zohoWinnerOrganizations?: Array<{
+    organizationId: string;
+    organizationName?: string;
+    currentYearCategory?: string;
+  }>;
   organizationPrograms?: Array<{
     organizationProgramId?: string;
     organizationKey?: string;
+    sourceOrganizationId?: string;
     organizationName?: string;
     surveysSent: number;
     isWinner: boolean;
@@ -395,6 +401,26 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
     );
   }
   const projectAbbreviation = optionalString(value, "projectAbbreviation");
+  const zohoWinnerOrganizations =
+    value.zohoWinnerOrganizations === undefined
+      ? undefined
+      : (Array.isArray(value.zohoWinnerOrganizations)
+          ? value.zohoWinnerOrganizations
+          : []
+        ).map((raw) => {
+          const entry = objectBody(raw);
+          const organizationId = requiredString(entry, "organizationId");
+          const organizationName = optionalString(entry, "organizationName");
+          const currentYearCategory = optionalString(
+            entry,
+            "currentYearCategory",
+          );
+          return {
+            organizationId,
+            ...(organizationName ? { organizationName } : {}),
+            ...(currentYearCategory ? { currentYearCategory } : {}),
+          };
+        });
   const organizationPrograms =
     value.organizationPrograms === undefined
       ? undefined
@@ -414,6 +440,10 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
             "organizationProgramId",
           );
           const organizationKey = optionalString(entry, "organizationKey");
+          const sourceOrganizationId = optionalString(
+            entry,
+            "sourceOrganizationId",
+          );
           const organizationName = optionalString(entry, "organizationName");
           const currentYearCategory = optionalString(
             entry,
@@ -428,6 +458,7 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
           return {
             ...(organizationProgramId ? { organizationProgramId } : {}),
             ...(organizationKey ? { organizationKey } : {}),
+            ...(sourceOrganizationId ? { sourceOrganizationId } : {}),
             ...(organizationName ? { organizationName } : {}),
             ...(currentYearCategory ? { currentYearCategory } : {}),
             surveysSent,
@@ -485,6 +516,7 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
     programYear,
     efsLaunchDate,
     efsDeadline,
+    ...(zohoWinnerOrganizations ? { zohoWinnerOrganizations } : {}),
     ...(projectAbbreviation ? { projectAbbreviation } : {}),
     ...(organizationPrograms ? { organizationPrograms } : {}),
     ...(reportCatalog ? { reportCatalog } : {}),
@@ -1154,6 +1186,11 @@ export class HistoricalImportService {
           ? { organizationProgramId: existing.organizationProgramId }
           : {}),
         organizationKey: key,
+        ...(details.workbookOrganizationId
+          ? { sourceOrganizationId: details.workbookOrganizationId }
+          : existing?.sourceOrganizationId
+            ? { sourceOrganizationId: existing.sourceOrganizationId }
+            : {}),
         organizationName: details.displayName,
         surveysSent: existing?.surveysSent ?? details.efsRespondents,
         isWinner: ranking?.isWinner ?? existing?.isWinner ?? false,

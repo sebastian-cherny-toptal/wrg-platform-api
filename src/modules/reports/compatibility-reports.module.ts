@@ -108,6 +108,51 @@ const dummyVerbatims = [
   "I feel recognized for the work I contribute.",
 ] as const;
 
+export const defaultKeyImpactContributions = {
+  "I understand how my work impacts organizational success": 15.49,
+  "I typically feel I make daily progress at work": 14.87,
+  "I am part of a team with a common purpose": 13.36,
+  "I believe this organization values me": 10.62,
+  "This organization treats me with dignity, not as just a number": 9.82,
+  "This organization is committed to producing high-quality products/services":
+    8.76,
+  "This organizations benefits package is satisfactory": 8.17,
+  "My share of healthcare costs is reasonable": 6.82,
+  "I am kept aware of this organizations financial status": 6.16,
+  "I am informed prior to changes that will impact me": 5.95,
+} as const;
+
+const defaultKeyImpactCategories: Record<
+  keyof typeof defaultKeyImpactContributions,
+  string
+> = {
+  "I understand how my work impacts organizational success": "Your Job",
+  "I typically feel I make daily progress at work": "Your Job",
+  "I am part of a team with a common purpose": "Your Job",
+  "I believe this organization values me": "Your Job",
+  "This organization treats me with dignity, not as just a number":
+    "Communication and Workplace Culture",
+  "This organization is committed to producing high-quality products/services":
+    "Communication and Workplace Culture",
+  "This organizations benefits package is satisfactory": "Employee Benefits",
+  "My share of healthcare costs is reasonable": "Employee Benefits",
+  "I am kept aware of this organizations financial status":
+    "Communication and Workplace Culture",
+  "I am informed prior to changes that will impact me":
+    "Communication and Workplace Culture",
+};
+
+const defaultKeyImpactReport = Object.entries(defaultKeyImpactContributions).map(
+  ([question, percentage]) => ({
+    label:
+      defaultKeyImpactCategories[
+        question as keyof typeof defaultKeyImpactContributions
+      ],
+    key: question,
+    value: percentage / 100,
+  }),
+);
+
 function randomInteger(minimum: number, maximum: number): number {
   return Math.floor(Math.random() * (maximum - minimum + 1)) + minimum;
 }
@@ -2449,30 +2494,121 @@ export class CompatibilityReportsService {
   async responseDetailWorkbook(
     principal: Principal,
     query: ReportQuery,
+    filterReference?: string,
   ): Promise<Buffer> {
-    const breakdown = await this.responseBreakdownBySection(
-      principal,
-      query,
-      undefined,
-      "RD_Access",
-    );
-    const sections: FeedbackWorkbookSection[] =
-      this.feedbackSectionsFromBreakdown(breakdown);
-    const demographics = await this.reportWorkbookDemographics(
-      principal,
-      query,
-    );
-    const totalResponses = Math.max(
-      0,
-      ...demographics.map((item) =>
-        item.options.reduce((total, option) => total + option.count, 0),
-      ),
-    );
+    const context = await this.context(principal, query);
+    this.requiresDemo(principal, context, "RD_Access");
+    const [questions, respondents] = await Promise.all([
+      this.benchmarkQuestions(context.survey.id),
+      this.organizationRespondents(context),
+    ]);
+    let filterGroupLabel: string | undefined;
+    if (filterReference) {
+      const surveyQuestions = await this.prisma.question.findMany({
+        where: { surveyId: context.survey.id },
+        orderBy: { position: "asc" },
+        select: {
+          id: true,
+          legacyId: true,
+          externalId: true,
+          dataLabel: true,
+          caption: true,
+          type: true,
+          position: true,
+          metadata: true,
+        },
+      });
+      const filterQuestion = this.resolveQuestions(surveyQuestions, [
+        filterReference,
+      ])[0];
+      if (!filterQuestion || !this.isDemographicQuestion(filterQuestion)) {
+        throw new NotFoundException("Demographic filter not found");
+      }
+      filterGroupLabel = this.demographicLabel(filterQuestion);
+    }
+    const demographics = this.workbookDemographicsFromRespondents(
+      respondents,
+      context.program.year,
+    ).map((demographic) => ({
+      ...demographic,
+      groupLabel: demographic.title,
+    }));
+    const distribution = (
+      question: BenchmarkQuestion,
+      population: DetailedRespondent[],
+    ): number[] => {
+      const captions = population.flatMap((respondent) => {
+        const answer = respondent.responses.find(
+          (response) => response.questionId === question.id,
+        );
+        const caption = answer
+          ? reportResponseCaption(
+              answer.value,
+              question,
+              context.program.year,
+            )
+          : null;
+        return caption ? [caption] : [];
+      });
+      return responseDetailOptions.map((option) => {
+        if (captions.length === 0) return 0;
+        return (
+          (captions.filter((caption) => caption === option).length * 100) /
+          captions.length
+        );
+      });
+    };
+    const groupedQuestions = this.questionsByCategory(questions);
+    const sections: FeedbackWorkbookSection[] = sortedCategories(
+      groupedQuestions.keys(),
+    ).map((category) => ({
+      title: category,
+      questions: (groupedQuestions.get(category) ?? []).map((question) => {
+        const responseDistribution = distribution(question, respondents);
+        const demographicResponseDistribution = Object.fromEntries(
+          demographics.map((demographic) => [
+            demographic.groupLabel,
+            Object.fromEntries(
+              demographic.options.map((option) => {
+                const population = respondents.filter((respondent) =>
+                  respondent.responses.some(
+                    (response) =>
+                      this.isDemographicQuestion(response.question) &&
+                      this.demographicLabel(response.question) ===
+                        demographic.groupLabel &&
+                      demographicResponseCaption(
+                        response.value,
+                        response.question,
+                        context.program.year,
+                      ) === option.label,
+                  ),
+                );
+                return [option.label, distribution(question, population)];
+              }),
+            ),
+          ]),
+        );
+        return {
+          text: question.caption,
+          disagreement:
+            (responseDistribution[0] ?? 0) +
+            (responseDistribution[1] ?? 0),
+          neutral: responseDistribution[2] ?? 0,
+          agreement:
+            (responseDistribution[3] ?? 0) +
+            (responseDistribution[4] ?? 0),
+          responseCount: respondents.length,
+          responseDistribution,
+          demographicResponseDistribution,
+        };
+      }),
+    }));
     return createResponseDetailWorkbook({
       metadata: await this.reportWorkbookMetadata(principal, query),
       demographics,
       sections,
-      totalResponses,
+      totalResponses: respondents.length,
+      ...(filterGroupLabel ? { filterGroupLabel } : {}),
     });
   }
 
@@ -2855,17 +2991,42 @@ export class CompatibilityReportsService {
           metadata.programId === context.program.id)
       );
     });
-    if (!asset) throw new NotFoundException("No data found");
+    const metadata = asset ? jsonObject(asset.metadata) : {};
+    const uploadedReport = Array.isArray(metadata.report)
+      ? metadata.report.flatMap((entry) => {
+          const item = jsonObject(entry);
+          const value = Number(item.value);
+          if (
+            typeof item.label !== "string" ||
+            typeof item.key !== "string" ||
+            !Number.isFinite(value)
+          ) {
+            return [];
+          }
+          return [{ label: item.label, key: item.key, value }];
+        })
+      : [];
+    const storedReport =
+      uploadedReport.length > 0 ? uploadedReport : defaultKeyImpactReport;
+    const mapping = Object.fromEntries(
+      storedReport.map((item) => {
+        const percentage = item.value <= 1 ? item.value * 100 : item.value;
+        return [
+          item.key,
+          Math.round(percentage * 100) / 100,
+        ];
+      }),
+    );
     return {
       success: true,
       message: "success",
       data: {
-        _id: asset.legacyId ?? asset.id,
-        key: asset.key,
-        fileName: jsonObject(asset.metadata).fileName,
-        report: jsonObject(asset.metadata).report ?? [],
+        ...(asset ? { _id: asset.legacyId ?? asset.id, key: asset.key } : {}),
+        fileName: metadata.fileName,
+        mapping,
+        report: storedReport,
         data: {
-          signedUrl: jsonObject(asset.metadata).signedUrl ?? null,
+          signedUrl: metadata.signedUrl ?? null,
         },
       },
     };
@@ -4631,13 +4792,23 @@ export class CompatibilityReportsController {
     selectedProgramId: string | string[] | undefined,
     @Query("organizationId") organizationId: string | string[] | undefined,
     @Query("isDummy") isDummy: string | string[] | undefined,
+    @Query("filterQuestion")
+    filterQuestion: string | string[] | undefined,
     @Res() reply: FastifyReply,
   ): Promise<void> {
+    const selectedFilter = scalarQuery("filterQuestion", filterQuestion);
     const workbook = await this.reports.responseDetailWorkbook(
       principal,
       this.reportQuery(selectedProgramId, organizationId, isDummy),
+      selectedFilter,
     );
-    this.sendWorkbook(reply, workbook, "Response_Detail_Report.xlsx");
+    this.sendWorkbook(
+      reply,
+      workbook,
+      selectedFilter
+        ? "Response_Detail_Filtered_Report.xlsx"
+        : "Response_Detail_Report.xlsx",
+    );
   }
 
   @Get("responseCountByDemographicCategory")

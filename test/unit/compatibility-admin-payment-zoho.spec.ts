@@ -138,28 +138,53 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
     const service = new CompatibilityZohoService(
       {} as SyncQueue,
       {
-        listAllRecords: () =>
-          Promise.resolve([
-            {
-              id: "zoho-program-1",
-              Name: "Baton Rouge 2026",
-              Program_Year: "2026",
-              EFS_Launch_Date: "2026-01-15",
-              EFS_end_Date: "2026-04-30",
-              Boutique_EE_Size: "15-24",
-              Category_15_24_Fee: "$450",
-              Small_EE_Size: "25-99",
-              Category_25_99_Fee: "550",
-              Medium_EE_Size: "100-199",
-              Category_100_199_Fee: "650",
-              Large_EE_Size: "200-499",
-              Category_200_499_Fee: "750",
-              Mega_EE_Size: "500-999",
-              Category_500_999_Fee: "850",
-              Major_EE_Size: "1000+",
-              Category_1000_Fee: "950",
-            },
-          ]),
+        listAllRecords: (module: string) =>
+          Promise.resolve(
+            module === "Programs"
+              ? [
+                  {
+                    id: "zoho-program-1",
+                    Name: "Baton Rouge 2026",
+                    Project: { id: "zoho-project-1", name: "Baton Rouge" },
+                    Program_Year: "2026",
+                    EFS_Launch_Date: "2026-01-15",
+                    EFS_end_Date: "2026-04-30",
+                    Boutique_EE_Size: "15-24",
+                    Category_15_24_Fee: "$450",
+                    Small_EE_Size: "25-99",
+                    Category_25_99_Fee: "550",
+                    Medium_EE_Size: "100-199",
+                    Category_100_199_Fee: "650",
+                    Large_EE_Size: "200-499",
+                    Category_200_499_Fee: "750",
+                    Mega_EE_Size: "500-999",
+                    Category_500_999_Fee: "850",
+                    Major_EE_Size: "1000+",
+                    Category_1000_Fee: "950",
+                  },
+                ]
+              : module === "Main_Projects"
+                ? [
+                    {
+                      id: "zoho-project-1",
+                      Name: "Baton Rouge",
+                      Project_Abbreviation: "BR",
+                    },
+                  ]
+                : [
+                    {
+                      id: "zoho-deal-1",
+                      Program: {
+                        id: "zoho-program-1",
+                        name: "Baton Rouge 2026",
+                      },
+                      Account_Name: { id: "zoho-account-1", name: "Acme" },
+                      Deal_Organization_ID: "49",
+                      Current_Year_Winner: "Yes",
+                      Current_Year_Category: "Large",
+                    },
+                  ],
+          ),
       } as unknown as ZohoAdapter,
     );
 
@@ -175,8 +200,18 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
         id: "zoho-program-1",
         name: "Baton Rouge 2026",
         year: 2026,
+        projectId: "zoho-project-1",
+        projectName: "Baton Rouge",
+        projectAbbreviation: "BR",
         efsLaunchDate: "2026-01-15",
         efsDeadline: "2026-04-30",
+        winnerOrganizations: [
+          {
+            organizationId: "49",
+            organizationName: "Acme",
+            currentYearCategory: "Large",
+          },
+        ],
         categoryPricing: [
           { tier: "Boutique", employeeSize: "15-24", priceCents: 45_000 },
           { tier: "Small", employeeSize: "25-99", priceCents: 55_000 },

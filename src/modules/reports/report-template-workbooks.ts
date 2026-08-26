@@ -23,6 +23,11 @@ export interface FeedbackWorkbookSection {
     responseCount?: number;
     demographicAgreement?: Record<string, Record<string, number>>;
     demographicResponseCount?: Record<string, Record<string, number>>;
+    responseDistribution?: number[];
+    demographicResponseDistribution?: Record<
+      string,
+      Record<string, number[]>
+    >;
   }>;
 }
 
@@ -161,6 +166,96 @@ function demographicGroupLabel(cell: ExcelJS.Cell): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
+function normalizedDemographicLabel(value: unknown): string {
+  return typeof value === "string"
+    ? value.toLowerCase().replace(/[^a-z0-9]+/gu, "")
+    : "";
+}
+
+function columnNumber(address: string): number {
+  let result = 0;
+  for (const character of address) {
+    result = result * 26 + character.charCodeAt(0) - 64;
+  }
+  return result;
+}
+
+function columnName(column: number): string {
+  let value = column;
+  let result = "";
+  while (value > 0) {
+    value -= 1;
+    result = String.fromCharCode(65 + (value % 26)) + result;
+    value = Math.floor(value / 26);
+  }
+  return result;
+}
+
+function mappedResponseDetailMerge(
+  merge: string,
+  selectedStart: number,
+  selectedEnd: number,
+): string | undefined {
+  const match = /^([A-Z]+)(\d+):([A-Z]+)(\d+)$/u.exec(merge);
+  if (!match?.[1] || !match[2] || !match[3] || !match[4]) return undefined;
+  const left = columnNumber(match[1]);
+  const right = columnNumber(match[3]);
+  const mapColumn = (column: number): number | undefined => {
+    if (column <= 5) return column;
+    if (column >= selectedStart - 1 && column <= selectedEnd) {
+      return column - selectedStart + 7;
+    }
+    return undefined;
+  };
+  let mappedLeft: number | undefined;
+  let mappedRight: number | undefined;
+  for (let column = left; column <= right; column += 1) {
+    const mapped = mapColumn(column);
+    if (mapped === undefined) continue;
+    mappedLeft ??= mapped;
+    mappedRight = mapped;
+  }
+  if (mappedLeft === undefined || mappedRight === undefined) return undefined;
+  return `${columnName(mappedLeft)}${match[2]}:${columnName(mappedRight)}${match[4]}`;
+}
+
+export function filterResponseDetailColumns(
+  workbook: ExcelJS.Workbook,
+  selectedGroupLabel: string,
+): void {
+  const sheet = workbook.worksheets[0];
+  if (!sheet) throw new Error("Response detail template has no worksheet");
+  const selected = normalizedDemographicLabel(selectedGroupLabel);
+  let start = 0;
+  let end = 0;
+  for (let column = 7; column <= sheet.columnCount; column += 1) {
+    const group = normalizedDemographicLabel(sheet.getCell(2, column).value);
+    if (group === selected) {
+      if (start === 0) start = column;
+      end = column;
+    } else if (start !== 0) {
+      break;
+    }
+  }
+  if (start === 0 || end === 0) {
+    throw new Error(
+      `Selected response detail filter is not present in the report template: ${selectedGroupLabel}`,
+    );
+  }
+  const mappedMerges = sheet.model.merges.flatMap((merge) => {
+    const mapped = mappedResponseDetailMerge(merge, start, end);
+    return mapped ? [mapped] : [];
+  });
+  for (const merge of [...sheet.model.merges]) sheet.unMergeCells(merge);
+  if (end < sheet.columnCount) {
+    sheet.spliceColumns(end + 1, sheet.columnCount - end);
+  }
+  if (start > 7) {
+    sheet.spliceColumns(6, start - 7);
+  }
+  for (const merge of mappedMerges) sheet.mergeCells(merge);
+}
+
 function subgroupAgreement(
   demographicAgreement: Record<string, Record<string, number>> | undefined,
   groupLabel: string | undefined,
@@ -172,6 +267,22 @@ function subgroupAgreement(
     ([key]) => key.trim().toLowerCase() === normalizedGroupLabel,
   )?.[1];
   return group?.[label];
+}
+
+function subgroupResponsePercentage(
+  distributions:
+    | Record<string, Record<string, number[]>>
+    | undefined,
+  groupLabel: string | undefined,
+  label: string,
+  responseIndex: number,
+): number | undefined {
+  if (!distributions || !groupLabel) return undefined;
+  const normalizedGroupLabel = normalizedDemographicLabel(groupLabel);
+  const group = Object.entries(distributions).find(
+    ([key]) => normalizedDemographicLabel(key) === normalizedGroupLabel,
+  )?.[1];
+  return group?.[label]?.[responseIndex];
 }
 
 function demographicValue(
@@ -727,6 +838,7 @@ export async function createAnnualTrendsWorkbook(input: {
 function responsePercentages(
   question: FeedbackWorkbookSection["questions"][number],
 ): number[] {
+  if (question.responseDistribution) return question.responseDistribution;
   const stronglyDisagree = Math.round(question.disagreement * 0.4);
   const disagree = question.disagreement - stronglyDisagree;
   const stronglyAgree = Math.round(question.agreement * 0.6);
@@ -746,6 +858,7 @@ export async function createResponseDetailWorkbook(input: {
   demographics: ReportWorkbookDemographic[];
   sections: FeedbackWorkbookSection[];
   totalResponses: number;
+  filterGroupLabel?: string;
 }): Promise<Buffer> {
   const workbook = await loadTemplate("response-detail.xlsx");
   const questions = input.sections.flatMap((section) => section.questions);
@@ -757,8 +870,9 @@ export async function createResponseDetailWorkbook(input: {
     const countMatch = /^DEMOGRAPHIC_COUNT_(\d+)$/u.exec(name);
     if (countMatch) {
       const label = cell.worksheet.getCell(3, cell.col).value;
+      const groupLabel = demographicGroupLabel(cell);
       return typeof label === "string"
-        ? (demographicCount(input.demographics, label) ?? 0)
+        ? (demographicCount(input.demographics, label, groupLabel) ?? 0)
         : 0;
     }
     const categoryMatch = /^CATEGORY_(\d+)_TITLE$/u.exec(name);
@@ -771,9 +885,10 @@ export async function createResponseDetailWorkbook(input: {
     if (totalMatch) {
       if (cell.fullAddress.col === 5) return input.totalResponses;
       const label = cell.worksheet.getCell(3, cell.fullAddress.col).value;
+      const groupLabel = demographicGroupLabel(cell);
       const count =
         typeof label === "string"
-          ? demographicCount(input.demographics, label)
+          ? demographicCount(input.demographics, label, groupLabel)
           : undefined;
       return count === undefined || count < 5
         ? "x"
@@ -788,9 +903,27 @@ export async function createResponseDetailWorkbook(input: {
       const value =
         responsePercentages(question)[Number(responseMatch[2]) - 1] ?? 0;
       if (cell.fullAddress.col === 5) return value;
-      return demographicValue(input.demographics, cell, value);
+      const label = cell.worksheet.getCell(3, cell.fullAddress.col).value;
+      const groupLabel = demographicGroupLabel(cell);
+      const subgroupValue =
+        typeof label === "string"
+          ? subgroupResponsePercentage(
+              question.demographicResponseDistribution,
+              groupLabel,
+              label,
+              Number(responseMatch[2]) - 1,
+            )
+          : undefined;
+      return demographicValue(
+        input.demographics,
+        cell,
+        subgroupValue ?? value,
+      );
     }
     return null;
   });
+  if (input.filterGroupLabel) {
+    filterResponseDetailColumns(workbook, input.filterGroupLabel);
+  }
   return workbookBuffer(workbook);
 }

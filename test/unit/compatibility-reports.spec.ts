@@ -4,6 +4,7 @@ import type { Prisma } from "@prisma/client";
 import type { PrismaService } from "../../src/database/prisma.service.js";
 import {
   CompatibilityReportsService,
+  defaultKeyImpactContributions,
   type BenchmarkQuestion,
 } from "../../src/modules/reports/compatibility-reports.module.js";
 
@@ -25,6 +26,61 @@ function benchmarkQuestion(
 }
 
 describe("compatibility report categories", () => {
+  it("returns the legacy key-impact defaults when no report asset exists", async () => {
+    const prisma = {
+      program: {
+        findFirst: () => ({
+          id: "program-1",
+          projectId: "project-1",
+          name: "Test program",
+          year: 2026,
+          startsAt: null,
+          metadata: {},
+          project: { id: "project-1", name: "Test project" },
+        }),
+      },
+      organizationProgram: {
+        findFirst: () => ({
+          id: "enrollment-1",
+          reportAccess: { KIA_Access: "yes" },
+          metrics: {},
+          metadata: {},
+        }),
+        findMany: () => [],
+      },
+      survey: {
+        findFirst: () => ({
+          id: "survey-1",
+          title: "Test survey",
+          startsAt: null,
+          endsAt: null,
+        }),
+      },
+      asset: { findMany: () => [] },
+    } as unknown as PrismaService;
+
+    const result = await new CompatibilityReportsService(
+      prisma,
+    ).keyImpactAnalysis(
+      {
+        sub: "client-1",
+        organizationId: "organization-1",
+        roles: ["client"],
+        permissions: [],
+      },
+      { selectedProgramId: "program-1", isDummy: false },
+    );
+
+    assert.deepEqual(result.data.mapping, defaultKeyImpactContributions);
+    assert.equal(result.data.report.length, 10);
+    assert.equal(
+      result.data.report[0]?.value,
+      defaultKeyImpactContributions[
+        "I understand how my work impacts organizational success"
+      ] / 100,
+    );
+  });
+
   it("includes zero-count standard demographic options", async () => {
     const genderQuestion = {
       id: "gender-question",

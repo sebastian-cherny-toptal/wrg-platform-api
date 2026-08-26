@@ -4,9 +4,85 @@ import ExcelJS from "exceljs";
 import {
   createAnnualTrendsWorkbook,
   createBenchmarkWorkbook,
+  createResponseDetailWorkbook,
   createVerbatimWorkbook,
   createWorkforceFeedbackWorkbook,
 } from "../../src/modules/reports/report-template-workbooks.js";
+
+describe("response detail workbook generation", () => {
+  const input = {
+    metadata: {
+      organizationName: "Health organization",
+      programName: "San Diego 2026",
+      surveyDates: "April 2026",
+    },
+    demographics: [
+      {
+        title: "Gender",
+        groupLabel: "Gender",
+        options: [
+          { label: "Female", count: 12 },
+          { label: "Male", count: 8 },
+          { label: "Non-Binary", count: 0 },
+          { label: "Prefer not to answer", count: 0 },
+        ],
+      },
+    ],
+    sections: [
+      {
+        title: "Core Employee Experience",
+        questions: [
+          {
+            text: "I can do my best work",
+            agreement: 75,
+            neutral: 15,
+            disagreement: 10,
+            responseDistribution: [1, 9, 15, 30, 45, 0],
+            demographicResponseDistribution: {
+              Gender: {
+                Female: [2, 8, 10, 35, 45, 0],
+                Male: [0, 5, 20, 25, 50, 0],
+              },
+            },
+          },
+        ],
+      },
+    ],
+    totalResponses: 20,
+  };
+
+  it("uses the supplied 2026 layout for a full report", async () => {
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(
+      (await createResponseDetailWorkbook(input)) as never,
+    );
+    const sheet = workbook.getWorksheet("Response Detail Report");
+    assert.ok(sheet);
+    assert.equal(sheet.columnCount, 64);
+    assert.equal(sheet.getCell("G2").value, "GENDER");
+    assert.equal(sheet.getCell("S2").value, "RACE/ETHNICITY");
+    assert.equal(sheet.getCell("BG2").value, "FSLA STATUS");
+    assert.match(String(sheet.getCell("B3").value), /Health organization/u);
+    assert.equal(sheet.getCell("E7").value, 1);
+    assert.equal(sheet.getCell("G7").value, 2);
+  });
+
+  it("keeps only overall and the selected demographic columns", async () => {
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(
+      (await createResponseDetailWorkbook({
+        ...input,
+        filterGroupLabel: "Gender",
+      })) as never,
+    );
+    const sheet = workbook.getWorksheet("Response Detail Report");
+    assert.ok(sheet);
+    assert.equal(sheet.columnCount, 10);
+    assert.equal(sheet.getCell("G2").value, "GENDER");
+    assert.equal(sheet.getCell("J3").value, "Prefer not to answer");
+    assert.equal(sheet.getCell("K2").value, null);
+  });
+});
 
 describe("annual trends workbook generation", () => {
   it("fills the supplied two-year annual trends template", async () => {
