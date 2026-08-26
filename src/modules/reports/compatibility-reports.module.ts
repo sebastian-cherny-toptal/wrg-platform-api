@@ -66,8 +66,9 @@ const promotionalPreviewAccess = new Set([
   "WBC_Access",
   "BBP_Access",
   "RD_Access",
+  "KIA_Access",
 ]);
-const clientDemoAccess = new Set(["EV_Access", "RD_Access"]);
+const clientDemoAccess = new Set(["EV_Access", "RD_Access", "KIA_Access"]);
 const dummyResponseDetailSections = [
   {
     Engagement: [
@@ -3003,6 +3004,17 @@ export class CompatibilityReportsService {
   async keyImpactAnalysis(principal: Principal, query: ReportQuery) {
     const context = await this.context(principal, query);
     this.requiresDemo(principal, context, "KIA_Access");
+    if (query.isDummy) {
+      return {
+        success: true,
+        message: "success",
+        data: {
+          mapping: defaultKeyImpactContributions,
+          report: defaultKeyImpactReport,
+          data: { signedUrl: null },
+        },
+      };
+    }
     const assets = await this.prisma.asset.findMany({
       where: { organizationId: context.organizationId },
       orderBy: { createdAt: "desc" },
@@ -4993,7 +5005,7 @@ export class CompatibilityReportsController {
   ) {
     return this.reports.keyImpactAnalysis(
       principal,
-      this.reportQuery(selectedProgramId, organizationId, isDummy),
+      this.reportQuery(selectedProgramId, organizationId, isDummy, false, true),
     );
   }
 

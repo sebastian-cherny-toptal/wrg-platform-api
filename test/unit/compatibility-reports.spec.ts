@@ -368,8 +368,10 @@ describe("compatibility report categories", () => {
     };
     const clientVerbatimsDemo = await service.openResponseQuestions(client, dummyQuery);
     const clientResponseDetailDemo = await service.responseDetailSections(client, dummyQuery);
+    const clientKeyImpactDemo = await service.keyImpactAnalysis(client, dummyQuery);
     assert.ok(clientVerbatimsDemo.data.every(({ id }) => id.startsWith("dummy-")));
     assert.ok(clientResponseDetailDemo.data.length > 0);
+    assert.deepEqual(clientKeyImpactDemo.data.mapping, defaultKeyImpactContributions);
     await assert.rejects(
       service.demographicResponseCounts(
         client,
