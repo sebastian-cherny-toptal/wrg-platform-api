@@ -1684,6 +1684,14 @@ export class HistoricalImportService {
           select: { id: true, organizationId: true, metrics: true },
         })
       : [];
+    const existingOrganizations = await prisma.organization.findMany({
+      select: {
+        id: true,
+        name: true,
+        metadata: true,
+        programs: { select: { metrics: true } },
+      },
+    });
     for (const [key, details] of organizationRows) {
       const surveysSent = configuredSent.get(key) ?? details.efsRespondents;
       const isWinner = configuredWinners.get(key) ?? false;
@@ -1703,8 +1711,22 @@ export class HistoricalImportService {
           ) === normalizedName
         );
       });
+      const reusableOrganization = existingOrganizations.find((candidate) => {
+        const metadata = objectBody(candidate.metadata);
+        const sourceIds = [
+          metadata.sourceOrganizationId,
+          ...candidate.programs.map(({ metrics }) =>
+            objectBody(metrics).Source_Organization_ID
+          ),
+        ].map((value) => String(value ?? "").trim()).filter(Boolean);
+        if (details.workbookOrganizationId && sourceIds.length) {
+          return sourceIds.includes(details.workbookOrganizationId);
+        }
+        return normalizeOrganizationName(candidate.name) === normalizedName;
+      });
       const organizationId =
         matched?.organizationId ??
+        reusableOrganization?.id ??
         deterministicUuid(`${importPrefix}:organization:${key}`);
       organizationIds.set(key, organizationId);
       const token = digest(`${importPrefix}:organization:${key}`, 12);
@@ -1717,7 +1739,7 @@ export class HistoricalImportService {
           sourceOrganizationName: details.displayName,
         },
       };
-      if (!matched) {
+      if (!matched && !reusableOrganization) {
         await prisma.organization.upsert({
           where: { id: organizationId },
           update: organizationData,

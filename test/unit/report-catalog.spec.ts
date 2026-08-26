@@ -18,6 +18,15 @@ describe("report catalog configuration", () => {
     assert.throws(() => parseReportCatalog([{ ...reportProductTemplates[0], priceCents: -1 }]));
   });
 
+  it("ignores malformed legacy prices", () => {
+    const template = reportProductTemplates[0];
+    assert.ok(template);
+    const catalog = effectiveReportCatalog([
+      { id: template.id, priceCents: "42500" },
+    ]);
+    assert.equal(catalog[0]?.priceCents, template.priceCents);
+  });
+
   it("keeps new storefront products available for older saved catalogs", () => {
     const effective = effectiveReportCatalog([reportProductTemplates[1]]);
     assert.deepEqual(

@@ -198,6 +198,7 @@ describe("create user endpoint", () => {
     const prisma = {
       user: {
         findUnique: () => Promise.resolve(null),
+        updateMany: () => Promise.resolve({ count: 0 }),
         create: (args: { data: Record<string, unknown> }) => {
           createdData = args.data;
           return Promise.resolve({
@@ -283,7 +284,18 @@ describe("create user endpoint", () => {
           }),
       },
       organization: {
-        findFirst: () => Promise.resolve({ id: "organization-id" }),
+        findFirst: () => Promise.resolve({
+          id: "organization-id",
+          name: "Example Company",
+          metadata: {},
+          programs: [],
+        }),
+        findMany: () => Promise.resolve([{
+          id: "organization-id",
+          name: "Example Company",
+          metadata: {},
+          programs: [],
+        }]),
       },
       program: {
         findMany: () =>
@@ -304,6 +316,7 @@ describe("create user endpoint", () => {
           Promise.resolve([
             {
               id: "organization-program-id",
+              organizationId: "organization-id",
               programId: "program-id",
               projectId: "project-id",
               reportAccess: {

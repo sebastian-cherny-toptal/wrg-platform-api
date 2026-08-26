@@ -271,6 +271,25 @@ function jsonObject(value: Prisma.JsonValue): Prisma.JsonObject {
     : {};
 }
 
+function normalizedOrganizationName(value: unknown): string {
+  return String(value ?? "").trim().toLocaleLowerCase().replace(/[^a-z0-9]+/gu, " ").trim();
+}
+
+function organizationIdentityKeys(organization: {
+  name: string;
+  metadata: Prisma.JsonValue;
+  programs?: Array<{ metrics: Prisma.JsonValue }>;
+}): Set<string> {
+  const metadata = jsonObject(organization.metadata);
+  const sourceIds = [
+    metadata.sourceOrganizationId,
+    ...(organization.programs ?? []).map(({ metrics }) => jsonObject(metrics).Source_Organization_ID),
+  ].map((value) => String(value ?? "").trim().toLocaleLowerCase()).filter(Boolean);
+  return new Set(sourceIds.length
+    ? sourceIds.map((id) => `source:${id}`)
+    : [`name:${normalizedOrganizationName(organization.name)}`]);
+}
+
 function basicClientReportAccess(
   value: Prisma.JsonValue,
 ): Prisma.InputJsonObject {
@@ -712,7 +731,12 @@ export class UsersService {
                   { externalId: dto.organizationId },
                 ],
               },
-          select: { id: true },
+          select: {
+            id: true,
+            name: true,
+            metadata: true,
+            programs: { select: { metrics: true } },
+          },
         })
       : null;
     if (dto.organizationId && !organization) {
@@ -738,14 +762,31 @@ export class UsersService {
       throw new NotFoundException("One or more programs were not found");
     }
 
+    const identityKeys = organization
+      ? organizationIdentityKeys(organization)
+      : new Set<string>();
+    const equivalentOrganizations = organization
+      ? (await this.prisma.organization.findMany({
+          select: {
+            id: true,
+            name: true,
+            metadata: true,
+            programs: { select: { metrics: true } },
+          },
+        })).filter((candidate) =>
+          [...organizationIdentityKeys(candidate)].some((key) => identityKeys.has(key)),
+        )
+      : [];
+    const equivalentOrganizationIds = equivalentOrganizations.map(({ id }) => id);
     const enrollments = organization
       ? await this.prisma.organizationProgram.findMany({
           where: {
-            organizationId: organization.id,
+            organizationId: { in: equivalentOrganizationIds },
             programId: { in: selectedPrograms.map(({ id }) => id) },
           },
           select: {
             id: true,
+            organizationId: true,
             programId: true,
             projectId: true,
             reportAccess: true,
@@ -753,14 +794,17 @@ export class UsersService {
           },
         })
       : [];
-    if (isClient && enrollments.length !== selectedPrograms.length) {
+    const selectedEnrollments = selectedPrograms
+      .map((program) =>
+        enrollments.find((enrollment) =>
+          enrollment.programId === program.id &&
+          enrollment.organizationId === organization?.id,
+        ) ?? enrollments.find((enrollment) => enrollment.programId === program.id),
+      )
+      .filter((enrollment): enrollment is (typeof enrollments)[number] => Boolean(enrollment));
+    if (isClient && selectedEnrollments.length !== selectedPrograms.length) {
       throw new BadRequestException(
         "One or more programs are not available to the selected organization",
-      );
-    }
-    if (new Set(enrollments.map(({ projectId }) => projectId)).size > 1) {
-      throw new BadRequestException(
-        "Client programs must belong to the same project",
       );
     }
 
@@ -785,11 +829,11 @@ export class UsersService {
     const projects = isClient
       ? [
           ...new Map(
-            enrollments.map(({ project }) => [project.id, project]),
+            selectedEnrollments.map(({ project }) => [project.id, project]),
           ).values(),
         ]
       : managementProjects;
-    const primaryEnrollment = enrollments[0] ?? null;
+    const primaryEnrollment = selectedEnrollments[0] ?? null;
 
     const password = dto.password ?? randomBytes(18).toString("base64url");
     const mfa = dto.mfa ?? "email";
@@ -800,8 +844,33 @@ export class UsersService {
 
     try {
       const createUser = async (
-        database: Pick<Prisma.TransactionClient, "user">,
+        database: Pick<Prisma.TransactionClient, "user" | "organizationProgram">,
       ) => {
+        if (organization && equivalentOrganizationIds.length > 1) {
+          const allEquivalentEnrollments = await database.organizationProgram.findMany({
+            where: { organizationId: { in: equivalentOrganizationIds } },
+            select: { id: true, organizationId: true, programId: true },
+          });
+          const canonicalProgramIds = new Set(
+            allEquivalentEnrollments
+              .filter(({ organizationId }) => organizationId === organization.id)
+              .map(({ programId }) => programId),
+          );
+          await Promise.all(
+            allEquivalentEnrollments
+              .filter(({ organizationId, programId }) =>
+                organizationId !== organization.id && !canonicalProgramIds.has(programId),
+              )
+              .map(({ id }) => database.organizationProgram.update({
+                where: { id },
+                data: { organizationId: organization.id },
+              })),
+          );
+          await database.user.updateMany({
+            where: { organizationId: { in: equivalentOrganizationIds } },
+            data: { organizationId: organization.id },
+          });
+        }
         const created = await database.user.create({
           data: {
             email,
@@ -850,10 +919,10 @@ export class UsersService {
           },
         });
       };
-      const user = role.key === "client"
+      const user = isClient
         ? await this.prisma.$transaction(async (transaction) => {
             await Promise.all(
-              enrollments.map((enrollment) =>
+              selectedEnrollments.map((enrollment) =>
                 transaction.organizationProgram.update({
                   where: { id: enrollment.id },
                   data: {

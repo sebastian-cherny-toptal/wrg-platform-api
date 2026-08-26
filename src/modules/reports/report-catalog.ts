@@ -106,9 +106,27 @@ export function effectiveReportCatalog(value: unknown): ReportCatalogProduct[] {
   }
   return reportProductTemplates.map((template) => {
     const override = configured.get(template.id);
-    return override && typeof override === "object" && !Array.isArray(override)
-      ? { ...template, ...(override as Partial<ReportCatalogProduct>), id: template.id }
-      : { ...template };
+    if (!override || typeof override !== "object" || Array.isArray(override)) {
+      return { ...template };
+    }
+    const candidate = override as Record<string, unknown>;
+    return {
+      ...template,
+      id: template.id,
+      ...(typeof candidate.name === "string" && candidate.name.trim()
+        ? { name: candidate.name }
+        : {}),
+      ...(typeof candidate.description === "string" && candidate.description.trim()
+        ? { description: candidate.description }
+        : {}),
+      ...(typeof candidate.priceCents === "number" &&
+      Number.isInteger(candidate.priceCents) && candidate.priceCents >= 0
+        ? { priceCents: candidate.priceCents }
+        : {}),
+      ...(typeof candidate.available === "boolean"
+        ? { available: candidate.available }
+        : {}),
+    };
   });
 }
 
