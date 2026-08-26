@@ -65,10 +65,40 @@ export class CompatibilityZohoService {
 
   async listPrograms(principal: Principal) {
     this.assertAccess(principal);
-    const records = await this.zoho.listAllRecords("Programs");
+    const records = await this.zoho.listAllRecords("Programs", [
+      "id",
+      "Name",
+      "Program_Year",
+      "Project",
+      "EFS_Launch_Date",
+      "EFS_end_Date",
+      "Boutique_EE_Size",
+      "Category_15_24_Fee",
+      "Small_EE_Size",
+      "Category_25_99_Fee",
+      "Medium_EE_Size",
+      "Category_100_199_Fee",
+      "Large_EE_Size",
+      "Category_200_499_Fee",
+      "Mega_EE_Size",
+      "Category_500_999_Fee",
+      "Major_EE_Size",
+      "Category_1000_Fee",
+    ]);
     const [projects, deals] = await Promise.all([
-      this.zoho.listAllRecords("Main_Projects").catch(() => []),
-      this.zoho.listAllRecords("Deals").catch(() => []),
+      this.zoho
+        .listAllRecords("Main_Projects", ["id", "Name", "Project_Abbreviation"])
+        .catch(() => []),
+      this.zoho
+        .listAllRecords("Deals", [
+          "id",
+          "Current_Year_Winner",
+          "Program",
+          "Account_Name",
+          "Deal_Organization_ID",
+          "Current_Year_Category",
+        ])
+        .catch(() => []),
     ]);
     const text = (record: ZohoRecord, key: string): string | null => {
       const value = record[key];

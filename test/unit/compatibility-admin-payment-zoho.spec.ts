@@ -135,11 +135,13 @@ async function createTestApp(): Promise<NestFastifyApplication> {
 
 describe("native admin, payment and Zoho compatibility endpoints", () => {
   it("projects Zoho program records for the admin selector", async () => {
+    const requestedFields = new Map<string, string[]>();
     const service = new CompatibilityZohoService(
       {} as SyncQueue,
       {
-        listAllRecords: (module: string) =>
-          Promise.resolve(
+        listAllRecords: (module: string, fields: string[]) => {
+          requestedFields.set(module, fields);
+          return Promise.resolve(
             module === "Programs"
               ? [
                   {
@@ -184,7 +186,8 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
                       Current_Year_Category: "Large",
                     },
                   ],
-          ),
+          );
+        },
       } as unknown as ZohoAdapter,
     );
 
@@ -222,6 +225,11 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
         ],
       },
     ]);
+    assert.ok(requestedFields.get("Programs")?.includes("Program_Year"));
+    assert.ok(
+      requestedFields.get("Main_Projects")?.includes("Project_Abbreviation"),
+    );
+    assert.ok(requestedFields.get("Deals")?.includes("Current_Year_Winner"));
   });
 
   it("serves the compatibility routes", async () => {

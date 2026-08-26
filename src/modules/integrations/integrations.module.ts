@@ -37,6 +37,31 @@ interface ZohoRecordPage {
   };
 }
 
+interface ZohoErrorPayload {
+  code?: unknown;
+  details?: unknown;
+  message?: unknown;
+}
+
+function zohoErrorMessage(statusCode: number, body: string): string {
+  let detail = body.trim();
+  try {
+    const payload = JSON.parse(body) as ZohoErrorPayload;
+    detail = [payload.code, payload.message]
+      .filter(
+        (value): value is string =>
+          typeof value === "string" && value.trim().length > 0,
+      )
+      .join(": ");
+    if (!detail && payload.details !== undefined) {
+      detail = JSON.stringify(payload.details);
+    }
+  } catch {
+    // Keep the plain-text response when Zoho did not return JSON.
+  }
+  return `Zoho request failed ${statusCode}${detail ? `: ${detail.slice(0, 500)}` : ""}`;
+}
+
 function zohoRecordPage(payload: unknown): ZohoRecordPage {
   if (Array.isArray(payload)) {
     return { data: payload as ZohoRecord[], info: { more_records: false } };
@@ -141,13 +166,14 @@ export class ZohoAdapter {
 
   private async recordPage(
     module: string,
-    options: { page?: number; pageToken?: string } = {},
+    options: { fields?: string[]; page?: number; pageToken?: string } = {},
   ): Promise<ZohoRecordPage> {
     if (this.config.get("INTEGRATIONS_MOCK", { infer: true })) {
       return { data: [], info: { more_records: false } };
     }
     return withRetry(async () => {
       const query = new URLSearchParams({ per_page: "200" });
+      if (options.fields?.length) query.set("fields", options.fields.join(","));
       if (options.pageToken) query.set("page_token", options.pageToken);
       else query.set("page", String(options.page ?? 1));
       const refreshToken = this.config.get("ZOHO_REFRESH_TOKEN", {
@@ -169,12 +195,10 @@ export class ZohoAdapter {
               }),
             },
       });
-      if (response.statusCode >= 500 || response.statusCode === 429)
-        throw new Error(`Zoho transient error ${response.statusCode}`);
-      if (response.statusCode >= 400)
-        throw new Error(`Zoho request failed ${response.statusCode}`);
       if (response.statusCode === 204) return { data: [] };
       const body = await response.body.text();
+      if (response.statusCode >= 400)
+        throw new Error(zohoErrorMessage(response.statusCode, body));
       if (!body.trim()) return { data: [] };
       try {
         return zohoRecordPage(JSON.parse(body) as unknown);
@@ -184,17 +208,25 @@ export class ZohoAdapter {
     });
   }
 
-  async listRecords(module: string, page = 1): Promise<ZohoRecord[]> {
-    return (await this.recordPage(module, { page })).data;
+  async listRecords(
+    module: string,
+    page = 1,
+    fields: string[] = ["id"],
+  ): Promise<ZohoRecord[]> {
+    return (await this.recordPage(module, { fields, page })).data;
   }
 
-  async listAllRecords(module: string): Promise<ZohoRecord[]> {
+  async listAllRecords(
+    module: string,
+    fields: string[] = ["id"],
+  ): Promise<ZohoRecord[]> {
     const records: ZohoRecord[] = [];
     const perPage = 200;
     const maxPages = 500;
     let pageToken: string | undefined;
     for (let page = 1; page <= maxPages; page += 1) {
       const result = await this.recordPage(module, {
+        fields,
         ...(pageToken ? { pageToken } : { page }),
       });
       records.push(...result.data);
