@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { CrmSyncModule } from "../crm-sync/crm-sync.module.js";
+import { CompatibilityPaymentModule } from "../commerce/compatibility-payment.module.js";
 import {
   CheckMarketSignatureGuard,
   WebhookIngestionService,
@@ -8,7 +9,7 @@ import {
 } from "./webhooks.controller.js";
 
 @Module({
-  imports: [CrmSyncModule],
+  imports: [CrmSyncModule, CompatibilityPaymentModule],
   providers: [
     ZohoSignatureGuard,
     CheckMarketSignatureGuard,

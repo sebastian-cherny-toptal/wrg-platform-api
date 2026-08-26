@@ -554,6 +554,19 @@ export class CompatibilityAdminService {
     if (existing && existing.key !== key) {
       await this.prisma.asset.delete({ where: { id: existing.id } });
     }
+    await this.prisma.organizationProgram.update({
+      where: { id: enrollment.id },
+      data: {
+        reportAccess: inputJson({
+          ...jsonObject(enrollment.reportAccess),
+          KIA_Access: "yes",
+        }),
+        metrics: inputJson({
+          ...jsonObject(enrollment.metrics),
+          KIA_Order_Status: "Delivered",
+        }),
+      },
+    });
     return { success: true, message: "uploaded successfully" };
   }
 
@@ -808,7 +821,12 @@ export class CompatibilityAdminService {
         : sortField === "status"
           ? { status: direction }
           : { createdAt: direction };
-    const statuses: OrderStatus[] = ["PAID", "INVOICED", "REQUIRES_PAYMENT"];
+    const statuses: OrderStatus[] = [
+      "PENDING",
+      "PAID",
+      "INVOICED",
+      "REQUIRES_PAYMENT",
+    ];
     const where: Prisma.OrderWhereInput = { status: { in: statuses } };
     const [orders, total] = await this.prisma.$transaction([
       this.prisma.order.findMany({

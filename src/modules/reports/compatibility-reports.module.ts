@@ -3257,6 +3257,9 @@ export class CompatibilityReportsService {
   ): Promise<Buffer> {
     const context = await this.context(principal, query);
     this.requiresDemo(principal, context, "EV_Access");
+    if (queryFilter?.questionId !== undefined) {
+      this.requiresDemo(principal, context, "SEV_Access");
+    }
     if (query.isDummy) {
       return createVerbatimWorkbook({
         metadata: await this.reportWorkbookMetadata(principal, query, context),
@@ -3275,6 +3278,18 @@ export class CompatibilityReportsService {
       });
     }
     const questions = await this.openQuestions(context.survey.id, queryFilter);
+    const filterReference = queryFilter?.questionId;
+    const filterQuestion =
+      typeof filterReference === "string" || typeof filterReference === "number"
+        ? questions.find((question) =>
+            [question.id, question.legacyId, question.externalId]
+              .filter(Boolean)
+              .includes(String(filterReference)),
+          )
+        : undefined;
+    const reportQuestions = filterQuestion
+      ? questions.filter(({ id }) => id !== filterQuestion.id)
+      : questions;
     const respondents = await this.prisma.respondent.findMany({
       where: {
         surveyId: context.survey.id,
@@ -3291,7 +3306,8 @@ export class CompatibilityReportsService {
     });
     return createVerbatimWorkbook({
       metadata: await this.reportWorkbookMetadata(principal, query, context),
-      questions: questions.map((question) => ({
+      ...(filterQuestion ? { demographicTitle: filterQuestion.caption } : {}),
+      questions: reportQuestions.map((question) => ({
         text: question.caption,
         responses: respondents
           .flatMap((respondent) => {
@@ -3299,9 +3315,29 @@ export class CompatibilityReportsService {
               (item) => item.questionId === question.id,
             );
             const answer = response ? responseCaption(response.value) : null;
-            return answer ? [{ answer: safeSpreadsheetValue(answer) }] : [];
+            const demographicResponse = filterQuestion
+              ? respondent.responses.find(
+                  (item) => item.questionId === filterQuestion.id,
+                )
+              : undefined;
+            const demographic = demographicResponse
+              ? responseCaption(demographicResponse.value)
+              : null;
+            return answer
+              ? [{
+                  answer: safeSpreadsheetValue(answer),
+                  ...(demographic
+                    ? { demographic: safeSpreadsheetValue(demographic) }
+                    : {}),
+                }]
+              : [];
           })
           .sort((left, right) =>
+            (left.demographic ?? "").localeCompare(
+              right.demographic ?? "",
+              "en",
+              { numeric: true, sensitivity: "base" },
+            ) ||
             left.answer.localeCompare(right.answer, "en", {
               numeric: true,
               sensitivity: "base",
@@ -3419,7 +3455,8 @@ export class CompatibilityReportsService {
       | "WFR_Access"
       | "RD_Access"
       | "BBP_Access"
-      | "KIA_Access",
+      | "KIA_Access"
+      | "SEV_Access",
   ): false {
     if (
       principal.roles.includes("admin") ||
@@ -3437,6 +3474,7 @@ export class CompatibilityReportsService {
       RD_Access: "responseDetail",
       BBP_Access: "benefitsBestPractices",
       KIA_Access: "keyImpactAnalysis",
+      SEV_Access: "sortedEmployeeVerbatims",
     } as const;
     const value = access[accessKey] ?? access[aliases[accessKey]];
     const allowed =

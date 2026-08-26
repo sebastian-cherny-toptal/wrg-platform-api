@@ -7,6 +7,7 @@ import {
   Headers,
   Inject,
   Injectable,
+  Optional,
   Post,
   Req,
   UseGuards,
@@ -21,6 +22,14 @@ import Stripe from "stripe";
 import type { Env } from "../../config/env.js";
 import { PrismaService } from "../../database/prisma.service.js";
 import { SyncQueue } from "../crm-sync/crm-sync.module.js";
+import { CompatibilityPaymentService } from "../commerce/compatibility-payment.module.js";
+import {
+  KEY_IMPACT_ID,
+  RESPONSE_DETAIL_ID,
+  SORTED_VERBATIMS_ID,
+  STANDARD_PACKAGE_ID,
+  standardReportAccessKeys,
+} from "../reports/report-catalog.js";
 
 export function verifySharedSignature(
   raw: Buffer,
@@ -99,6 +108,9 @@ export class WebhookIngestionService {
     @Inject(ConfigService) config: ConfigService<Env, true>,
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(SyncQueue) private readonly syncQueue: SyncQueue,
+    @Optional()
+    @Inject(CompatibilityPaymentService)
+    private readonly payments?: CompatibilityPaymentService,
   ) {
     this.stripeClient = new Stripe(
       config.get("STRIPE_SECRET_KEY", { infer: true }),
@@ -139,16 +151,18 @@ export class WebhookIngestionService {
     });
     if (!stored.processedAt && event.type === "payment_intent.succeeded") {
       const intent = event.data.object;
-      await this.prisma.$transaction([
-        this.prisma.order.updateMany({
+      if (this.payments) {
+        await this.payments.fulfillPaidOrder(intent.id);
+      } else {
+        await this.prisma.order.updateMany({
           where: { paymentIntentId: intent.id, status: "REQUIRES_PAYMENT" },
           data: { status: "PAID" },
-        }),
-        this.prisma.webhookEvent.update({
-          where: { id: stored.id },
-          data: { processedAt: new Date() },
-        }),
-      ]);
+        });
+      }
+      await this.prisma.webhookEvent.update({
+        where: { id: stored.id },
+        data: { processedAt: new Date() },
+      });
     }
     return { received: true };
   }
@@ -158,6 +172,7 @@ export class WebhookIngestionService {
     eventType = String(body.type ?? "record.changed"),
     signatureValid = true,
   ): Promise<{ queued: true }> {
+    await this.reconcileDealAccess(body);
     const recordId = body.id ?? body.dealid ?? "record";
     const externalId = String(
       body.event_id ??
@@ -180,6 +195,114 @@ export class WebhookIngestionService {
       `zoho:${eventType}:${externalId}`,
     );
     return { queued: true };
+  }
+
+  private async reconcileDealAccess(body: Record<string, unknown>): Promise<void> {
+    const data: unknown = body.data;
+    const first: unknown = Array.isArray(data) ? data[0] : undefined;
+    const deal = first && typeof first === "object" && !Array.isArray(first)
+      ? first as Record<string, unknown>
+      : body;
+    const dealId = optionalExternalId(deal.id ?? deal.dealid ?? body.dealid);
+    if (!dealId) return;
+    const enrollment = await this.prisma.organizationProgram.findFirst({
+      where: { dealExternalId: dealId },
+    });
+    if (!enrollment) return;
+    const paidOptions = new Set([
+      "paid via credit card",
+      "paid via ach",
+      "paid via check",
+    ]);
+    const paymentFields = Object.fromEntries(
+      Object.entries(deal).filter(([key]) =>
+        key.toLowerCase().includes("payment") || key.toLowerCase().includes("fee"),
+      ),
+    );
+    const paid = (keyPattern: RegExp) => Object.entries(paymentFields).some(
+      ([key, value]) => keyPattern.test(key) && paidOptions.has(String(value).trim().toLowerCase()),
+    );
+    const stage = typeof (deal.Stage ?? deal.stage) === "string"
+      ? String(deal.Stage ?? deal.stage).trim()
+      : enrollment.stage;
+    const reportAccess = {
+      ...(enrollment.reportAccess !== null &&
+      typeof enrollment.reportAccess === "object" &&
+      !Array.isArray(enrollment.reportAccess)
+        ? enrollment.reportAccess as Record<string, unknown>
+        : {}),
+    };
+    if (
+      stage?.toLowerCase() === "full package" &&
+      paid(/full.*package.*payment|payment/iu)
+    ) {
+      for (const key of standardReportAccessKeys) reportAccess[key] = "yes";
+    }
+    if (paid(/rdr.*payment|rd.*payment|response.*detail.*payment/iu)) {
+      reportAccess.RD_Access = "yes";
+    }
+    if (paid(/sorted.*ev.*payment|ev.*sorting.*payment/iu)) {
+      reportAccess.SEV_Access = "yes";
+    }
+    const pendingOrders = await this.prisma.order.findMany({
+      where: {
+        organizationProgramId: enrollment.id,
+        status: { in: ["PENDING", "INVOICED"] },
+      },
+      select: { id: true, items: true },
+    });
+    const productIsPaid = (productId: string): boolean => {
+      if (productId === STANDARD_PACKAGE_ID) {
+        return stage?.toLowerCase() === "full package" &&
+          paid(/full.*package.*payment|payment/iu);
+      }
+      if (productId === RESPONSE_DETAIL_ID) {
+        return paid(/rdr.*payment|rd.*payment|response.*detail.*payment/iu);
+      }
+      if (productId === SORTED_VERBATIMS_ID) {
+        return paid(/sorted.*ev.*payment|ev.*sorting.*payment/iu);
+      }
+      if (productId === KEY_IMPACT_ID) return paid(/kia.*payment/iu);
+      return false;
+    };
+    const paidOrderIds = pendingOrders.flatMap((order) => {
+      const rawItems = Array.isArray(order.items) ? order.items : [order.items];
+      const productIds = rawItems.flatMap((item) => {
+        if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+        const value = item as Record<string, unknown>;
+        const keys = value.keys && typeof value.keys === "object" && !Array.isArray(value.keys)
+          ? value.keys as Record<string, unknown>
+          : {};
+        const productId = value.productId ?? keys.productId;
+        return typeof productId === "string" ? [productId] : [];
+      });
+      return productIds.length > 0 && productIds.every(productIsPaid)
+        ? [order.id]
+        : [];
+    });
+    await this.prisma.$transaction([
+      this.prisma.organizationProgram.update({
+        where: { id: enrollment.id },
+        data: {
+          stage,
+          reportAccess: reportAccess as Prisma.InputJsonValue,
+          paymentDetails: {
+            ...(enrollment.paymentDetails !== null &&
+            typeof enrollment.paymentDetails === "object" &&
+            !Array.isArray(enrollment.paymentDetails)
+              ? enrollment.paymentDetails as Record<string, unknown>
+              : {}),
+            ...paymentFields,
+          } as Prisma.InputJsonValue,
+        },
+      }),
+      ...(paidOrderIds.length
+        ? [this.prisma.order.updateMany({
+            where: { id: { in: paidOrderIds } },
+            data: { status: "PAID" },
+          })]
+        : []),
+    ]);
   }
 
   async checkMarket(

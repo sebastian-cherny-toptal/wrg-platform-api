@@ -29,6 +29,18 @@ import {
   IntegrationsModule,
   ZohoAdapter,
 } from "../integrations/integrations.module.js";
+import {
+  effectiveReportCatalog,
+  hasStandardPackage,
+  jsonObject as catalogJsonObject,
+  KEY_IMPACT_ID,
+  productIsOwned,
+  RESPONSE_DETAIL_ID,
+  SORTED_VERBATIMS_ID,
+  STANDARD_PACKAGE_ID,
+  standardPackagePriceCents,
+  standardReportAccessKeys,
+} from "../reports/report-catalog.js";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -36,6 +48,11 @@ interface CheckoutItem {
   title: string;
   amount: number;
   keys: JsonRecord;
+}
+
+interface CatalogCheckoutItem extends CheckoutItem {
+  productId: string;
+  amountMinor: number;
 }
 
 function isUuid(value: string): boolean {
@@ -150,8 +167,10 @@ export class CompatibilityPaymentService {
       organizationReference,
       false,
     );
-    const amountMinor = this.catalogAmountMinor(body.items, context) ??
-      Math.round(money(body.amount, "amount") * 100);
+    const catalogOrder = this.catalogOrder(body.items, context);
+    const amountMinor = catalogOrder
+      ? Math.round(catalogOrder.amountMinor * 1.03)
+      : Math.round(money(body.amount, "amount") * 100);
     const intent = await this.createIntent(
       context.organization,
       amountMinor,
@@ -168,7 +187,8 @@ export class CompatibilityPaymentService {
         currency: selectedCurrency,
         amountMinor,
         items: inputJson(
-          Array.isArray(body.items) ? body.items : [{ amount: body.amount }],
+          catalogOrder?.items ??
+            (Array.isArray(body.items) ? body.items : [{ amount: body.amount }]),
         ),
         paymentMethod: "Paid via Credit Card",
       },
@@ -176,12 +196,12 @@ export class CompatibilityPaymentService {
     return intent;
   }
 
-  private catalogAmountMinor(
+  private catalogOrder(
     rawItems: unknown,
     context: Awaited<ReturnType<CompatibilityPaymentService["context"]>>,
-  ): number | null {
+  ): { amountMinor: number; items: CatalogCheckoutItem[] } | null {
     if (!Array.isArray(rawItems) || !context.program) return null;
-    const ids: string[] = [];
+    const requested: Array<{ productId: string; keys: JsonRecord }> = [];
     for (const entry of rawItems) {
       if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
         return null;
@@ -190,23 +210,59 @@ export class CompatibilityPaymentService {
       if (!keys || typeof keys !== "object" || Array.isArray(keys)) return null;
       const productId = optionalString((keys as JsonRecord).productId);
       if (!productId) return null;
-      ids.push(productId);
+      requested.push({ productId, keys: keys as JsonRecord });
+    }
+    const ids = requested.map(({ productId }) => productId);
+    if (new Set(ids).size !== ids.length) {
+      throw new BadRequestException("Each report product can only be purchased once");
     }
     const metadata = jsonObject(context.program.metadata);
     const enrollmentMetadata = jsonObject(context.enrollment.metadata);
     const effectiveCatalog = enrollmentMetadata.reportCatalog ?? metadata.reportCatalog;
-    const catalog = Array.isArray(effectiveCatalog) ? effectiveCatalog : [];
+    const catalog = effectiveReportCatalog(effectiveCatalog);
     const programFees = jsonObject(context.program.fees);
     const organizationFees = jsonObject(context.enrollment.fees);
-    return ids.reduce((sum, id) => {
-      const product = catalog.find((entry) => entry && typeof entry === "object" && !Array.isArray(entry) && (entry as JsonRecord).id === id && (entry as JsonRecord).available !== false) as JsonRecord | undefined;
-      if (!product) throw new BadRequestException(`Unknown report product: ${id}`);
-      const configured = organizationFees[id] ?? programFees[id] ?? product.priceCents;
-      if (typeof configured !== "number" || !Number.isInteger(configured) || configured <= 0) {
-        throw new BadRequestException(`Report price is unavailable: ${id}`);
+    const standardOwned = hasStandardPackage(
+      context.enrollment.reportAccess,
+      context.enrollment.stage,
+    );
+    const includesStandard = ids.includes(STANDARD_PACKAGE_ID);
+    const items = requested.map(({ productId, keys }) => {
+      const product = catalog.find((entry) => entry.id === productId && entry.available);
+      if (!product) throw new BadRequestException(`Unknown report product: ${productId}`);
+      if (product.purchaseMode !== "checkout") {
+        throw new BadRequestException(`${product.name} must be ordered through a WRG contact`);
       }
-      return sum + configured;
-    }, 0);
+      if (productIsOwned(productId, context.enrollment.reportAccess, context.enrollment.stage)) {
+        throw new BadRequestException(`${product.name} is already available for this organization`);
+      }
+      if (product.requiresStandardPackage && !standardOwned && !includesStandard) {
+        throw new BadRequestException(`${product.name} requires the Feedback Data Dashboard`);
+      }
+      const configured = productId === STANDARD_PACKAGE_ID
+        ? standardPackagePriceCents(metadata, context.enrollment.metrics)
+        : organizationFees[productId] ?? programFees[productId] ?? product.priceCents;
+      if (typeof configured !== "number" || !Number.isInteger(configured) || configured <= 0) {
+        throw new BadRequestException(`Report price is unavailable: ${productId}`);
+      }
+      const allowedKeys: JsonRecord = { productId };
+      if (productId === SORTED_VERBATIMS_ID) {
+        const filter = optionalString(keys.EV_Sorting_Filter);
+        if (!filter) throw new BadRequestException("A demographic filter is required for Sorted Employee Verbatims");
+        allowedKeys.EV_Sorting_Filter = filter;
+      }
+      return {
+        productId,
+        title: product.name,
+        amount: configured / 100,
+        amountMinor: configured,
+        keys: allowedKeys,
+      };
+    });
+    return {
+      items,
+      amountMinor: items.reduce((sum, item) => sum + item.amountMinor, 0),
+    };
   }
 
   async checkout(
@@ -217,7 +273,6 @@ export class CompatibilityPaymentService {
     organizationReference?: string,
   ) {
     const body = objectBody(rawBody);
-    const items = checkoutItems(body.items);
     const context = await this.context(
       principal,
       programReference,
@@ -228,6 +283,8 @@ export class CompatibilityPaymentService {
       throw new NotFoundException("Organization program not found");
     }
     const enrollment = context.enrollment;
+    const catalogOrder = this.catalogOrder(body.items, context);
+    const items = catalogOrder?.items ?? checkoutItems(body.items);
     const selectedCurrency = currency(
       body.currency ?? context.program.currency,
     );
@@ -239,10 +296,9 @@ export class CompatibilityPaymentService {
         keys: paymentKeys(item.keys),
       };
     });
-    const totalMinor = Math.round(
+    const totalMinor = catalogOrder?.amountMinor ?? Math.round(
       money(
-        body.total ??
-          normalizedItems.reduce((sum, item) => sum + item.amount, 0),
+        body.total ?? normalizedItems.reduce((sum, item) => sum + item.amount, 0),
         "total",
       ) * 100,
     );
@@ -270,28 +326,29 @@ export class CompatibilityPaymentService {
       return intent;
     }
 
-    await this.prisma.$transaction(
-      normalizedItems.map((item) =>
-        this.prisma.order.create({
-          data: {
-            organizationId: context.organization.id,
-            projectId: enrollment.projectId,
-            programId: enrollment.programId,
-            organizationProgramId: enrollment.id,
-            status: "INVOICED",
-            currency: selectedCurrency,
-            amountMinor: Math.round(item.amount * 100),
-            items: inputJson(item),
-            paymentMethod: "Needs Invoiced",
-          },
-        }),
-      ),
-    );
-    const mergedKeys = Object.assign(
-      {},
-      ...normalizedItems.map(({ keys }) => keys),
-    ) as JsonRecord;
-    await this.applyEnrollmentKeys(enrollment, mergedKeys);
+    await this.prisma.order.create({
+      data: {
+        organizationId: context.organization.id,
+        projectId: enrollment.projectId,
+        programId: enrollment.programId,
+        organizationProgramId: enrollment.id,
+        status: catalogOrder ? "PENDING" : "INVOICED",
+        currency: selectedCurrency,
+        amountMinor: totalMinor,
+        items: inputJson(normalizedItems),
+        paymentMethod: "Needs Invoiced",
+      },
+    });
+    const mergedKeys = catalogOrder
+      ? this.crmFields(catalogOrder.items, "Needs Invoiced")
+      : Object.assign({}, ...normalizedItems.map(({ keys }) => keys)) as JsonRecord;
+    const sortedFilter = catalogOrder?.items.find(
+      ({ productId }) => productId === SORTED_VERBATIMS_ID,
+    )?.keys.EV_Sorting_Filter;
+    await this.applyEnrollmentKeys(enrollment, {
+      ...mergedKeys,
+      ...(typeof sortedFilter === "string" ? { SEV_Filter: sortedFilter } : {}),
+    });
     if (enrollment.dealExternalId) {
       await this.zoho.updateRecord(
         "Deals",
@@ -299,7 +356,104 @@ export class CompatibilityPaymentService {
         mergedKeys,
       );
     }
-    return "ok";
+    return { success: true, status: "pending", message: "Invoice requested" };
+  }
+
+  private crmFields(
+    items: CatalogCheckoutItem[],
+    payment: "Needs Invoiced" | "Paid via Credit Card",
+  ): JsonRecord {
+    const fields: JsonRecord = {};
+    const definitions: Record<string, [string, string]> = {
+      [STANDARD_PACKAGE_ID]: ["Full_Package_Fee", "Full_Package_Payment"],
+      [SORTED_VERBATIMS_ID]: ["Sorted_EV_Fee", "Sorted_EV_Payment"],
+      [KEY_IMPACT_ID]: ["KIA_Fee", "KIA_Payment"],
+      [RESPONSE_DETAIL_ID]: ["RDR_Fee", "RDR_Payment"],
+    };
+    for (const item of items) {
+      const definition = definitions[item.productId];
+      if (!definition) continue;
+      fields[definition[0]] = item.amountMinor / 100;
+      fields[definition[1]] = payment;
+    }
+    return fields;
+  }
+
+  async fulfillPaidOrder(paymentIntentId: string): Promise<void> {
+    const order = await this.prisma.order.findUnique({
+      where: { paymentIntentId },
+      include: { organizationProgram: true },
+    });
+    if (!order) return;
+    if (!order.organizationProgram) {
+      await this.prisma.order.update({
+        where: { id: order.id },
+        data: { status: "PAID" },
+      });
+      return;
+    }
+    const rawItems = Array.isArray(order.items) ? order.items : [order.items];
+    const items = rawItems.flatMap((entry): CatalogCheckoutItem[] => {
+      const value = catalogJsonObject(entry);
+      const keys = catalogJsonObject(value.keys);
+      const productId = optionalString(value.productId ?? keys.productId);
+      const amountMinor = Number(value.amountMinor ?? Number(value.amount) * 100);
+      return productId && Number.isInteger(amountMinor) && amountMinor > 0
+        ? [{
+            productId,
+            amountMinor,
+            title: optionalString(value.title) ?? productId,
+            amount: amountMinor / 100,
+            keys,
+          }]
+        : [];
+    });
+    const enrollment = order.organizationProgram;
+    const reportAccess = { ...jsonObject(enrollment.reportAccess) };
+    const metrics = { ...jsonObject(enrollment.metrics) };
+    let stage = enrollment.stage;
+    for (const { productId } of items) {
+      if (productId === STANDARD_PACKAGE_ID) {
+        for (const key of standardReportAccessKeys) reportAccess[key] = "yes";
+        stage = "Full Package";
+      } else if (productId === SORTED_VERBATIMS_ID) {
+        reportAccess.SEV_Access = "yes";
+        const filter = optionalString(
+          items.find((item) => item.productId === productId)?.keys.EV_Sorting_Filter,
+        );
+        if (filter) metrics.SEV_Filter = filter;
+      } else if (productId === RESPONSE_DETAIL_ID) {
+        reportAccess.RD_Access = "yes";
+      } else if (productId === KEY_IMPACT_ID) {
+        metrics.KIA_Order_Status = "Processing";
+      }
+    }
+    const crmFields = this.crmFields(items, "Paid via Credit Card");
+    const paymentDetails = {
+      ...jsonObject(enrollment.paymentDetails),
+      ...crmFields,
+    };
+    await this.prisma.$transaction([
+      this.prisma.organizationProgram.update({
+        where: { id: enrollment.id },
+        data: {
+          stage,
+          reportAccess: inputJson(reportAccess),
+          paymentDetails: inputJson(paymentDetails),
+          metrics: inputJson(metrics),
+        },
+      }),
+      this.prisma.order.update({
+        where: { id: order.id },
+        data: { status: "PAID", paymentMethod: "Paid via Credit Card" },
+      }),
+    ]);
+    if (enrollment.dealExternalId) {
+      await this.zoho.updateRecord("Deals", enrollment.dealExternalId, {
+        ...crmFields,
+        ...(stage === "Full Package" ? { Stage: "Full Package" } : {}),
+      });
+    }
   }
 
   private async createIntent(
@@ -480,5 +634,6 @@ export class CompatibilityPaymentController {
   imports: [AuthModule, IntegrationsModule],
   providers: [CompatibilityPaymentService],
   controllers: [CompatibilityPaymentController],
+  exports: [CompatibilityPaymentService],
 })
 export class CompatibilityPaymentModule {}
