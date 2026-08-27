@@ -31,7 +31,7 @@ export class CompatibilityZohoService {
   constructor(
     @Inject(SyncQueue) private readonly syncQueue: SyncQueue,
     @Inject(ZohoAdapter) private readonly zoho: ZohoAdapter,
-  ) {}
+  ) { }
 
   private assertAccess(principal: Principal): void {
     if (
@@ -61,6 +61,23 @@ export class CompatibilityZohoService {
       message: `${kind} synchronization queued`,
       data: job,
     };
+  }
+
+  async listProjects(principal: Principal) {
+    this.assertAccess(principal);
+    const records = await this.zoho.listAllRecords("Main_Projects", ["id", "Name", "Project_Abbreviation", "Created_Time", "Modified_Time", "Created_By", "Modified_By", "Owner", "Record_Status__s", "Currency"]);
+    return records.map((record) => ({
+      id: record.id,
+      name: record.Name,
+      abbreviation: record.Project_Abbreviation,
+      createdTime: record.Created_Time,
+      modifiedTime: record.Modified_Time,
+      createdBy: (record.Created_By as { name: string }).name,
+      modifiedBy: (record.Modified_By as { name: string }).name,
+      owner: (record.Owner as { name: string }).name,
+      recordStatus: record.Record_Status__s,
+      currency: record.Currency,
+    }));
   }
 
   async listPrograms(principal: Principal) {
@@ -134,10 +151,10 @@ export class CompatibilityZohoService {
         );
         return employeeSize && Number.isFinite(amount)
           ? {
-              tier,
-              employeeSize,
-              priceCents: Math.max(0, Math.round(amount * 100)),
-            }
+            tier,
+            employeeSize,
+            priceCents: Math.max(0, Math.round(amount * 100)),
+          }
           : null;
       });
       const completed = pricing.filter(
@@ -224,7 +241,18 @@ export class CompatibilityZohoController {
   constructor(
     @Inject(CompatibilityZohoService)
     private readonly zoho: CompatibilityZohoService,
-  ) {}
+  ) { }
+
+
+  @Get("projects")
+  async listProjects(@CurrentUser() principal: Principal) {
+    const data = await this.zoho.listProjects(principal);
+    return {
+      success: true,
+      message: "Zoho projects",
+      data,
+    };
+  }
 
   @Get("programs")
   async listPrograms(@CurrentUser() principal: Principal) {
@@ -274,4 +302,4 @@ export class CompatibilityZohoController {
   providers: [CompatibilityZohoService],
   controllers: [CompatibilityZohoController],
 })
-export class CompatibilityZohoModule {}
+export class CompatibilityZohoModule { }

@@ -28,7 +28,7 @@ INVENTORY_FIELDS = {
         "Project_Specific_Employer_Identifier",
         "Project_Abbreviation",
         "Created_Time",
-        "Modified_Time",
+        "Modified_Time", "Created_By", "Modified_By", "Owner", "Description", "Project_Specific_Employer_Identifier", "Project_Type", "Start_Date", "End_Date"
     ),
     "Programs": (
         "Name",
@@ -290,6 +290,7 @@ def print_inventory(
         metadata = fields_payload.get("fields", [])
         by_name = {field.get("api_name"): field for field in metadata}
         selected = [name for name in requested_fields if name in by_name]
+        selected = [k for k in by_name.keys()] # [name for name in requested_fields if name in by_name]
         relationship_fields = []
         for name in selected:
             field = by_name[name]

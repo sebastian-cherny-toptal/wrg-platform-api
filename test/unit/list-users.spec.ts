@@ -147,7 +147,42 @@ describe("list users endpoint", () => {
               metadata: { mobile: "123", mfa: "email" },
               createdAt: new Date("2026-01-01T00:00:00.000Z"),
               updatedAt: new Date("2026-01-02T00:00:00.000Z"),
-              organization: { id: "organization-id", name: "Example Org" },
+              organization: {
+                id: "organization-id",
+                name: "Example Org",
+                orders: [
+                  {
+                    status: "PAID",
+                    currency: "USD",
+                    amountMinor: 42500,
+                    items: [
+                      {
+                        productId: "report-response-detail",
+                        title: "Response Detail Report",
+                        amountMinor: 42500,
+                        keys: { productId: "report-response-detail" },
+                      },
+                    ],
+                    updatedAt: new Date("2026-02-03T12:30:00.000Z"),
+                    program: { name: "Feedback", year: 2026 },
+                  },
+                  {
+                    status: "REQUIRES_PAYMENT",
+                    currency: "USD",
+                    amountMinor: 82000,
+                    items: [
+                      {
+                        productId: "report-kia",
+                        title: "Key Impact Analysis",
+                        amountMinor: 82000,
+                        keys: { productId: "report-kia" },
+                      },
+                    ],
+                    updatedAt: new Date("2026-02-02T12:30:00.000Z"),
+                    program: { name: "Feedback", year: 2026 },
+                  },
+                ],
+              },
               sessions: [{ createdAt: new Date("2026-01-03T12:30:00.000Z") }],
               roles: [
                 {
@@ -175,7 +210,7 @@ describe("list users endpoint", () => {
 
     const response = await service.list(
       "projects",
-      "fullName,role,projects,organization,lastLogin",
+      "fullName,role,projects,organization,lastLogin,payments,totalPaid,lastPaymentDatetime",
     );
     const user = response.data[0];
     assert.ok(user);
@@ -187,6 +222,33 @@ describe("list users endpoint", () => {
       name: "Example Org",
     });
     assert.deepEqual(user.lastLogin, new Date("2026-01-03T12:30:00.000Z"));
+    assert.deepEqual(user.totalPaid, [
+      { currency: "USD", amountMinor: 42500 },
+    ]);
+    assert.deepEqual(
+      user.lastPaymentDatetime,
+      new Date("2026-02-03T12:30:00.000Z"),
+    );
+    assert.deepEqual(user.payments, [
+      {
+        productId: "report-response-detail",
+        productName: "Response Detail Report",
+        programName: "Feedback 2026",
+        status: "PAID",
+        amountMinor: 42500,
+        currency: "USD",
+        paymentDatetime: new Date("2026-02-03T12:30:00.000Z"),
+      },
+      {
+        productId: "report-kia",
+        productName: "Key Impact Analysis",
+        programName: "Feedback 2026",
+        status: "REQUIRES_PAYMENT",
+        amountMinor: 82000,
+        currency: "USD",
+        paymentDatetime: new Date("2026-02-02T12:30:00.000Z"),
+      },
+    ]);
     assert.equal("email" in user, false);
     const projects = user.projects as Array<{ Name: string }>;
     assert.equal(projects[0]?.Name, "Project One");

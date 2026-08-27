@@ -546,6 +546,12 @@ async function createReportUser(
       "Could not find an organization enrolled in every Baton Rouge program",
     );
   }
+  // The report tester represents a Standard-package customer, while the
+  // intentionally restricted EV/RD access flags still control those pages.
+  await prisma.organizationProgram.updateMany({
+    where: { id: { in: organizationEnrollments.map(({ id }) => id) } },
+    data: { stage: "Full Package" },
+  });
   const clientRole = await prisma.role.upsert({
     where: { key: "client" },
     update: {},

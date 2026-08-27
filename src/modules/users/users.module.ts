@@ -251,6 +251,9 @@ const listUserFields = new Set([
   "status",
   "organization",
   "lastLogin",
+  "payments",
+  "totalPaid",
+  "lastPaymentDatetime",
 ]);
 
 const administratorRoleKeys = ["admin", "super_admin"] as const;
@@ -1191,7 +1194,23 @@ export class UsersService {
         metadata: true,
         createdAt: true,
         updatedAt: true,
-        organization: { select: { id: true, name: true } },
+        organization: {
+          select: {
+            id: true,
+            name: true,
+            orders: {
+              orderBy: { updatedAt: "desc" },
+              select: {
+                status: true,
+                currency: true,
+                amountMinor: true,
+                items: true,
+                updatedAt: true,
+                program: { select: { name: true, year: true } },
+              },
+            },
+          },
+        },
         sessions: {
           orderBy: { createdAt: "desc" },
           take: 1,
@@ -1228,6 +1247,46 @@ export class UsersService {
       data: users.map((user) => {
         const metadata = jsonObject(user.metadata);
         const role = user.roles[0]?.role;
+        const paidOrders = (user.organization?.orders ?? []).filter(
+          ({ status }) => status === "PAID",
+        );
+        const totalPaidByCurrency = new Map<string, number>();
+        for (const order of paidOrders) {
+          totalPaidByCurrency.set(
+            order.currency,
+            (totalPaidByCurrency.get(order.currency) ?? 0) + order.amountMinor,
+          );
+        }
+        const payments = (user.organization?.orders ?? []).flatMap((order) => {
+          const rawItems = Array.isArray(order.items) ? order.items : [order.items];
+          return rawItems.map((entry) => {
+            const item = jsonObject(entry);
+            const keys = jsonObject(item.keys ?? {});
+            const productId = String(item.productId ?? keys.productId ?? "").trim();
+            const productName = String(
+              item.title ?? (productId || "Order"),
+            ).trim();
+            return {
+              productId: productId || null,
+              productName,
+              programName: order.program
+                ? `${order.program.name}${
+                    order.program.year &&
+                    !order.program.name.includes(String(order.program.year))
+                      ? ` ${order.program.year}`
+                      : ""
+                  }`
+                : null,
+              status: order.status,
+              amountMinor:
+                typeof item.amountMinor === "number"
+                  ? item.amountMinor
+                  : order.amountMinor,
+              currency: order.currency,
+              paymentDatetime: order.updatedAt,
+            };
+          });
+        });
         const item: Record<string, unknown> = {
           _id: user.legacyId ?? user.id,
           id: user.id,
@@ -1257,6 +1316,11 @@ export class UsersService {
             ? { id: user.organization.id, name: user.organization.name }
             : null,
           lastLogin: user.sessions[0]?.createdAt ?? null,
+          payments,
+          totalPaid: [...totalPaidByCurrency.entries()].map(
+            ([currency, amountMinor]) => ({ currency, amountMinor }),
+          ),
+          lastPaymentDatetime: paidOrders[0]?.updatedAt ?? null,
         };
         if (selectedFields === undefined) return item;
         const projected: Record<string, unknown> = { _id: item._id };
