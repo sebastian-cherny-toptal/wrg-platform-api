@@ -157,8 +157,9 @@ export class CompatibilityZohoService {
     ) {
       throw new BadRequestException("A valid Zoho program ID is required");
     }
+    // searchAllRecords appends `/search`, producing the Zoho `Deals/search` URL.
     const deals = await this.zoho.searchAllRecords(
-      "Deals/search",
+      "Deals",
       `(Program:equals:${normalizedProgramId})`,
       dealFields,
     );
