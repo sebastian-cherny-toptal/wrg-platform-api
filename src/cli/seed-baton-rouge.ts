@@ -393,6 +393,9 @@ function loadSourceWorkbooks(source: string): LoadedSources {
     .filter(({ fileName }) =>
       /^BR 20\d{2} - (?:EA|EFS) ORD\.xlsx$/iu.test(fileName),
     )
+    .filter(({ fileName }) =>
+      !fileName.includes("2026"),
+    )
     .map((file) => ({ ...file, ...sourceIdentity(file.fileName) }))
     .sort(
       (left, right) =>
