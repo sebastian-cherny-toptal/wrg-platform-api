@@ -40,6 +40,53 @@ async function writeWorkbook(
 }
 
 describe("historical import service", () => {
+  it("accepts a Zoho project that has not been created locally yet", async () => {
+    const root = mkdtempSync(join(tmpdir(), "historical-import-zoho-project-"));
+    const previousCwd = process.cwd();
+    process.chdir(root);
+    let storedInput: unknown;
+    const prisma = {
+      project: { findFirst: () => null },
+      syncJob: {
+        create: ({ data }: { data: { input: unknown } }) => {
+          storedInput = data.input;
+          return data;
+        },
+      },
+    };
+
+    try {
+      const service = new HistoricalImportService(prisma as never);
+      const result = await service.createDraft(
+        {
+          sub: "user-1",
+          roles: ["admin"],
+          permissions: [],
+          organizationId: null,
+        },
+        {
+          zohoProjectId: "zoho-project-1",
+          projectName: "Baton Rouge",
+          zohoProgramId: "zoho-program-1",
+          programName: "Baton Rouge 2026",
+          programYear: 2026,
+          efsLaunchDate: "2026-01-01",
+          efsDeadline: "2026-12-31",
+        },
+      );
+
+      assert.equal(result.metadata.zohoProjectId, "zoho-project-1");
+      assert.equal(result.metadata.projectId, undefined);
+      assert.equal(
+        (storedInput as { zohoProjectId?: string }).zohoProjectId,
+        "zoho-project-1",
+      );
+    } finally {
+      process.chdir(previousCwd);
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("uses stored question text and answer labels for imported survey columns", () => {
     const question = {
       id: "question-id",

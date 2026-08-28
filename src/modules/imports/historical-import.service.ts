@@ -81,6 +81,7 @@ function categoryPricingMetadata(
 
 export interface HistoricalImportMetadata {
   projectId?: string;
+  zohoProjectId?: string;
   projectName?: string;
   programId?: string;
   zohoProgramId?: string;
@@ -359,10 +360,11 @@ function organizationKey(row: XlsxSurveyRow): string {
 function validateMetadata(body: unknown): HistoricalImportMetadata {
   const value = objectBody(body);
   const projectId = optionalString(value, "projectId");
+  const zohoProjectId = optionalString(value, "zohoProjectId");
   const projectName = optionalString(value, "projectName");
   const programId = optionalString(value, "programId");
   const zohoProgramId = optionalString(value, "zohoProgramId");
-  if (!projectId && !projectName) {
+  if (!projectId && !zohoProjectId && !projectName) {
     throw new BadRequestException(
       "Select an existing project or enter a new project name",
     );
@@ -509,6 +511,7 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
   }
   return {
     ...(projectId ? { projectId } : {}),
+    ...(zohoProjectId ? { zohoProjectId } : {}),
     ...(projectName ? { projectName } : {}),
     ...(programId ? { programId } : {}),
     ...(zohoProgramId ? { zohoProgramId } : {}),
@@ -1003,6 +1006,15 @@ export class HistoricalImportService {
         throw new BadRequestException("Selected project does not exist");
       projectId = project.id;
       metadata = { ...metadata, projectId, projectName: project.name };
+    } else if (metadata.zohoProjectId) {
+      const project = await this.prisma.project.findFirst({
+        where: { externalId: metadata.zohoProjectId },
+        select: { id: true, name: true },
+      });
+      if (project) {
+        projectId = project.id;
+        metadata = { ...metadata, projectId, projectName: project.name };
+      }
     }
     if (metadata.programId) {
       const reference = metadata.programId;
@@ -1404,7 +1416,7 @@ export class HistoricalImportService {
         await this.prisma.project.create({
           data: {
             id: projectId,
-            externalId: `${importPrefix}:project`,
+            externalId: draft.zohoProjectId ?? `${importPrefix}:project`,
             name: draft.projectName ?? draft.programName,
             slug: projectSlug,
             metadata: {

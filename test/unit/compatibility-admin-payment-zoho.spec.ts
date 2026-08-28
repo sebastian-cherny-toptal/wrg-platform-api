@@ -205,7 +205,7 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
         year: 2026,
         projectId: "zoho-project-1",
         projectName: "Baton Rouge",
-        projectAbbreviation: "BR",
+        projectAbbreviation: null,
         efsLaunchDate: "2026-01-15",
         efsDeadline: "2026-04-30",
         winnerOrganizations: [
@@ -226,9 +226,7 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
       },
     ]);
     assert.ok(requestedFields.get("Programs")?.includes("Program_Year"));
-    assert.ok(
-      requestedFields.get("Main_Projects")?.includes("Project_Abbreviation"),
-    );
+    assert.equal(requestedFields.has("Main_Projects"), false);
     assert.ok(requestedFields.get("Deals")?.includes("Current_Year_Winner"));
   });
 
