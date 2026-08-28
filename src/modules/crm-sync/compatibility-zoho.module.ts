@@ -124,11 +124,8 @@ export class CompatibilityZohoService {
 
   async listPrograms(principal: Principal) {
     this.assertAccess(principal);
-    const [records, deals] = await Promise.all([
-      this.zoho.listAllRecords("Programs", programFields),
-      this.zoho.listAllRecords("Deals", dealFields).catch(() => []),
-    ]);
-    return this.programOptions(records, deals);
+    const records = await this.zoho.listAllRecords("Programs", programFields);
+    return this.programOptions(records, []);
   }
 
   async listProgramsForProject(principal: Principal, projectId: string) {
@@ -145,22 +142,78 @@ export class CompatibilityZohoService {
       `(Project:equals:${normalizedProjectId})`,
       programFields,
     );
-    const dealBatches = Array.from(
-      { length: Math.ceil(records.length / 100) },
-      (_, index) => records.slice(index * 100, index * 100 + 100),
+    return this.programOptions(records, []);
+  }
+
+  async listOrganizationsForProgram(
+    principal: Principal,
+    programId: string,
+  ): Promise<ProgramOrganization[]> {
+    this.assertAccess(principal);
+    const normalizedProgramId = programId.trim();
+    if (
+      !normalizedProgramId ||
+      !/^[A-Za-z0-9_-]+$/u.test(normalizedProgramId)
+    ) {
+      throw new BadRequestException("A valid Zoho program ID is required");
+    }
+    const deals = await this.zoho.searchAllRecords(
+      "Deals",
+      `(Program:equals:${normalizedProgramId})`,
+      dealFields,
     );
-    const deals = (
-      await Promise.all(
-        dealBatches.map((batch) =>
-          this.zoho.searchAllRecords(
-            "Deals",
-            `(Program:in:${batch.map(({ id }) => id).join(",")})`,
-            dealFields,
-          ),
-        ),
-      ).catch(() => [])
-    ).flat();
-    return this.programOptions(records, deals);
+    return this.organizationsByProgram(deals).get(normalizedProgramId) ?? [];
+  }
+
+  private organizationsByProgram(
+    deals: ZohoRecord[],
+  ): Map<string, ProgramOrganization[]> {
+    const text = (record: ZohoRecord, key: string): string | null => {
+      const value = record[key];
+      return typeof value === "string" && value.trim() ? value.trim() : null;
+    };
+    const lookup = (record: ZohoRecord, key: string) => {
+      const value = record[key];
+      if (value === null || typeof value !== "object" || Array.isArray(value)) {
+        return undefined;
+      }
+      const entry = value as Record<string, unknown>;
+      const id = typeof entry.id === "string" ? entry.id.trim() : "";
+      const name = typeof entry.name === "string" ? entry.name.trim() : "";
+      return id ? { id, ...(name ? { name } : {}) } : undefined;
+    };
+    const organizationsByProgram = new Map<string, ProgramOrganization[]>();
+    for (const deal of deals) {
+      const program = lookup(deal, "Program");
+      if (!program) continue;
+      const account = lookup(deal, "Account_Name");
+      const organizationId =
+        text(deal, "Deal_Organization_ID") ?? account?.id ?? "";
+      if (!organizationId) continue;
+      const rawDealName = text(deal, "Deal_Name");
+      const dealOrganizationName = rawDealName?.split(" - ")[0]?.trim();
+      const organizationName =
+        dealOrganizationName && dealOrganizationName.length > 0
+          ? dealOrganizationName
+          : (account?.name ?? null);
+      const rawSurveysSent = Number(deal.Surveys_Sent);
+      const organizations = organizationsByProgram.get(program.id) ?? [];
+      if (!organizations.some((entry) => entry.organizationId === organizationId)) {
+        organizations.push({
+          organizationId,
+          organizationName,
+          isWinner:
+            text(deal, "Current_Year_Winner")?.toLowerCase() === "yes",
+          surveysSent:
+            Number.isInteger(rawSurveysSent) && rawSurveysSent >= 0
+              ? rawSurveysSent
+              : 0,
+          currentYearCategory: text(deal, "Current_Year_Category"),
+        });
+      }
+      organizationsByProgram.set(program.id, organizations);
+    }
+    return organizationsByProgram;
   }
 
   private programOptions(records: ZohoRecord[], deals: ZohoRecord[]) {
@@ -219,40 +272,7 @@ export class CompatibilityZohoService {
       const name = typeof entry.name === "string" ? entry.name.trim() : "";
       return id ? { id, ...(name ? { name } : {}) } : undefined;
     };
-    const organizationsByProgram = new Map<
-      string,
-      ProgramOrganization[]
-    >();
-    for (const deal of deals) {
-      const program = lookup(deal, "Program");
-      if (!program) continue;
-      const account = lookup(deal, "Account_Name");
-      const organizationId =
-        text(deal, "Deal_Organization_ID") ?? account?.id ?? "";
-      if (!organizationId) continue;
-      const rawDealName = text(deal, "Deal_Name");
-      const dealOrganizationName = rawDealName?.split(" - ")[0]?.trim();
-      const organizationName =
-        dealOrganizationName && dealOrganizationName.length > 0
-          ? dealOrganizationName
-          : (account?.name ?? null);
-      const rawSurveysSent = Number(deal.Surveys_Sent);
-      const organizations = organizationsByProgram.get(program.id) ?? [];
-      if (!organizations.some((entry) => entry.organizationId === organizationId)) {
-        organizations.push({
-          organizationId,
-          organizationName,
-          isWinner:
-            text(deal, "Current_Year_Winner")?.toLowerCase() === "yes",
-          surveysSent:
-            Number.isInteger(rawSurveysSent) && rawSurveysSent >= 0
-              ? rawSurveysSent
-              : 0,
-          currentYearCategory: text(deal, "Current_Year_Category"),
-        });
-      }
-      organizationsByProgram.set(program.id, organizations);
-    }
+    const organizationsByProgram = this.organizationsByProgram(deals);
     return records
       .map((record) => {
         const pricing = categoryPricing(record);
@@ -324,6 +344,22 @@ export class CompatibilityZohoController {
     return {
       success: true,
       message: "Zoho programs for project",
+      data,
+    };
+  }
+
+  @Get("programs/:programId/organizations")
+  async listOrganizationsForProgram(
+    @CurrentUser() principal: Principal,
+    @Param("programId") programId: string,
+  ) {
+    const data = await this.zoho.listOrganizationsForProgram(
+      principal,
+      programId,
+    );
+    return {
+      success: true,
+      message: "Zoho organizations for program",
       data,
     };
   }

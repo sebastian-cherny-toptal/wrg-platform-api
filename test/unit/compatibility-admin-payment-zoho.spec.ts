@@ -79,6 +79,10 @@ const zohoStub = {
     mark("listProgramsForProject");
     return [];
   },
+  listOrganizationsForProgram: () => {
+    mark("listOrganizationsForProgram");
+    return [];
+  },
 };
 
 @Injectable()
@@ -228,29 +232,8 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
         projectAbbreviation: null,
         efsLaunchDate: "2026-01-15",
         efsDeadline: "2026-04-30",
-        organizations: [
-          {
-            organizationId: "49",
-            organizationName: "Acme",
-            isWinner: true,
-            surveysSent: 125,
-            currentYearCategory: "Large",
-          },
-          {
-            organizationId: "50",
-            organizationName: "Beta",
-            isWinner: false,
-            surveysSent: 80,
-            currentYearCategory: "Small",
-          },
-        ],
-        winnerOrganizations: [
-          {
-            organizationId: "49",
-            organizationName: "Acme",
-            currentYearCategory: "Large",
-          },
-        ],
+        organizations: [],
+        winnerOrganizations: [],
         categoryPricing: [
           { tier: "Boutique", employeeSize: "15-24", priceCents: 45_000 },
           { tier: "Small", employeeSize: "25-99", priceCents: 55_000 },
@@ -263,11 +246,10 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
     ]);
     assert.ok(requestedFields.get("Programs")?.includes("Program_Year"));
     assert.equal(requestedFields.has("Main_Projects"), false);
-    assert.ok(requestedFields.get("Deals")?.includes("Current_Year_Winner"));
-    assert.ok(requestedFields.get("Deals")?.includes("Surveys_Sent"));
+    assert.equal(requestedFields.has("Deals"), false);
   });
 
-  it("loads only the programs and deals for the selected Zoho project", async () => {
+  it("loads only the programs for the selected Zoho project", async () => {
     const requestedCriteria: Array<{ module: string; criteria: string }> = [];
     const service = new CompatibilityZohoService(
       {} as SyncQueue,
@@ -306,9 +288,65 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
         module: "Programs",
         criteria: "(Project:equals:zoho-project-1)",
       },
+    ]);
+  });
+
+  it("loads deals for one program with the program-scoped equals criteria", async () => {
+    const requested: Array<{
+      module: string;
+      criteria: string;
+      fields: string[];
+    }> = [];
+    const service = new CompatibilityZohoService(
+      {} as SyncQueue,
       {
-        module: "Deals",
-        criteria: "(Program:in:zoho-program-1)",
+        searchAllRecords: (
+          module: string,
+          criteria: string,
+          fields: string[],
+        ) => {
+          requested.push({ module, criteria, fields });
+          return Promise.resolve([
+            {
+              id: "zoho-deal-1",
+              Program: { id: "zoho-program-1", name: "Baton Rouge 2026" },
+              Deal_Organization_ID: "49",
+              Deal_Name: "Acme - Baton Rouge",
+              Current_Year_Winner: "Yes",
+              Current_Year_Category: "Large",
+              Surveys_Sent: 125,
+            },
+          ]);
+        },
+      } as unknown as ZohoAdapter,
+    );
+
+    const organizations = await service.listOrganizationsForProgram(
+      {
+        sub: "admin-id",
+        organizationId: null,
+        roles: ["admin"],
+        permissions: [],
+      },
+      "zoho-program-1",
+    );
+
+    assert.equal(requested.length, 1);
+    const request = requested[0];
+    assert.ok(request);
+    assert.equal(request.module, "Deals");
+    assert.equal(
+      request.criteria,
+      "(Program:equals:zoho-program-1)",
+    );
+    assert.ok(request.fields.includes("Surveys_Sent"));
+    assert.deepEqual(organizations, [
+      {
+        organizationId: "49",
+        organizationName: "Acme",
+        isWinner: true,
+        surveysSent: 125,
+        currentYearCategory: "Large",
       },
     ]);
   });
