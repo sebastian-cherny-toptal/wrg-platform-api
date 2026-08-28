@@ -95,6 +95,13 @@ export interface HistoricalImportMetadata {
     organizationName?: string;
     currentYearCategory?: string;
   }>;
+  zohoOrganizations?: Array<{
+    organizationId: string;
+    organizationName?: string;
+    isWinner: boolean;
+    surveysSent: number;
+    currentYearCategory?: string;
+  }>;
   organizationPrograms?: Array<{
     organizationProgramId?: string;
     organizationKey?: string;
@@ -423,6 +430,34 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
             ...(currentYearCategory ? { currentYearCategory } : {}),
           };
         });
+  const zohoOrganizations =
+    value.zohoOrganizations === undefined
+      ? undefined
+      : (Array.isArray(value.zohoOrganizations)
+          ? value.zohoOrganizations
+          : []
+        ).map((raw) => {
+          const entry = objectBody(raw);
+          const organizationId = requiredString(entry, "organizationId");
+          const organizationName = optionalString(entry, "organizationName");
+          const currentYearCategory = optionalString(
+            entry,
+            "currentYearCategory",
+          );
+          const surveysSent = Number(entry.surveysSent);
+          if (!Number.isInteger(surveysSent) || surveysSent < 0) {
+            throw new BadRequestException(
+              "Zoho Surveys Sent must be a non-negative integer",
+            );
+          }
+          return {
+            organizationId,
+            ...(organizationName ? { organizationName } : {}),
+            isWinner: entry.isWinner === true,
+            surveysSent,
+            ...(currentYearCategory ? { currentYearCategory } : {}),
+          };
+        });
   const organizationPrograms =
     value.organizationPrograms === undefined
       ? undefined
@@ -520,6 +555,7 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
     efsLaunchDate,
     efsDeadline,
     ...(zohoWinnerOrganizations ? { zohoWinnerOrganizations } : {}),
+    ...(zohoOrganizations ? { zohoOrganizations } : {}),
     ...(projectAbbreviation ? { projectAbbreviation } : {}),
     ...(organizationPrograms ? { organizationPrograms } : {}),
     ...(reportCatalog ? { reportCatalog } : {}),

@@ -51,12 +51,22 @@ const programFields = [
 
 const dealFields = [
   "id",
+  "Deal_Name",
   "Current_Year_Winner",
   "Program",
   "Account_Name",
   "Deal_Organization_ID",
   "Current_Year_Category",
+  "Surveys_Sent",
 ];
+
+interface ProgramOrganization {
+  organizationId: string;
+  organizationName: string | null;
+  isWinner: boolean;
+  surveysSent: number;
+  currentYearCategory: string | null;
+}
 
 @Injectable()
 export class CompatibilityZohoService {
@@ -209,31 +219,39 @@ export class CompatibilityZohoService {
       const name = typeof entry.name === "string" ? entry.name.trim() : "";
       return id ? { id, ...(name ? { name } : {}) } : undefined;
     };
-    const winnerOrganizationsByProgram = new Map<
+    const organizationsByProgram = new Map<
       string,
-      Array<{
-        organizationId: string;
-        organizationName: string | null;
-        currentYearCategory: string | null;
-      }>
+      ProgramOrganization[]
     >();
     for (const deal of deals) {
-      if (text(deal, "Current_Year_Winner")?.toLowerCase() !== "yes") continue;
       const program = lookup(deal, "Program");
       if (!program) continue;
       const account = lookup(deal, "Account_Name");
       const organizationId =
         text(deal, "Deal_Organization_ID") ?? account?.id ?? "";
       if (!organizationId) continue;
-      const winners = winnerOrganizationsByProgram.get(program.id) ?? [];
-      if (!winners.some((winner) => winner.organizationId === organizationId)) {
-        winners.push({
+      const rawDealName = text(deal, "Deal_Name");
+      const dealOrganizationName = rawDealName?.split(" - ")[0]?.trim();
+      const organizationName =
+        dealOrganizationName && dealOrganizationName.length > 0
+          ? dealOrganizationName
+          : (account?.name ?? null);
+      const rawSurveysSent = Number(deal.Surveys_Sent);
+      const organizations = organizationsByProgram.get(program.id) ?? [];
+      if (!organizations.some((entry) => entry.organizationId === organizationId)) {
+        organizations.push({
           organizationId,
-          organizationName: account?.name ?? null,
+          organizationName,
+          isWinner:
+            text(deal, "Current_Year_Winner")?.toLowerCase() === "yes",
+          surveysSent:
+            Number.isInteger(rawSurveysSent) && rawSurveysSent >= 0
+              ? rawSurveysSent
+              : 0,
           currentYearCategory: text(deal, "Current_Year_Category"),
         });
       }
-      winnerOrganizationsByProgram.set(program.id, winners);
+      organizationsByProgram.set(program.id, organizations);
     }
     return records
       .map((record) => {
@@ -248,8 +266,14 @@ export class CompatibilityZohoService {
           projectAbbreviation: null,
           efsLaunchDate: text(record, "EFS_Launch_Date"),
           efsDeadline: text(record, "EFS_end_Date"),
-          winnerOrganizations:
-            winnerOrganizationsByProgram.get(record.id) ?? [],
+          organizations: organizationsByProgram.get(record.id) ?? [],
+          winnerOrganizations: (organizationsByProgram.get(record.id) ?? [])
+            .filter(({ isWinner }) => isWinner)
+            .map(({ organizationId, organizationName, currentYearCategory }) => ({
+              organizationId,
+              organizationName,
+              currentYearCategory,
+            })),
           ...(pricing ? { categoryPricing: pricing } : {}),
         };
       })

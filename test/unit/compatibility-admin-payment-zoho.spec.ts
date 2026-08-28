@@ -187,8 +187,23 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
                       },
                       Account_Name: { id: "zoho-account-1", name: "Acme" },
                       Deal_Organization_ID: "49",
+                      Deal_Name: "Acme - Baton Rouge",
                       Current_Year_Winner: "Yes",
                       Current_Year_Category: "Large",
+                      Surveys_Sent: 125,
+                    },
+                    {
+                      id: "zoho-deal-2",
+                      Program: {
+                        id: "zoho-program-1",
+                        name: "Baton Rouge 2026",
+                      },
+                      Account_Name: { id: "zoho-account-2", name: "Beta" },
+                      Deal_Organization_ID: "50",
+                      Deal_Name: "Beta - Baton Rouge",
+                      Current_Year_Winner: "No",
+                      Current_Year_Category: "Small",
+                      Surveys_Sent: 80,
                     },
                   ],
           );
@@ -213,6 +228,22 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
         projectAbbreviation: null,
         efsLaunchDate: "2026-01-15",
         efsDeadline: "2026-04-30",
+        organizations: [
+          {
+            organizationId: "49",
+            organizationName: "Acme",
+            isWinner: true,
+            surveysSent: 125,
+            currentYearCategory: "Large",
+          },
+          {
+            organizationId: "50",
+            organizationName: "Beta",
+            isWinner: false,
+            surveysSent: 80,
+            currentYearCategory: "Small",
+          },
+        ],
         winnerOrganizations: [
           {
             organizationId: "49",
@@ -233,6 +264,7 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
     assert.ok(requestedFields.get("Programs")?.includes("Program_Year"));
     assert.equal(requestedFields.has("Main_Projects"), false);
     assert.ok(requestedFields.get("Deals")?.includes("Current_Year_Winner"));
+    assert.ok(requestedFields.get("Deals")?.includes("Surveys_Sent"));
   });
 
   it("loads only the programs and deals for the selected Zoho project", async () => {
