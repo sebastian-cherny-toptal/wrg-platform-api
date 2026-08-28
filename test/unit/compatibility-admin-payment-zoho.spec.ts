@@ -334,7 +334,7 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
     assert.equal(requested.length, 1);
     const request = requested[0];
     assert.ok(request);
-    assert.equal(request.module, "Deals");
+    assert.equal(request.module, "Deals/search");
     assert.equal(
       request.criteria,
       "(Program:equals:zoho-program-1)",
