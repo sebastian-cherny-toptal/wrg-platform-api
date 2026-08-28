@@ -1,5 +1,6 @@
 import {
   Controller,
+  Delete,
   ForbiddenException,
   Get,
   Inject,
@@ -288,6 +289,52 @@ export class CompatibilityManagementService {
     };
   }
 
+  async deleteProject(principal: Principal, projectReference: string) {
+    this.assertAdmin(principal);
+    const project = await this.prisma.project.findFirst({
+      where: this.referenceWhere(projectReference),
+      select: {
+        id: true,
+        name: true,
+        _count: { select: { programs: true } },
+      },
+    });
+    if (!project) throw new NotFoundException("Project not found");
+    await this.prisma.project.delete({ where: { id: project.id } });
+    return {
+      success: true,
+      message: "Project deleted successfully",
+      data: {
+        id: project.id,
+        name: project.name,
+        deletedPrograms: project._count.programs,
+      },
+    };
+  }
+
+  async deleteProgram(principal: Principal, programReference: string) {
+    this.assertAdmin(principal);
+    const program = await this.prisma.program.findFirst({
+      where: this.referenceWhere(programReference),
+      select: {
+        id: true,
+        name: true,
+        _count: { select: { organizations: true } },
+      },
+    });
+    if (!program) throw new NotFoundException("Program not found");
+    await this.prisma.program.delete({ where: { id: program.id } });
+    return {
+      success: true,
+      message: "Program deleted successfully",
+      data: {
+        id: program.id,
+        name: program.name,
+        deletedOrganizationPrograms: program._count.organizations,
+      },
+    };
+  }
+
   private async allowedProjectIds(
     principal: Principal,
   ): Promise<string[] | null> {
@@ -424,6 +471,19 @@ export class CompatibilityManagementController {
     @Param("programId") programId: string,
   ) {
     return this.management.program(principal, programId);
+  }
+
+  @Delete("projects/:id")
+  deleteProject(@CurrentUser() principal: Principal, @Param("id") id: string) {
+    return this.management.deleteProject(principal, id);
+  }
+
+  @Delete("programs/:programId")
+  deleteProgram(
+    @CurrentUser() principal: Principal,
+    @Param("programId") programId: string,
+  ) {
+    return this.management.deleteProgram(principal, programId);
   }
 
   @Get("getpermissions/:roleId")

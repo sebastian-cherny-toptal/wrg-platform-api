@@ -35,6 +35,8 @@ const managementStub = {
   projects: () => mark("projects"),
   programs: () => mark("programs"),
   program: () => mark("program"),
+  deleteProject: () => mark("deleteProject"),
+  deleteProgram: () => mark("deleteProgram"),
   permissions: () => mark("permissions"),
 };
 
@@ -84,7 +86,7 @@ async function createTestApp(): Promise<NestFastifyApplication> {
 }
 
 describe("native management compatibility endpoints", () => {
-  it("serves the six migrated administration routes", async () => {
+  it("serves the migrated administration routes", async () => {
     const app = await createTestApp();
     calls.clear();
     const token = app.get(JwtService).sign({
@@ -118,6 +120,16 @@ describe("native management compatibility endpoints", () => {
           headers,
         }),
         app.inject({
+          method: "DELETE",
+          url: "/admin/projects/project-1",
+          headers,
+        }),
+        app.inject({
+          method: "DELETE",
+          url: "/admin/programs/program-1",
+          headers,
+        }),
+        app.inject({
           method: "GET",
           url: "/admin/getpermissions/role-1",
           headers,
@@ -131,6 +143,8 @@ describe("native management compatibility endpoints", () => {
         projects: 2,
         programs: 1,
         program: 1,
+        deleteProject: 1,
+        deleteProgram: 1,
         permissions: 1,
       });
     } finally {
@@ -186,5 +200,58 @@ describe("native management compatibility endpoints", () => {
     ]);
     assert.ok(roleQuery);
     assert.equal("where" in roleQuery, false);
+  });
+
+  it("deletes projects and programs through their database identities", async () => {
+    const deleted: string[] = [];
+    const prisma = {
+      project: {
+        findFirst: () =>
+          Promise.resolve({
+            id: "project-id",
+            name: "Project",
+            _count: { programs: 2 },
+          }),
+        delete: ({ where }: { where: { id: string } }) => {
+          deleted.push(`project:${where.id}`);
+          return Promise.resolve({ id: where.id });
+        },
+      },
+      program: {
+        findFirst: () =>
+          Promise.resolve({
+            id: "program-id",
+            name: "Program",
+            _count: { organizations: 3 },
+          }),
+        delete: ({ where }: { where: { id: string } }) => {
+          deleted.push(`program:${where.id}`);
+          return Promise.resolve({ id: where.id });
+        },
+      },
+    } as unknown as PrismaService;
+    const service = new CompatibilityManagementService(prisma);
+    const principal = {
+      sub: "admin-id",
+      organizationId: null,
+      roles: ["admin"],
+      permissions: [],
+    } satisfies Principal;
+
+    await assert.doesNotReject(
+      service.deleteProject(principal, "external-project"),
+    );
+    await assert.doesNotReject(
+      service.deleteProgram(principal, "external-program"),
+    );
+    assert.deepEqual(deleted, ["project:project-id", "program:program-id"]);
+
+    await assert.rejects(
+      service.deleteProject(
+        { ...principal, roles: ["project-manager"] },
+        "external-project",
+      ),
+      /Administrator access required/u,
+    );
   });
 });
