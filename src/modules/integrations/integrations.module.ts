@@ -208,6 +208,53 @@ export class ZohoAdapter {
     });
   }
 
+  private async searchPage(
+    module: string,
+    criteria: string,
+    options: { fields?: string[]; page?: number } = {},
+  ): Promise<ZohoRecordPage> {
+    if (this.config.get("INTEGRATIONS_MOCK", { infer: true })) {
+      return { data: [], info: { more_records: false } };
+    }
+    return withRetry(async () => {
+      const query = new URLSearchParams({
+        criteria,
+        per_page: "200",
+        page: String(options.page ?? 1),
+      });
+      if (options.fields?.length) query.set("fields", options.fields.join(","));
+      const refreshToken = this.config.get("ZOHO_REFRESH_TOKEN", {
+        infer: true,
+      });
+      const direct = refreshToken ? await this.directAccessToken() : undefined;
+      const url = direct
+        ? `${direct.apiDomain}/crm/${encodeURIComponent(this.config.get("ZOHO_API_VERSION", { infer: true }))}/${encodeURIComponent(module)}/search?${query.toString()}`
+        : `${this.config.get("ZOHO_BASE_URL", { infer: true })}/${encodeURIComponent(module)}/search?${query.toString()}`;
+      const response = await request(url, {
+        headers: direct
+          ? { authorization: `Zoho-oauthtoken ${direct.value}` }
+          : {
+              "x-client-id": this.config.get("ZOHO_CLIENT_ID", {
+                infer: true,
+              }),
+              "x-client-secret": this.config.get("ZOHO_CLIENT_SECRET", {
+                infer: true,
+              }),
+            },
+      });
+      if (response.statusCode === 204) return { data: [] };
+      const body = await response.body.text();
+      if (response.statusCode >= 400)
+        throw new Error(zohoErrorMessage(response.statusCode, body));
+      if (!body.trim()) return { data: [] };
+      try {
+        return zohoRecordPage(JSON.parse(body) as unknown);
+      } catch {
+        throw new Error("Zoho returned a non-JSON search response");
+      }
+    });
+  }
+
   async listRecords(
     module: string,
     page = 1,
@@ -244,6 +291,21 @@ export class ZohoAdapter {
       }
     }
     throw new Error("Zoho records exceeded the supported pagination limit");
+  }
+
+  async searchAllRecords(
+    module: string,
+    criteria: string,
+    fields: string[] = ["id"],
+  ): Promise<ZohoRecord[]> {
+    const records: ZohoRecord[] = [];
+    const maxPages = 10;
+    for (let page = 1; page <= maxPages; page += 1) {
+      const result = await this.searchPage(module, criteria, { fields, page });
+      records.push(...result.data);
+      if (!result.info?.more_records) return records;
+    }
+    throw new Error("Zoho search exceeded its 2,000-record limit");
   }
 
   async updateRecord(

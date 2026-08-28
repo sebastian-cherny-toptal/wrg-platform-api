@@ -299,6 +299,12 @@ describe("compatibility heat-map endpoint", () => {
       assert.ok(secondRow);
       firstRow.fill(null);
       secondRow[1] = null;
+      const separatorColumns = expectedTable[2]?.flatMap((value, index) =>
+        value === "0" ? [index] : [],
+      );
+      for (const row of expectedTable) {
+        for (const column of separatorColumns ?? []) row[column] = null;
+      }
       assert.deepEqual(actualTable, expectedTable);
     } finally {
       await app.close();

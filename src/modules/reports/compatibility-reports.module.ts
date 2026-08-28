@@ -2849,14 +2849,25 @@ export class CompatibilityReportsService {
     principal: Principal,
     query: ReportQuery,
   ): Promise<Buffer> {
-    const report = await this.employerBenchmark(principal, query);
+    const [context, report] = await Promise.all([
+      this.context(principal, query),
+      this.employerBenchmark(principal, query),
+    ]);
     return createBenefitsWorkbook({
       headers: report.data.tableHeaders.map((header) => header.title),
+      columnHeaders: report.data.tableHeaders.map((header) => {
+        const size = header.title
+          .replace(/\s+size categories$/iu, "")
+          .replace(/\s+employers$/iu, "");
+        return `${size} ${header.subTitle}`;
+      }),
+      programName: context.program.name,
       sections: report.data.tableData.map((section) => ({
         title: section.title,
         questions: section.nestedData.map((question) => ({
           text: question.title,
           responses: question.nestedData.map((response) => ({
+            format: response.type === "%" ? "percent" : "number",
             label: response.title,
             values: response.dataValues,
           })),

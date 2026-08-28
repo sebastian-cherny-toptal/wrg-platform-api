@@ -75,6 +75,10 @@ const zohoStub = {
     mark("listPrograms");
     return [];
   },
+  listProgramsForProject: () => {
+    mark("listProgramsForProject");
+    return [];
+  },
 };
 
 @Injectable()
@@ -123,6 +127,7 @@ async function createTestApp(): Promise<NestFastifyApplication> {
       { path: "dashboard/:one", method: RequestMethod.ALL },
       { path: "payment/:one", method: RequestMethod.ALL },
       { path: "zoho/:one", method: RequestMethod.ALL },
+      { path: "zoho/:one/:two/:three", method: RequestMethod.ALL },
     ],
   });
   app.enableVersioning({
@@ -228,6 +233,52 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
     assert.ok(requestedFields.get("Programs")?.includes("Program_Year"));
     assert.equal(requestedFields.has("Main_Projects"), false);
     assert.ok(requestedFields.get("Deals")?.includes("Current_Year_Winner"));
+  });
+
+  it("loads only the programs and deals for the selected Zoho project", async () => {
+    const requestedCriteria: Array<{ module: string; criteria: string }> = [];
+    const service = new CompatibilityZohoService(
+      {} as SyncQueue,
+      {
+        searchAllRecords: (module: string, criteria: string) => {
+          requestedCriteria.push({ module, criteria });
+          return Promise.resolve(
+            module === "Programs"
+              ? [
+                  {
+                    id: "zoho-program-1",
+                    Name: "Baton Rouge 2026",
+                    Project: { id: "zoho-project-1", name: "Baton Rouge" },
+                    Program_Year: "2026",
+                  },
+                ]
+              : [],
+          );
+        },
+      } as unknown as ZohoAdapter,
+    );
+
+    const programs = await service.listProgramsForProject(
+      {
+        sub: "admin-id",
+        organizationId: null,
+        roles: ["admin"],
+        permissions: [],
+      },
+      "zoho-project-1",
+    );
+
+    assert.equal(programs.length, 1);
+    assert.deepEqual(requestedCriteria, [
+      {
+        module: "Programs",
+        criteria: "(Project:equals:zoho-project-1)",
+      },
+      {
+        module: "Deals",
+        criteria: "(Program:in:zoho-program-1)",
+      },
+    ]);
   });
 
   it("serves the compatibility routes", async () => {
@@ -343,6 +394,11 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
         }),
         app.inject({ method: "GET", url: "/zoho/syncClients", headers }),
         app.inject({ method: "GET", url: "/zoho/programs", headers }),
+        app.inject({
+          method: "GET",
+          url: "/zoho/projects/zoho-project-1/programs",
+          headers,
+        }),
       ];
       const responses = await Promise.all(requests);
       for (const response of responses) {
@@ -373,6 +429,7 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
         "sync:Accounts": 1,
         "sync:Contacts": 1,
         listPrograms: 1,
+        listProgramsForProject: 1,
       });
     } finally {
       await app.close();

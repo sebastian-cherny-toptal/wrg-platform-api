@@ -65,6 +65,7 @@ describe("Benefits & Best Practices workbook parsing", () => {
   it("accepts workbooks based on the downloadable report template", async () => {
     const buffer = await createBenefitsWorkbook({
       headers: ["All Winners", "All Non-Winners"],
+      programName: "Test Program 2026",
       sections: [
         {
           title: "Benefits",
@@ -72,14 +73,54 @@ describe("Benefits & Best Practices workbook parsing", () => {
             {
               text: "Do you offer healthcare?",
               responses: [
-                { label: "Yes", values: [90, 70] },
-                { label: "No", values: [10, 30] },
+                { format: "percent", label: "Yes", values: [90.4, 70.2] },
+                { format: "percent", label: "No", values: [9.6, 29.8] },
+              ],
+            },
+          ],
+        },
+        {
+          title: "Workplace Practices",
+          questions: [
+            {
+              text: "Average paid holidays",
+              responses: [
+                {
+                  format: "number",
+                  label: "Average paid holidays",
+                  values: [10.4, 8.7],
+                },
               ],
             },
           ],
         },
       ],
     });
+
+    const generated = new ExcelJS.Workbook();
+    await generated.xlsx.load(buffer as never);
+    const generatedSheet = generated.getWorksheet("Benefits & Best Practices");
+    assert.ok(generatedSheet);
+    assert.equal(
+      generatedSheet.getCell("A1").value,
+      "BENEFITS & BEST PRACTICES",
+    );
+    assert.equal(
+      generatedSheet.getCell("A6").value,
+      "PROGRAM: Test Program 2026",
+    );
+    assert.equal(generatedSheet.getCell("B4").value, "All Size Categories");
+    assert.equal(generatedSheet.getCell("B6").value, "All Winners");
+    assert.equal(generatedSheet.getCell("A8").value, "BENEFITS");
+    assert.equal(
+      generatedSheet.getCell("A9").value,
+      "Do you offer healthcare?",
+    );
+    assert.equal(generatedSheet.getCell("B10").value, 0.904);
+    assert.equal(generatedSheet.getCell("B10").numFmt, "0%");
+    assert.equal(generatedSheet.getCell("A12").value, "WORKPLACE PRACTICES");
+    assert.equal(generatedSheet.getCell("B13").value, 10.4);
+    assert.equal(generatedSheet.getCell("B13").numFmt, "0");
 
     const snapshot = await parseBenefitsBestPracticesWorkbook(
       buffer,
@@ -94,13 +135,20 @@ describe("Benefits & Best Practices workbook parsing", () => {
     assert.equal(section.questions.length, 1);
     assert.deepEqual(
       question.responses.map(({ dataValues, label }) => ({
-        dataValues,
+        dataValues: dataValues.map((value) =>
+          typeof value === "number" ? Number(value.toFixed(6)) : value,
+        ),
         label,
       })),
       [
-        { dataValues: [90, 70], label: "Yes" },
-        { dataValues: [10, 30], label: "No" },
+        { dataValues: [90.4, 70.2], label: "Yes" },
+        { dataValues: [9.6, 29.8], label: "No" },
       ],
+    );
+    assert.equal(snapshot.sections[1]?.title, "Workplace Practices");
+    assert.deepEqual(
+      snapshot.sections[1].questions[0]?.responses[0]?.dataValues,
+      [10.4, 8.7],
     );
   });
 });

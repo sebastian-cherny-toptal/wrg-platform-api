@@ -130,9 +130,13 @@ describe("annual trends workbook generation", () => {
     assert.equal(sheet.getCell("B5").value, "CORE EMPLOYEE EXPERIENCE");
     assert.equal(sheet.getCell("B6").value, "I can do my best work");
     assert.equal(sheet.getCell("D6").value, 90);
+    assert.equal(sheet.getCell("D6").numFmt, "0");
     assert.equal(sheet.getCell("E6").value, 4);
+    assert.equal(sheet.getCell("E6").numFmt, "0");
     assert.equal(sheet.getCell("G6").value, 85);
+    assert.equal(sheet.getCell("G6").numFmt, "0");
     assert.equal(sheet.getCell("H6").value, 6);
+    assert.equal(sheet.getCell("H6").numFmt, "0");
     assert.equal(sheet.getCell("D15").value, 90);
     assert.equal(sheet.getCell("G101").value, 85);
     assert.equal(sheet.getCell("A6").value, null);
@@ -192,9 +196,16 @@ describe("workforce feedback workbook generation", () => {
     }
     assert.equal(sheet.getCell("B2").value, null);
     assert.equal(sheet.getCell("G4").value, 0);
+    for (const column of [1, 3, 6, 11]) {
+      for (let row = 1; row <= sheet.rowCount; row += 1) {
+        assert.equal(sheet.getCell(row, column).value, null);
+      }
+    }
     assert.equal(sheet.getCell("B101").value, "SURVEY AVERAGE");
     assert.equal(sheet.getCell("D101").value, 73.33333333333333);
+    assert.equal(sheet.getCell("D101").numFmt, "0");
     assert.equal(sheet.getCell("E101").value, 16.666666666666668);
+    assert.equal(sheet.getCell("E101").numFmt, "0");
   });
 });
 

@@ -28,7 +28,7 @@ INVENTORY_FIELDS = {
         "Project_Specific_Employer_Identifier",
         "Project_Abbreviation",
         "Created_Time",
-        "Modified_Time", "Created_By", "Modified_By", "Owner", "Description", "Project_Specific_Employer_Identifier", "Project_Type", "Start_Date", "End_Date"
+        "Modified_Time", "Created_By", "Modified_By", "Owner"
     ),
     "Programs": (
         "Name",
@@ -174,6 +174,49 @@ def compact_value(value: object) -> object:
     return value
 
 
+def print_first_project_programs(
+    api_domain: str,
+    api_version: str,
+    access_token: str,
+    project: dict,
+    timeout: float,
+) -> None:
+    project_id = str(project["id"])
+    programs = []
+    for page in range(1, 11):
+        _, payload = crm_get(
+            api_domain,
+            api_version,
+            "Programs/search",
+            access_token,
+            {
+                "criteria": f"(Project:equals:{project_id})",
+                "fields": "Name,Program_Year,Project,Program_Type",
+                "per_page": "200",
+                "page": str(page),
+            },
+            timeout,
+        )
+        programs.extend(payload.get("data", []))
+        if not payload.get("info", {}).get("more_records"):
+            break
+
+    safe_programs = [
+        {
+            "id": program.get("id"),
+            "name": program.get("Name"),
+            "year": program.get("Program_Year"),
+            "type": program.get("Program_Type"),
+        }
+        for program in programs
+    ]
+    print("first_project=" + json.dumps(
+        {"id": project_id, "name": project.get("Name")}, sort_keys=True
+    ))
+    print(f"associated_program_count={len(programs)}")
+    print("associated_programs=" + json.dumps(safe_programs, sort_keys=True, default=str))
+
+
 def find_winner_program_example(
     api_domain: str,
     api_version: str,
@@ -290,7 +333,6 @@ def print_inventory(
         metadata = fields_payload.get("fields", [])
         by_name = {field.get("api_name"): field for field in metadata}
         selected = [name for name in requested_fields if name in by_name]
-        selected = [k for k in by_name.keys()] # [name for name in requested_fields if name in by_name]
         relationship_fields = []
         for name in selected:
             field = by_name[name]
@@ -334,6 +376,14 @@ def print_inventory(
         print(f"record_count={count_payload.get('count', 'unknown')} field_count={len(metadata)}")
         print("selected_field_metadata=" + json.dumps(relationship_fields, sort_keys=True))
         print("sample_records=" + json.dumps(samples, sort_keys=True, default=str))
+        if module == "Main_Projects" and records_payload.get("data"):
+            print_first_project_programs(
+                api_domain,
+                api_version,
+                access_token,
+                records_payload["data"][0],
+                timeout,
+            )
 
     find_winner_program_example(
         api_domain, api_version, access_token, timeout

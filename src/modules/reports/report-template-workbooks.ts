@@ -48,6 +48,7 @@ export interface BenefitsWorkbookSection {
   questions: Array<{
     text: string;
     responses: Array<{
+      format?: "number" | "percent";
       label: string;
       values: Array<number | string>;
     }>;
@@ -456,6 +457,40 @@ function clearWorkforceFeedbackPlaceholders(workbook: ExcelJS.Workbook): void {
     cell.value = null;
   });
   sheet.getCell("B2").value = null;
+
+  const separatorColumns: number[] = [];
+  sheet.getRow(3).eachCell({ includeEmpty: true }, (cell) => {
+    if (cell.value === 0 || cell.value === "0") {
+      separatorColumns.push(cell.fullAddress.col);
+    }
+  });
+  for (const column of separatorColumns) {
+    for (let row = 1; row <= sheet.rowCount; row += 1) {
+      sheet.getCell(row, column).value = null;
+    }
+  }
+}
+
+function formatWorkforceFeedbackNumbers(workbook: ExcelJS.Workbook): void {
+  const sheet = workbook.getWorksheet("Workforce Feedback Results");
+  if (!sheet) return;
+  for (let column = 4; column <= sheet.columnCount; column += 1) {
+    const header = sheet.getCell(3, column).value;
+    if (header === null || header === 0 || header === "0") continue;
+    for (let row = 4; row <= sheet.rowCount; row += 1) {
+      sheet.getCell(row, column).numFmt = "0";
+    }
+  }
+}
+
+function formatAnnualTrendsNumbers(workbook: ExcelJS.Workbook): void {
+  const sheet = workbook.getWorksheet("Annual Trends Report");
+  if (!sheet) return;
+  for (const column of [4, 5, 7, 8]) {
+    for (let row = 4; row <= sheet.rowCount; row += 1) {
+      sheet.getCell(row, column).numFmt = "0";
+    }
+  }
 }
 
 export async function createWorkforceFeedbackWorkbook(input: {
@@ -572,6 +607,7 @@ export async function createWorkforceFeedbackWorkbook(input: {
     }
     return null;
   });
+  formatWorkforceFeedbackNumbers(workbook);
   applyResponsePatternFills(workbook, input.responsePatternRanges);
   return workbookBuffer(workbook);
 }
@@ -661,36 +697,138 @@ export async function createBenchmarkWorkbook(input: {
 
 export async function createBenefitsWorkbook(input: {
   headers: string[];
+  columnHeaders?: string[];
+  programName?: string;
   sections: BenefitsWorkbookSection[];
 }): Promise<Buffer> {
   const workbook = await loadTemplate("benefits-best-practices.xlsx");
-  const section = input.sections[0];
-  const rows =
-    section?.questions.flatMap((question) =>
-      question.responses.map((response) => ({
-        question: question.text,
-        response,
-      })),
-    ) ?? [];
-  fillTokens(workbook, (name) => {
-    const headerMatch = /^GROUP_(\d+)_TITLE$/u.exec(name);
-    if (headerMatch) return input.headers[Number(headerMatch[1]) - 1];
-    if (name === "SECTION_TITLE") return section?.title;
-    const questionMatch = /^QUESTION_(\d+)_TEXT$/u.exec(name);
-    if (questionMatch) return rows[Number(questionMatch[1]) - 1]?.question;
-    const responseMatch = /^QUESTION_(\d+)_RESPONSE$/u.exec(name);
-    if (responseMatch) {
-      const label = rows[Number(responseMatch[1]) - 1]?.response.label;
-      return label ? `  ${label}` : null;
+  const sheet = workbook.getWorksheet("Benefits & Best Practices");
+  if (!sheet) throw new Error("Benefits template has no worksheet");
+  const headerCount = Math.min(input.headers.length, 8);
+  const cloneStyle = (cell: ExcelJS.Cell): Partial<ExcelJS.Style> =>
+    structuredClone(cell.style);
+  const prototypes = {
+    direct: Array.from({ length: 9 }, (_, index) =>
+      cloneStyle(sheet.getCell(45, index + 1)),
+    ),
+    footnote: Array.from({ length: 9 }, (_, index) =>
+      cloneStyle(sheet.getCell(215, index + 1)),
+    ),
+    question: Array.from({ length: 9 }, (_, index) =>
+      cloneStyle(sheet.getCell(9, index + 1)),
+    ),
+    response: Array.from({ length: 9 }, (_, index) =>
+      cloneStyle(sheet.getCell(10, index + 1)),
+    ),
+    section: Array.from({ length: 9 }, (_, index) =>
+      cloneStyle(sheet.getCell(8, index + 1)),
+    ),
+  };
+
+  for (const merge of [...sheet.model.merges]) {
+    const startRow = Number(/\d+/u.exec(merge)?.[0] ?? 0);
+    if (startRow >= 8) sheet.unMergeCells(merge);
+  }
+  sheet.spliceRows(8, sheet.rowCount - 7);
+
+  const groupTitle = (value: string | undefined): string | null => {
+    if (!value) return null;
+    if (/size categories|employers/iu.test(value)) return value;
+    const size = value.replace(/\s+(?:non-)?winners?$/iu, "").trim();
+    return size.toLowerCase() === "all"
+      ? "All Size Categories"
+      : `${size} Employers`;
+  };
+  const columnHeaders = input.columnHeaders ?? input.headers;
+  sheet.getCell("A6").value = input.programName
+    ? safeValue(`PROGRAM: ${input.programName}`)
+    : null;
+  for (let column = 2; column <= 9; column += 1) {
+    sheet.getCell(6, column).value =
+      column - 2 < headerCount
+        ? safeValue(columnHeaders[column - 2] ?? input.headers[column - 2])
+        : null;
+  }
+  for (let pair = 0; pair < 4; pair += 1) {
+    const column = 2 + pair * 2;
+    const populated = pair * 2 < headerCount;
+    sheet.getCell(3, column).value = populated ? "Averaged Responses" : null;
+    sheet.getCell(4, column).value = populated
+      ? safeValue(groupTitle(input.headers[pair * 2]) ?? "")
+      : null;
+    sheet.getCell(5, column).value = null;
+  }
+
+  let rowNumber = 8;
+  const applyPrototype = (
+    row: ExcelJS.Row,
+    prototype: Array<Partial<ExcelJS.Style>>,
+  ) => {
+    for (let column = 1; column <= 9; column += 1) {
+      row.getCell(column).style = structuredClone(prototype[column - 1] ?? {});
     }
-    const valueMatch = /^QUESTION_(\d+)_GROUP_(\d+)_VALUE$/u.exec(name);
-    if (valueMatch) {
-      return rows[Number(valueMatch[1]) - 1]?.response.values[
-        Number(valueMatch[2]) - 1
-      ];
+  };
+  for (const section of input.sections) {
+    const sectionRow = sheet.getRow(rowNumber);
+    applyPrototype(sectionRow, prototypes.section);
+    sectionRow.getCell(1).value = safeValue(section.title.toUpperCase());
+    sheet.mergeCells(rowNumber, 1, rowNumber, 9);
+    rowNumber += 1;
+
+    for (const question of section.questions) {
+      const directResponse =
+        question.responses.length === 1 &&
+        question.responses[0]?.label.trim() === question.text.trim();
+      const questionRow = sheet.getRow(rowNumber);
+      applyPrototype(
+        questionRow,
+        directResponse ? prototypes.direct : prototypes.question,
+      );
+      questionRow.getCell(1).value = safeValue(question.text);
+      if (directResponse) {
+        const response = question.responses[0];
+        for (let index = 0; index < headerCount; index += 1) {
+          const cell = questionRow.getCell(index + 2);
+          const value = response?.values[index];
+          cell.value = safeValue(
+            typeof value === "number" && response?.format === "percent"
+              ? value / 100
+              : value,
+          );
+          cell.numFmt = response?.format === "percent" ? "0%" : "0";
+        }
+      } else {
+        sheet.mergeCells(rowNumber, 1, rowNumber, 9);
+      }
+      rowNumber += 1;
+
+      if (!directResponse) {
+        for (const response of question.responses) {
+          const responseRow = sheet.getRow(rowNumber);
+          applyPrototype(responseRow, prototypes.response);
+          responseRow.getCell(1).value = safeValue(response.label);
+          for (let index = 0; index < headerCount; index += 1) {
+            const cell = responseRow.getCell(index + 2);
+            const value = response.values[index];
+            cell.value = safeValue(
+              typeof value === "number" && response.format === "percent"
+                ? value / 100
+                : value,
+            );
+            cell.numFmt = response.format === "percent" ? "0%" : "0";
+          }
+          rowNumber += 1;
+        }
+      }
     }
-    return null;
-  });
+  }
+
+  const footnote = sheet.getRow(rowNumber);
+  applyPrototype(footnote, prototypes.footnote);
+  footnote.getCell(1).value =
+    "x – Insufficient data to provide meaningful feedback.";
+  sheet.mergeCells(rowNumber, 1, rowNumber, 9);
+  sheet.pageSetup.printArea = `A1:I${rowNumber}`;
   return workbookBuffer(workbook);
 }
 
@@ -832,6 +970,7 @@ export async function createAnnualTrendsWorkbook(input: {
     }
     return null;
   });
+  formatAnnualTrendsNumbers(workbook);
   return workbookBuffer(workbook);
 }
 

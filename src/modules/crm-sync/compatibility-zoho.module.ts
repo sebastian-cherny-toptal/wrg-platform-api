@@ -1,10 +1,12 @@
 import {
+  BadRequestException,
   Controller,
   ForbiddenException,
   Get,
   Inject,
   Injectable,
   Module,
+  Param,
   Query,
   UseGuards,
   VERSION_NEUTRAL,
@@ -25,6 +27,36 @@ import {
 import { CrmSyncModule, SyncQueue } from "./crm-sync.module.js";
 
 type ZohoSyncKind = "Projects" | "Programs" | "Accounts" | "Contacts";
+
+const programFields = [
+  "id",
+  "Name",
+  "Program_Year",
+  "Project",
+  "EFS_Launch_Date",
+  "EFS_end_Date",
+  "Boutique_EE_Size",
+  "Category_15_24_Fee",
+  "Small_EE_Size",
+  "Category_25_99_Fee",
+  "Medium_EE_Size",
+  "Category_100_199_Fee",
+  "Large_EE_Size",
+  "Category_200_499_Fee",
+  "Mega_EE_Size",
+  "Category_500_999_Fee",
+  "Major_EE_Size",
+  "Category_1000_Fee",
+];
+
+const dealFields = [
+  "id",
+  "Current_Year_Winner",
+  "Program",
+  "Account_Name",
+  "Deal_Organization_ID",
+  "Current_Year_Category",
+];
 
 @Injectable()
 export class CompatibilityZohoService {
@@ -83,38 +115,45 @@ export class CompatibilityZohoService {
   async listPrograms(principal: Principal) {
     this.assertAccess(principal);
     const [records, deals] = await Promise.all([
-      this.zoho
-        .listAllRecords("Programs", [
-          "id",
-          "Name",
-          "Program_Year",
-          "Project",
-          "EFS_Launch_Date",
-          "EFS_end_Date",
-          "Boutique_EE_Size",
-          "Category_15_24_Fee",
-          "Small_EE_Size",
-          "Category_25_99_Fee",
-          "Medium_EE_Size",
-          "Category_100_199_Fee",
-          "Large_EE_Size",
-          "Category_200_499_Fee",
-          "Mega_EE_Size",
-          "Category_500_999_Fee",
-          "Major_EE_Size",
-          "Category_1000_Fee",
-        ]),
-      this.zoho
-        .listAllRecords("Deals", [
-          "id",
-          "Current_Year_Winner",
-          "Program",
-          "Account_Name",
-          "Deal_Organization_ID",
-          "Current_Year_Category",
-        ])
-        .catch(() => []),
+      this.zoho.listAllRecords("Programs", programFields),
+      this.zoho.listAllRecords("Deals", dealFields).catch(() => []),
     ]);
+    return this.programOptions(records, deals);
+  }
+
+  async listProgramsForProject(principal: Principal, projectId: string) {
+    this.assertAccess(principal);
+    const normalizedProjectId = projectId.trim();
+    if (
+      !normalizedProjectId ||
+      !/^[A-Za-z0-9_-]+$/u.test(normalizedProjectId)
+    ) {
+      throw new BadRequestException("A valid Zoho project ID is required");
+    }
+    const records = await this.zoho.searchAllRecords(
+      "Programs",
+      `(Project:equals:${normalizedProjectId})`,
+      programFields,
+    );
+    const dealBatches = Array.from(
+      { length: Math.ceil(records.length / 100) },
+      (_, index) => records.slice(index * 100, index * 100 + 100),
+    );
+    const deals = (
+      await Promise.all(
+        dealBatches.map((batch) =>
+          this.zoho.searchAllRecords(
+            "Deals",
+            `(Program:in:${batch.map(({ id }) => id).join(",")})`,
+            dealFields,
+          ),
+        ),
+      ).catch(() => [])
+    ).flat();
+    return this.programOptions(records, deals);
+  }
+
+  private programOptions(records: ZohoRecord[], deals: ZohoRecord[]) {
     const text = (record: ZohoRecord, key: string): string | null => {
       const value = record[key];
       return typeof value === "string" && value.trim() ? value.trim() : null;
@@ -232,7 +271,6 @@ export class CompatibilityZohoController {
     private readonly zoho: CompatibilityZohoService,
   ) { }
 
-
   @Get("projects")
   async listProjects(@CurrentUser() principal: Principal) {
     const data = await this.zoho.listProjects(principal);
@@ -249,6 +287,19 @@ export class CompatibilityZohoController {
     return {
       success: true,
       message: "Zoho programs",
+      data,
+    };
+  }
+
+  @Get("projects/:projectId/programs")
+  async listProgramsForProject(
+    @CurrentUser() principal: Principal,
+    @Param("projectId") projectId: string,
+  ) {
+    const data = await this.zoho.listProgramsForProject(principal, projectId);
+    return {
+      success: true,
+      message: "Zoho programs for project",
       data,
     };
   }
