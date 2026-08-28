@@ -310,8 +310,9 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
             {
               id: "zoho-deal-1",
               Program: { id: "zoho-program-1", name: "Baton Rouge 2026" },
-              Deal_Organization_ID: "49",
-              Deal_Name: "Acme - Baton Rouge",
+              Deal_Organization_ID: 460737994,
+              Deal_Name:
+                "Acme-460737994-Best Places to Work in Baton Rouge 2026",
               Current_Year_Winner: "Yes",
               Current_Year_Category: "Large",
               Surveys_Sent: 125,
@@ -343,7 +344,7 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
     assert.ok(request.fields.includes("Surveys_Sent"));
     assert.deepEqual(organizations, [
       {
-        organizationId: "49",
+        organizationId: "460737994",
         organizationName: "Acme",
         isWinner: true,
         surveysSent: 125,

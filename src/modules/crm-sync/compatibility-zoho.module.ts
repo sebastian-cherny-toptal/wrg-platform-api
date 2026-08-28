@@ -171,7 +171,10 @@ export class CompatibilityZohoService {
   ): Map<string, ProgramOrganization[]> {
     const text = (record: ZohoRecord, key: string): string | null => {
       const value = record[key];
-      return typeof value === "string" && value.trim() ? value.trim() : null;
+      if (typeof value === "string" && value.trim()) return value.trim();
+      return typeof value === "number" && Number.isFinite(value)
+        ? String(value)
+        : null;
     };
     const lookup = (record: ZohoRecord, key: string) => {
       const value = record[key];
@@ -192,7 +195,12 @@ export class CompatibilityZohoService {
         text(deal, "Deal_Organization_ID") ?? account?.id ?? "";
       if (!organizationId) continue;
       const rawDealName = text(deal, "Deal_Name");
-      const dealOrganizationName = rawDealName?.split(" - ")[0]?.trim();
+      const organizationIdMarker = `-${organizationId}-`;
+      const markerIndex = rawDealName?.lastIndexOf(organizationIdMarker) ?? -1;
+      const dealOrganizationName =
+        rawDealName && markerIndex > 0
+          ? rawDealName.slice(0, markerIndex).trim()
+          : rawDealName?.split(" - ")[0]?.trim();
       const organizationName =
         dealOrganizationName && dealOrganizationName.length > 0
           ? dealOrganizationName
