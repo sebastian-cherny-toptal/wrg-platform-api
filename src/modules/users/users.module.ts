@@ -439,6 +439,7 @@ export class ClientLoginService {
           stage: true,
           reportAccess: true,
           paymentDetails: true,
+          metrics: true,
           metadata: true,
           project: {
             select: { id: true, legacyId: true, name: true },
@@ -572,6 +573,7 @@ export class ClientLoginService {
       dealId: user.organizationProgram?.dealExternalId ?? null,
       organizationProgram: organizationPrograms.map((item) => {
         const reportAccess = jsonObject(item.reportAccess);
+        const metrics = jsonObject(item.metrics);
         const benefitsAccess =
           reportAccess.BBP_Access === "yes" ||
           reportAccess.benefitsBestPractices === "yes";
@@ -588,6 +590,11 @@ export class ClientLoginService {
                 : "no",
           },
           paymentDetails: item.paymentDetails,
+          metrics: {
+            ...(typeof metrics.SEV_Filter === "string"
+              ? { SEV_Filter: metrics.SEV_Filter }
+              : {}),
+          },
           projectId: projectData(item.project),
           programId: programData(item.program),
         };

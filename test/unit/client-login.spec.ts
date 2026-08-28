@@ -157,6 +157,7 @@ describe("client login endpoint", () => {
               stage: "active",
               reportAccess: { BBP_Access: "yes" },
               paymentDetails: {},
+              metrics: { SEV_Filter: "department" },
               metadata: {},
               project,
               program,
@@ -208,11 +209,13 @@ describe("client login endpoint", () => {
       .organizationProgram as Array<{
       programId: { _id: string };
       reportAccess: { BBP_Access: string };
+      metrics: { SEV_Filter: string };
     }>;
     const enrollment = organizationPrograms[0];
     assert.ok(enrollment);
     assert.equal(enrollment.programId._id, "legacy-program-id");
     assert.equal(enrollment.reportAccess.BBP_Access, "no");
+    assert.equal(enrollment.metrics.SEV_Filter, "department");
     assert.equal(organizationUpdates, 1);
     assert.equal(auditEntries, 1);
   });
