@@ -1,6 +1,13 @@
+import AdmZip from "adm-zip";
 import ExcelJS from "exceljs";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
@@ -129,38 +136,45 @@ describe("historical import service", () => {
   });
 
   it("loads EFS question templates without relying on an existing program", async () => {
-    const definition = await readXlsxSurveyDefinition({
-      fileName: "BR 2026 - EFS ORD.xlsx",
-      filePath: join(
-        process.cwd(),
-        "..",
-        "Baton Rouge 24-26",
-        "BR 2026 - EFS ORD.xlsx",
-      ),
-      questionId: (dataLabel) => dataLabel,
-    });
-    const likertQuestions = definition.questions.filter(
-      ({ type }) => type === "likert",
-    );
+    const root = mkdtempSync(join(tmpdir(), "historical-import-efs-template-"));
+    const fileName = "BR 2026 - EFS ORD.xlsx";
+    const filePath = join(root, fileName);
+    const fixture = new AdmZip(
+      join(process.cwd(), "secure", "seed-data", "Baton Rouge 24-26.zip"),
+    ).readFile(fileName);
+    assert.ok(fixture, `${fileName} is missing from the seed archive`);
+    writeFileSync(filePath, fixture);
 
-    const templates = await loadBundledWorkforceQuestionTemplates(
-      2026,
-      definition.questions,
-    );
+    try {
+      const definition = await readXlsxSurveyDefinition({
+        fileName,
+        filePath,
+        questionId: (dataLabel) => dataLabel,
+      });
+      const likertQuestions = definition.questions.filter(
+        ({ type }) => type === "likert",
+      );
+      const templates = await loadBundledWorkforceQuestionTemplates(
+        2026,
+        definition.questions,
+      );
 
-    assert.equal(templates.size, likertQuestions.length);
-    assert.equal(
-      templates.get("q_CoreEmployeeExperience_1")?.caption,
-      "This organization's culture allows me to do my best work",
-    );
-    assert.equal(
-      (
-        templates.get("q_CoreEmployeeExperience_1")?.metadata as {
-          categoryLabel?: string;
-        }
-      ).categoryLabel,
-      "Core Employee Experience",
-    );
+      assert.equal(templates.size, likertQuestions.length);
+      assert.equal(
+        templates.get("q_CoreEmployeeExperience_1")?.caption,
+        "This organization's culture allows me to do my best work",
+      );
+      assert.equal(
+        (
+          templates.get("q_CoreEmployeeExperience_1")?.metadata as {
+            categoryLabel?: string;
+          }
+        ).categoryLabel,
+        "Core Employee Experience",
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it("validates uploaded workbooks and returns a summary", async () => {
