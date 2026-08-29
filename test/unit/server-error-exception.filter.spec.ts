@@ -10,7 +10,7 @@ import {
   type NestFastifyApplication,
 } from "@nestjs/platform-fastify";
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { describe, it, mock } from "node:test";
 import {
   resolveHttpErrorBody,
   resolveHttpErrorMessage,
@@ -43,32 +43,46 @@ describe("server error exception filter", () => {
     );
     assert.equal(resolveHttpErrorStatus(new Error("boom")), 500);
     assert.equal(
-      resolveHttpErrorMessage(new InternalServerErrorException("import failed")),
+      resolveHttpErrorMessage(
+        new InternalServerErrorException("import failed"),
+      ),
       "import failed",
     );
-    assert.equal(resolveHttpErrorMessage(new Error("database exploded")), "database exploded");
+    assert.equal(
+      resolveHttpErrorMessage(new Error("database exploded")),
+      "database exploded",
+    );
   });
 
   it("walks error causes when resolving stack traces", () => {
     const root = new Error("workbook parse failed");
-    const wrapped = new InternalServerErrorException("Historical import failed", {
-      cause: root,
-    });
+    const wrapped = new InternalServerErrorException(
+      "Historical import failed",
+      {
+        cause: root,
+      },
+    );
     const stack = resolveHttpErrorStack(wrapped);
     assert.match(stack ?? "", /workbook parse failed/);
     assert.match(stack ?? "", /Historical import failed/);
   });
 
   it("returns generic client message for unexpected 500 errors", () => {
-    assert.deepEqual(resolveHttpErrorBody(new Error("database exploded"), 500), {
-      statusCode: 500,
-      message: "Internal server error",
-    });
+    assert.deepEqual(
+      resolveHttpErrorBody(new Error("database exploded"), 500),
+      {
+        statusCode: 500,
+        message: "Internal server error",
+      },
+    );
   });
 
   it("preserves explicit HttpException response bodies", () => {
     assert.deepEqual(
-      resolveHttpErrorBody(new InternalServerErrorException("import failed"), 500),
+      resolveHttpErrorBody(
+        new InternalServerErrorException("import failed"),
+        500,
+      ),
       {
         statusCode: 500,
         message: "import failed",
@@ -78,6 +92,7 @@ describe("server error exception filter", () => {
   });
 
   it("logs and responds when an unexpected server error is thrown", async () => {
+    const consoleError = mock.method(console, "error", () => undefined);
     const app = await NestFactory.create<NestFastifyApplication>(
       ErrorTestModule,
       new FastifyAdapter(),
@@ -93,12 +108,19 @@ describe("server error exception filter", () => {
         statusCode: 500,
         message: "Internal server error",
       });
+      assert.equal(consoleError.mock.callCount(), 1);
+      assert.match(
+        String(consoleError.mock.calls[0]?.arguments[0]),
+        /\[HTTP 500\] GET \/unexpected.*database exploded/s,
+      );
     } finally {
       await app.close();
+      consoleError.mock.restore();
     }
   });
 
   it("returns explicit 500 messages from HttpException", async () => {
+    const consoleError = mock.method(console, "error", () => undefined);
     const app = await NestFactory.create<NestFastifyApplication>(
       ErrorTestModule,
       new FastifyAdapter(),
@@ -115,8 +137,14 @@ describe("server error exception filter", () => {
         message: "Historical import failed",
         error: "Internal Server Error",
       });
+      assert.equal(consoleError.mock.callCount(), 1);
+      assert.match(
+        String(consoleError.mock.calls[0]?.arguments[0]),
+        /\[HTTP 500\] GET \/explicit.*Historical import failed/s,
+      );
     } finally {
       await app.close();
+      consoleError.mock.restore();
     }
   });
 });
