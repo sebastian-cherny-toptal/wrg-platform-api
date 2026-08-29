@@ -10,7 +10,13 @@ import {
 import { Prisma } from "@prisma/client";
 import type { PrismaClient } from "@prisma/client";
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { basename, extname, join } from "node:path";
 import ExcelJS from "exceljs";
 import { PrismaService } from "../../database/prisma.service.js";
@@ -20,6 +26,11 @@ import {
   type ReportCatalogProduct,
 } from "../reports/report-catalog.js";
 import {
+  parsePublishedReportHeaders,
+  parsePublishedReportValues,
+} from "../reports/benefits-best-practices-workbook.js";
+import {
+  cellScalar,
   forEachXlsxSurveyRow,
   readXlsxSurveyDefinition,
   type XlsxQuestionDefinition,
@@ -637,11 +648,92 @@ function questionReportRole(type: string): string {
   return "other";
 }
 
-interface HistoricalQuestionTemplate {
+export interface HistoricalQuestionTemplate {
   dataLabel: string;
   caption: string;
   type: string;
   metadata: Prisma.JsonValue;
+}
+
+function titleCase(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(
+      /(^|[\s-])([a-z])/gu,
+      (_match, prefix: string, letter: string) =>
+        `${prefix}${letter.toUpperCase()}`,
+    );
+}
+
+export async function loadBundledWorkforceQuestionTemplates(
+  programYear: number,
+  questions: XlsxQuestionDefinition[],
+): Promise<Map<string, HistoricalQuestionTemplate>> {
+  const reportDirectory = join(process.cwd(), "secure", "report-data");
+  if (!existsSync(reportDirectory)) return new Map();
+  const reportFile = readdirSync(reportDirectory).find(
+    (fileName) =>
+      fileName.includes(String(programYear)) &&
+      /(?:workforce\s+benchmark|benchmark\s+comparisons)/iu.test(fileName),
+  );
+  if (!reportFile) return new Map();
+
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.readFile(join(reportDirectory, reportFile));
+  const worksheet = workbook.worksheets[0];
+  if (!worksheet) return new Map();
+  const headers = parsePublishedReportHeaders(worksheet);
+  const publishedQuestions: Array<{
+    benchmarkValues: Array<number | string>;
+    categoryLabel: string;
+    caption: string;
+  }> = [];
+  let categoryLabel = "";
+  for (let rowNumber = 8; rowNumber <= worksheet.rowCount; rowNumber += 1) {
+    const row = worksheet.getRow(rowNumber);
+    const label = String(cellScalar(row.getCell(1).value) ?? "").trim();
+    if (!label) continue;
+    const values = parsePublishedReportValues(row, headers.length);
+    if (!values.some((value) => typeof value === "number")) {
+      if (/^x\s*[–-]|^this report/iu.test(label)) break;
+      categoryLabel = titleCase(label);
+      continue;
+    }
+    if (
+      !categoryLabel ||
+      /^survey average$/iu.test(label) ||
+      /\s+-\s+average$/iu.test(label)
+    ) {
+      continue;
+    }
+    publishedQuestions.push({
+      benchmarkValues: values,
+      categoryLabel,
+      caption: label,
+    });
+  }
+
+  const likertQuestions = questions.filter(({ type }) => type === "likert");
+  if (likertQuestions.length !== publishedQuestions.length) return new Map();
+  return new Map(
+    likertQuestions.map((question, index) => {
+      const published = publishedQuestions[index];
+      if (!published)
+        throw new Error("Published question mapping is incomplete");
+      return [
+        question.dataLabel,
+        {
+          dataLabel: question.dataLabel,
+          caption: published.caption,
+          type: "likert",
+          metadata: {
+            benchmarkValues: published.benchmarkValues,
+            categoryLabel: published.categoryLabel,
+          },
+        },
+      ];
+    }),
+  );
 }
 
 function jsonMetadata(value: Prisma.JsonValue | undefined): Prisma.JsonObject {
@@ -1367,10 +1459,18 @@ export class HistoricalImportService {
   private async cleanupFailedImport(
     importPrefix: string,
     projectId: string,
+    programId: string,
+    creatingProject: boolean,
   ): Promise<void> {
-    await this.prisma.project
-      .deleteMany({ where: { id: projectId } })
-      .catch(() => undefined);
+    if (creatingProject) {
+      await this.prisma.project
+        .deleteMany({ where: { id: projectId } })
+        .catch(() => undefined);
+    } else {
+      await this.prisma.program
+        .deleteMany({ where: { id: programId } })
+        .catch(() => undefined);
+    }
     await this.prisma.organization
       .deleteMany({
         where: { externalId: { startsWith: `${importPrefix}:org:` } },
@@ -1419,15 +1519,23 @@ export class HistoricalImportService {
     const commitIdempotencyKey =
       draft.commitIdempotencyKey ?? `historical-import-commit:${importId}`;
     const importPrefix = importPrefixFor(importId);
-    const projectId =
-      draft.projectId ?? deterministicUuid(`${importPrefix}:project`);
+    const generatedProjectId = deterministicUuid(`${importPrefix}:project`);
+    // A failed first attempt used to persist its generated project ID after
+    // cleanup deleted that project. Recognize it as a new-project import so the
+    // same import can be retried instead of treating the ID as a selection.
+    const selectedProjectId =
+      draft.projectId && draft.projectId !== generatedProjectId
+        ? draft.projectId
+        : undefined;
+    const creatingProject = !selectedProjectId;
+    const projectId = selectedProjectId ?? generatedProjectId;
     const programId =
       draft.programId ?? deterministicUuid(`${importPrefix}:program`);
     const projectSlugBase = slugify(draft.projectName ?? draft.programName);
     let projectSlug = projectSlugBase;
     let slugSuffix = 1;
     while (
-      !draft.projectId &&
+      creatingProject &&
       (await this.prisma.project.findUnique({
         where: { slug: projectSlug },
         select: { id: true },
@@ -1448,7 +1556,7 @@ export class HistoricalImportService {
     );
 
     try {
-      if (!draft.projectId) {
+      if (creatingProject) {
         await this.prisma.project.create({
           data: {
             id: projectId,
@@ -1601,15 +1709,34 @@ export class HistoricalImportService {
       }
       return await this.getStatus(principal, importId);
     } catch (error) {
-      if (!editing) await this.cleanupFailedImport(importPrefix, projectId);
-      await this.saveDraft(
-        { ...draft, status: "failed", commitIdempotencyKey, projectId },
-        {
-          status: "failed",
-          error:
-            error instanceof Error ? error.message : "Historical import failed",
-        },
-      );
+      if (!editing)
+        await this.cleanupFailedImport(
+          importPrefix,
+          projectId,
+          programId,
+          creatingProject,
+        );
+      // Clear generated IDs after cleanup; retaining one makes a retry look
+      // like an import into an existing (now deleted) project.
+      const draftWithoutProjectId = { ...draft };
+      delete draftWithoutProjectId.projectId;
+      const failedDraft: HistoricalImportDraft = creatingProject
+        ? {
+            ...draftWithoutProjectId,
+            status: "failed",
+            commitIdempotencyKey,
+          }
+        : {
+            ...draft,
+            status: "failed",
+            commitIdempotencyKey,
+            projectId,
+          };
+      await this.saveDraft(failedDraft, {
+        status: "failed",
+        error:
+          error instanceof Error ? error.message : "Historical import failed",
+      });
       throw toHttpException(error);
     }
   }
@@ -1763,10 +1890,12 @@ export class HistoricalImportService {
         const metadata = objectBody(candidate.metadata);
         const sourceIds = [
           metadata.sourceOrganizationId,
-          ...candidate.programs.map(({ metrics }) =>
-            objectBody(metrics).Source_Organization_ID
+          ...candidate.programs.map(
+            ({ metrics }) => objectBody(metrics).Source_Organization_ID,
           ),
-        ].map((value) => String(value ?? "").trim()).filter(Boolean);
+        ]
+          .map((value) => String(value ?? "").trim())
+          .filter(Boolean);
         if (details.workbookOrganizationId && sourceIds.length) {
           return sourceIds.includes(details.workbookOrganizationId);
         }
@@ -1988,6 +2117,17 @@ export class HistoricalImportService {
     for (const template of storedTemplates) {
       if (!templatesByDataLabel.has(template.dataLabel)) {
         templatesByDataLabel.set(template.dataLabel, template);
+      }
+    }
+    if (kind === "EFS") {
+      const bundledTemplates = await loadBundledWorkforceQuestionTemplates(
+        draft.programYear,
+        definition.questions,
+      );
+      for (const [dataLabel, template] of bundledTemplates) {
+        if (!templatesByDataLabel.has(dataLabel)) {
+          templatesByDataLabel.set(dataLabel, template);
+        }
       }
     }
     const missingTemplates = missingQuestionTemplateLabels(

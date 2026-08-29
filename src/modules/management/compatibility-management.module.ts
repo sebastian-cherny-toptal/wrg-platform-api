@@ -300,7 +300,10 @@ export class CompatibilityManagementService {
       },
     });
     if (!project) throw new NotFoundException("Project not found");
-    await this.prisma.project.delete({ where: { id: project.id } });
+    // A large cascade can take long enough for a second request to resolve the
+    // project before the first delete commits. deleteMany makes that race
+    // idempotent instead of turning the second successful outcome into P2025.
+    await this.prisma.project.deleteMany({ where: { id: project.id } });
     return {
       success: true,
       message: "Project deleted successfully",
@@ -323,7 +326,7 @@ export class CompatibilityManagementService {
       },
     });
     if (!program) throw new NotFoundException("Program not found");
-    await this.prisma.program.delete({ where: { id: program.id } });
+    await this.prisma.program.deleteMany({ where: { id: program.id } });
     return {
       success: true,
       message: "Program deleted successfully",

@@ -202,7 +202,7 @@ describe("native management compatibility endpoints", () => {
     assert.equal("where" in roleQuery, false);
   });
 
-  it("deletes projects and programs through their database identities", async () => {
+  it("deletes projects and programs idempotently through their database identities", async () => {
     const deleted: string[] = [];
     const prisma = {
       project: {
@@ -212,9 +212,9 @@ describe("native management compatibility endpoints", () => {
             name: "Project",
             _count: { programs: 2 },
           }),
-        delete: ({ where }: { where: { id: string } }) => {
+        deleteMany: ({ where }: { where: { id: string } }) => {
           deleted.push(`project:${where.id}`);
-          return Promise.resolve({ id: where.id });
+          return Promise.resolve({ count: 1 });
         },
       },
       program: {
@@ -224,9 +224,9 @@ describe("native management compatibility endpoints", () => {
             name: "Program",
             _count: { organizations: 3 },
           }),
-        delete: ({ where }: { where: { id: string } }) => {
+        deleteMany: ({ where }: { where: { id: string } }) => {
           deleted.push(`program:${where.id}`);
-          return Promise.resolve({ id: where.id });
+          return Promise.resolve({ count: 0 });
         },
       },
     } as unknown as PrismaService;

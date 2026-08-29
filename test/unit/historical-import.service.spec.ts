@@ -7,9 +7,11 @@ import { describe, it } from "node:test";
 import {
   HistoricalImportService,
   historicalQuestionMetadata,
+  loadBundledWorkforceQuestionTemplates,
   missingQuestionTemplateLabels,
   mergeHistoricalQuestionTemplate,
 } from "../../src/modules/imports/historical-import.service.js";
+import { readXlsxSurveyDefinition } from "../../src/modules/imports/xlsx-survey-importer.js";
 
 async function writeWorkbook(
   filePath: string,
@@ -124,6 +126,41 @@ describe("historical import service", () => {
     assert.deepEqual(missingQuestionTemplateLabels([question], new Set()), [
       question.dataLabel,
     ]);
+  });
+
+  it("loads EFS question templates without relying on an existing program", async () => {
+    const definition = await readXlsxSurveyDefinition({
+      fileName: "BR 2026 - EFS ORD.xlsx",
+      filePath: join(
+        process.cwd(),
+        "..",
+        "Baton Rouge 24-26",
+        "BR 2026 - EFS ORD.xlsx",
+      ),
+      questionId: (dataLabel) => dataLabel,
+    });
+    const likertQuestions = definition.questions.filter(
+      ({ type }) => type === "likert",
+    );
+
+    const templates = await loadBundledWorkforceQuestionTemplates(
+      2026,
+      definition.questions,
+    );
+
+    assert.equal(templates.size, likertQuestions.length);
+    assert.equal(
+      templates.get("q_CoreEmployeeExperience_1")?.caption,
+      "This organization's culture allows me to do my best work",
+    );
+    assert.equal(
+      (
+        templates.get("q_CoreEmployeeExperience_1")?.metadata as {
+          categoryLabel?: string;
+        }
+      ).categoryLabel,
+      "Core Employee Experience",
+    );
   });
 
   it("validates uploaded workbooks and returns a summary", async () => {
