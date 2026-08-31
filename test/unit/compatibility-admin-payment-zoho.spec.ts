@@ -67,6 +67,8 @@ const adminStub = {
 const paymentStub = {
   paymentIntent: () => mark("paymentIntent"),
   checkout: () => mark("checkout"),
+  confirmPaidOrder: () => mark("confirmPaidOrder"),
+  reconcilePaidOrders: () => mark("reconcilePaidOrders"),
 };
 
 const zohoStub = {
@@ -143,6 +145,165 @@ async function createTestApp(): Promise<NestFastifyApplication> {
 }
 
 describe("native admin, payment and Zoho compatibility endpoints", () => {
+  it("returns explicit product, client and program names in order logs", async () => {
+    const service = new CompatibilityAdminService(
+      {
+        order: {
+          findMany: () =>
+            Promise.resolve([
+              {
+                id: "order-id",
+                legacyId: null,
+                amountMinor: 42_500,
+                items: [
+                  {
+                    title: "Response Detail Report",
+                    keys: { productId: "report-response-detail" },
+                  },
+                ],
+                status: "PAID",
+                paymentIntentId: "pi_test",
+                createdAt: new Date("2026-08-31T12:00:00Z"),
+                organization: {
+                  id: "organization-id",
+                  legacyId: null,
+                  name: "Acme Health",
+                  metadata: {},
+                },
+                organizationProgram: {
+                  id: "enrollment-id",
+                  legacyId: null,
+                  dealExternalId: null,
+                  metrics: {},
+                  program: {
+                    id: "program-id",
+                    legacyId: null,
+                    name: "Feedback 2026",
+                    metadata: {},
+                  },
+                },
+                program: null,
+                project: null,
+              },
+            ]),
+          count: () => Promise.resolve(1),
+        },
+        $transaction: (operations: Array<Promise<unknown>>) =>
+          Promise.all(operations),
+      } as never,
+      {} as never,
+      {} as never,
+    );
+
+    const result = await service.orderLogs(
+      {
+        sub: "admin-id",
+        organizationId: null,
+        roles: ["admin"],
+        permissions: ["orderLogAccess"],
+      },
+      1,
+      10,
+      "createdAt",
+    );
+
+    assert.deepEqual(
+      result.data.map(({ productName, client, programName }) => ({
+        productName,
+        client,
+        programName,
+      })),
+      [
+        {
+          productName: "Response Detail Report",
+          client: "Acme Health",
+          programName: "Feedback 2026",
+        },
+      ],
+    );
+  });
+
+  it("confirms a successful card payment and grants Response Detail access", async () => {
+    let updatedReportAccess: unknown;
+    let updatedOrderStatus: unknown;
+    const order = {
+      id: "order-id",
+      organizationId: "organization-id",
+      status: "REQUIRES_PAYMENT",
+      items: [
+        {
+          productId: "report-response-detail",
+          title: "Response Detail Report",
+          amount: 425,
+          amountMinor: 42_500,
+          keys: { productId: "report-response-detail" },
+        },
+      ],
+      organizationProgram: {
+        id: "enrollment-id",
+        stage: "Closed",
+        reportAccess: { RD_Access: "no" },
+        metrics: {},
+        paymentDetails: {},
+        dealExternalId: null,
+      },
+    };
+    const prisma = {
+      order: {
+        findUnique: (args: { include?: unknown }) =>
+          Promise.resolve(
+            args.include
+              ? order
+              : {
+                  organizationId: order.organizationId,
+                  status: order.status,
+                },
+          ),
+        update: (args: { data: { status: unknown } }) => {
+          updatedOrderStatus = args.data.status;
+          return Promise.resolve({ id: order.id });
+        },
+      },
+      organizationProgram: {
+        update: (args: { data: { reportAccess: unknown } }) => {
+          updatedReportAccess = args.data.reportAccess;
+          return Promise.resolve({ id: "enrollment-id" });
+        },
+      },
+      $transaction: (operations: Array<Promise<unknown>>) =>
+        Promise.all(operations),
+    };
+    const service = new CompatibilityPaymentService(
+      prisma as never,
+      {
+        get: (key: string) =>
+          key === "INTEGRATIONS_MOCK" ? false : "sk_test_example",
+      } as never,
+      {} as never,
+    );
+    Object.defineProperty(service, "stripe", {
+      value: {
+        paymentIntents: {
+          retrieve: () => Promise.resolve({ status: "succeeded" }),
+        },
+      },
+    });
+
+    const result = await service.confirmPaidOrder(
+      {
+        sub: "client-id",
+        organizationId: "organization-id",
+        roles: ["client"],
+        permissions: [],
+      },
+      { paymentIntentId: "pi_response_detail" },
+    );
+
+    assert.deepEqual(result, { success: true, status: "paid" });
+    assert.deepEqual(updatedReportAccess, { RD_Access: "yes" });
+    assert.equal(updatedOrderStatus, "PAID");
+  });
+
   it("lists distinct program-local organization identities for client assignment", async () => {
     const enrollment = (id: string, name: string, year: number) => ({
       id,
@@ -556,6 +717,18 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
           headers: json,
           payload: {},
         }),
+        app.inject({
+          method: "POST",
+          url: "/payment/confirm",
+          headers: json,
+          payload: {},
+        }),
+        app.inject({
+          method: "POST",
+          url: "/payment/reconcile?selectedProgramId=program-1",
+          headers: json,
+          payload: {},
+        }),
         app.inject({ method: "GET", url: "/zoho/syncProjects", headers }),
         app.inject({ method: "GET", url: "/zoho/syncPrograms", headers }),
         app.inject({
@@ -595,6 +768,8 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
         surveyInformation: 1,
         paymentIntent: 1,
         checkout: 1,
+        confirmPaidOrder: 1,
+        reconcilePaidOrders: 1,
         "sync:Projects": 1,
         "sync:Programs": 1,
         "sync:Accounts": 1,

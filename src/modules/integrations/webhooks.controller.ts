@@ -242,6 +242,7 @@ export class WebhookIngestionService {
       reportAccess.RD_Access = "yes";
     }
     if (paid(/sorted.*ev.*payment|ev.*sorting.*payment/iu)) {
+      reportAccess.EV_Access = "yes";
       reportAccess.SEV_Access = "yes";
     }
     const pendingOrders = await this.prisma.order.findMany({

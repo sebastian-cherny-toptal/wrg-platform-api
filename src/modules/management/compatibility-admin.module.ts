@@ -859,7 +859,7 @@ export class CompatibilityAdminService {
         take: perPage,
         include: {
           organization: true,
-          organizationProgram: true,
+          organizationProgram: { include: { program: true } },
           program: true,
           project: true,
         },
@@ -868,44 +868,58 @@ export class CompatibilityAdminService {
     ]);
     return {
       success: true,
-      data: orders.map((order) => ({
-        ...order,
-        _id: order.legacyId ?? order.id,
-        amount: order.amountMinor,
-        itemTitle: jsonObject(order.items).title ?? null,
-        keys: jsonObject(order.items).keys ?? order.items,
-        isPaid: order.status === "PAID",
-        paymentId: order.paymentIntentId,
-        createAt: order.createdAt,
-        organizationId: {
-          ...jsonObject(order.organization.metadata),
-          _id: order.organization.legacyId ?? order.organization.id,
-          Account_Name: order.organization.name,
-        },
-        organizationprogramId: order.organizationProgram
-          ? {
-              ...jsonObject(order.organizationProgram.metrics),
-              _id:
-                order.organizationProgram.legacyId ??
-                order.organizationProgram.id,
-              DealId: order.organizationProgram.dealExternalId,
-            }
-          : null,
-        programId: order.program
-          ? {
-              ...jsonObject(order.program.metadata),
-              _id: order.program.legacyId ?? order.program.id,
-              Name: order.program.name,
-            }
-          : null,
-        projectId: order.project
-          ? {
-              ...jsonObject(order.project.metadata),
-              _id: order.project.legacyId ?? order.project.id,
-              Name: order.project.name,
-            }
-          : null,
-      })),
+      data: orders.map((order) => {
+        const program = order.program ?? order.organizationProgram?.program;
+        const rawItems = Array.isArray(order.items)
+          ? order.items
+          : [order.items];
+        const productName = rawItems
+          .map((item) => optionalString(jsonObject(item).title))
+          .filter((title): title is string => Boolean(title))
+          .join(", ");
+        return {
+          ...order,
+          _id: order.legacyId ?? order.id,
+          amount: order.amountMinor,
+          itemTitle: jsonObject(order.items).title ?? null,
+          productName: productName || null,
+          client: order.organization.name,
+          organizationName: order.organization.name,
+          programName: program?.name ?? null,
+          keys: jsonObject(order.items).keys ?? order.items,
+          isPaid: order.status === "PAID",
+          paymentId: order.paymentIntentId,
+          createAt: order.createdAt,
+          organizationId: {
+            ...jsonObject(order.organization.metadata),
+            _id: order.organization.legacyId ?? order.organization.id,
+            Account_Name: order.organization.name,
+          },
+          organizationprogramId: order.organizationProgram
+            ? {
+                ...jsonObject(order.organizationProgram.metrics),
+                _id:
+                  order.organizationProgram.legacyId ??
+                  order.organizationProgram.id,
+                DealId: order.organizationProgram.dealExternalId,
+              }
+            : null,
+          programId: program
+            ? {
+                ...jsonObject(program.metadata),
+                _id: program.legacyId ?? program.id,
+                Name: program.name,
+              }
+            : null,
+          projectId: order.project
+            ? {
+                ...jsonObject(order.project.metadata),
+                _id: order.project.legacyId ?? order.project.id,
+                Name: order.project.name,
+              }
+            : null,
+        };
+      }),
       pagination: {
         total_documents: total,
         per_page: perPage,

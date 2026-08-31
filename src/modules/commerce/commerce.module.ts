@@ -79,17 +79,22 @@ class CommerceService {
     const organization = await this.prisma.organization.findUniqueOrThrow({
       where: { id: organizationId },
     });
-    if (dto.organizationProgramId) {
-      await this.prisma.organizationProgram.findFirstOrThrow({
-        where: { id: dto.organizationProgramId, organizationId },
-        select: { id: true },
-      });
-    }
+    const organizationProgram = dto.organizationProgramId
+      ? await this.prisma.organizationProgram.findFirstOrThrow({
+          where: { id: dto.organizationProgramId, organizationId },
+          select: { id: true, projectId: true, programId: true },
+        })
+      : null;
+    const orderContext = {
+      organizationProgramId: organizationProgram?.id ?? null,
+      projectId: organizationProgram?.projectId ?? null,
+      programId: organizationProgram?.programId ?? null,
+    };
     if (dto.paymentMethod === "invoice") {
       return this.prisma.order.create({
         data: {
           organizationId,
-          organizationProgramId: dto.organizationProgramId ?? null,
+          ...orderContext,
           currency: dto.currency,
           amountMinor: dto.amountMinor,
           items: asJson(dto.items),
@@ -103,7 +108,7 @@ class CommerceService {
       return this.prisma.order.create({
         data: {
           organizationId,
-          organizationProgramId: dto.organizationProgramId ?? null,
+          ...orderContext,
           paymentIntentId: `pi_mock_${crypto.randomUUID()}`,
           currency: dto.currency,
           amountMinor: dto.amountMinor,
@@ -127,7 +132,7 @@ class CommerceService {
     const order = await this.prisma.order.create({
       data: {
         organizationId,
-        organizationProgramId: dto.organizationProgramId ?? null,
+        ...orderContext,
         paymentIntentId: intent.id,
         currency: dto.currency,
         amountMinor: dto.amountMinor,

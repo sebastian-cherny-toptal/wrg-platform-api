@@ -59,7 +59,6 @@ describe("report catalog configuration", () => {
     assert.equal(
       hasStandardPackage({
         WFR_Access: "yes",
-        EV_Access: "yes",
         WBC_Access: "yes",
         BBP_Access: "yes",
       }),

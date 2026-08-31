@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Body,
+  ConflictException,
   Controller,
   ForbiddenException,
   HttpCode,
@@ -417,6 +418,7 @@ export class CompatibilityPaymentService {
         for (const key of standardReportAccessKeys) reportAccess[key] = "yes";
         stage = "Full Package";
       } else if (productId === SORTED_VERBATIMS_ID) {
+        reportAccess.EV_Access = "yes";
         reportAccess.SEV_Access = "yes";
         const filter = optionalString(
           items.find((item) => item.productId === productId)?.keys.EV_Sorting_Filter,
@@ -454,6 +456,107 @@ export class CompatibilityPaymentService {
         ...(stage === "Full Package" ? { Stage: "Full Package" } : {}),
       });
     }
+  }
+
+  async confirmPaidOrder(
+    principal: Principal,
+    rawBody: unknown,
+  ): Promise<{ success: true; status: "paid" }> {
+    const body = objectBody(rawBody);
+    const paymentIntentId = optionalString(body.paymentIntentId);
+    if (!paymentIntentId) {
+      throw new BadRequestException("paymentIntentId is required");
+    }
+    const order = await this.prisma.order.findUnique({
+      where: { paymentIntentId },
+      select: { organizationId: true, status: true },
+    });
+    if (!order) throw new NotFoundException("Order not found");
+    const canManageAllOrganizations =
+      principal.roles.includes("admin") ||
+      principal.roles.includes("super_admin") ||
+      principal.permissions.includes("ops.manage");
+    if (
+      !canManageAllOrganizations &&
+      principal.organizationId !== order.organizationId
+    ) {
+      throw new ForbiddenException("Order access denied");
+    }
+    if (order.status !== "PAID") {
+      const paymentIntent = this.config.get("INTEGRATIONS_MOCK", {
+        infer: true,
+      })
+        ? { status: "succeeded" }
+        : await this.stripe.paymentIntents.retrieve(paymentIntentId);
+      if (paymentIntent.status !== "succeeded") {
+        throw new ConflictException(
+          "Payment is still processing. Please try again shortly.",
+        );
+      }
+      await this.fulfillPaidOrder(paymentIntentId);
+    }
+    return { success: true, status: "paid" };
+  }
+
+  async reconcilePaidOrders(
+    principal: Principal,
+    programReference?: string,
+    productReference?: string,
+  ): Promise<{ success: true; reconciled: number }> {
+    const context = await this.context(
+      principal,
+      programReference,
+      undefined,
+      true,
+    );
+    if (!context.enrollment) {
+      throw new NotFoundException("Organization program not found");
+    }
+    if (
+      productReference &&
+      productIsOwned(
+        productReference,
+        context.enrollment.reportAccess,
+        context.enrollment.stage,
+      )
+    ) {
+      return { success: true, reconciled: 0 };
+    }
+    const pendingOrders = await this.prisma.order.findMany({
+      where: {
+        organizationProgramId: context.enrollment.id,
+        status: "REQUIRES_PAYMENT",
+        paymentIntentId: { not: null },
+      },
+      select: { paymentIntentId: true, items: true },
+    });
+    let reconciled = 0;
+    for (const order of pendingOrders) {
+      if (!order.paymentIntentId) continue;
+      if (productReference) {
+        const rawItems = Array.isArray(order.items)
+          ? order.items
+          : [order.items];
+        const includesProduct = rawItems.some((entry) => {
+          const item = catalogJsonObject(entry);
+          const keys = catalogJsonObject(item.keys);
+          return (
+            optionalString(item.productId ?? keys.productId) ===
+            productReference
+          );
+        });
+        if (!includesProduct) continue;
+      }
+      const paymentIntent = this.config.get("INTEGRATIONS_MOCK", {
+        infer: true,
+      })
+        ? { status: "succeeded" }
+        : await this.stripe.paymentIntents.retrieve(order.paymentIntentId);
+      if (paymentIntent.status !== "succeeded") continue;
+      await this.fulfillPaidOrder(order.paymentIntentId);
+      reconciled += 1;
+    }
+    return { success: true, reconciled };
   }
 
   private async createIntent(
@@ -627,6 +730,25 @@ export class CompatibilityPaymentController {
       programId,
       organizationId,
     );
+  }
+
+  @Post("confirm")
+  @HttpCode(200)
+  confirmPayment(
+    @CurrentUser() principal: Principal,
+    @Body() body: unknown,
+  ) {
+    return this.payment.confirmPaidOrder(principal, body);
+  }
+
+  @Post("reconcile")
+  @HttpCode(200)
+  reconcilePayments(
+    @CurrentUser() principal: Principal,
+    @Query("selectedProgramId") programId: string | undefined,
+    @Query("productId") productId: string | undefined,
+  ) {
+    return this.payment.reconcilePaidOrders(principal, programId, productId);
   }
 }
 
