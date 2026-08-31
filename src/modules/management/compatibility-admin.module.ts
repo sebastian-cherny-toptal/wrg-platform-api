@@ -734,71 +734,94 @@ export class CompatibilityAdminService {
     return {
       success: true,
       message: "success",
-      data: organizations.map((organization) => {
+      data: organizations.flatMap((organization) => {
         const metadata = jsonObject(organization.metadata);
-        const selectedEnrollment = organization.programs[0];
-        const selectedMetrics = selectedEnrollment
-          ? jsonObject(selectedEnrollment.metrics)
-          : {};
-        return {
-          ...metadata,
-          _id: organization.legacyId ?? organization.id,
-          id: organization.externalId ?? organization.id,
-          sourceOrganizationId:
-            selectedMetrics.Source_Organization_ID ??
-            metadata.sourceOrganizationId ??
-            null,
-          sourceOrganizationName:
-            selectedMetrics.Source_Organization_Name ??
-            metadata.sourceOrganizationName ??
-            null,
-          Account_Name: organization.name,
-          stripeCustomerId: organization.stripeCustomerId,
-          createAt: organization.createdAt,
-          orgPrograms: organization.programs.map((enrollment) => ({
-            orgs: {
-              ...jsonObject(enrollment.metrics),
-              ...jsonObject(enrollment.reportAccess),
-              ...jsonObject(enrollment.paymentDetails),
-              ...jsonObject(enrollment.metadata),
-              Stage: enrollment.stage,
-              isWinner: enrollment.isWinner,
-              Created_Time: enrollment.createdAt,
-              Last_time_deal_synced: enrollment.updatedAt,
-              _id: enrollment.legacyId ?? enrollment.id,
-              id: enrollment.externalId ?? enrollment.id,
-              databaseId: enrollment.id,
-              DealId: enrollment.dealExternalId,
-              organizationId:
-                organization.legacyId ??
-                organization.externalId ??
-                organization.id,
-              projectId:
-                enrollment.project.legacyId ??
-                enrollment.project.externalId ??
-                enrollment.project.id,
-              programId: [
-                {
-                  ...jsonObject(enrollment.program.metadata),
-                  _id:
-                    enrollment.program.legacyId ??
-                    enrollment.program.externalId ??
-                    enrollment.program.id,
-                  id: enrollment.program.externalId ?? enrollment.program.id,
-                  Name: enrollment.program.name,
-                  Program_Year: enrollment.program.year,
-                  Currency: enrollment.program.currency,
-                },
-              ],
-              projectName: enrollment.project.name,
-            },
-          })),
-          users: organization.users.map((user) => ({
-            ...user,
-            _id: user.legacyId ?? user.id,
-            id: user.externalId ?? user.id,
-          })),
-        };
+        const enrollmentGroups = new Map<
+          string,
+          typeof organization.programs
+        >();
+        for (const enrollment of organization.programs) {
+          const metrics = jsonObject(enrollment.metrics);
+          const sourceName = String(
+            metrics.Source_Organization_Name ?? organization.name,
+          ).trim();
+          const key = sourceName
+            .toLocaleLowerCase()
+            .replace(/[^a-z0-9]+/gu, " ")
+            .trim();
+          const group = enrollmentGroups.get(key) ?? [];
+          group.push(enrollment);
+          enrollmentGroups.set(key, group);
+        }
+        const groups = enrollmentGroups.size
+          ? [...enrollmentGroups.values()]
+          : [[]];
+        return groups.map((enrollments) => {
+          const selectedEnrollment = enrollments[0];
+          const selectedMetrics = selectedEnrollment
+            ? jsonObject(selectedEnrollment.metrics)
+            : {};
+          return {
+            ...metadata,
+            _id: organization.legacyId ?? organization.id,
+            id: organization.externalId ?? organization.id,
+            selectionId: selectedEnrollment?.id ?? organization.id,
+            sourceOrganizationId:
+              selectedMetrics.Source_Organization_ID ??
+              metadata.sourceOrganizationId ??
+              null,
+            sourceOrganizationName:
+              selectedMetrics.Source_Organization_Name ??
+              metadata.sourceOrganizationName ??
+              null,
+            Account_Name: organization.name,
+            stripeCustomerId: organization.stripeCustomerId,
+            createAt: organization.createdAt,
+            orgPrograms: enrollments.map((enrollment) => ({
+              orgs: {
+                ...jsonObject(enrollment.metrics),
+                ...jsonObject(enrollment.reportAccess),
+                ...jsonObject(enrollment.paymentDetails),
+                ...jsonObject(enrollment.metadata),
+                Stage: enrollment.stage,
+                isWinner: enrollment.isWinner,
+                Created_Time: enrollment.createdAt,
+                Last_time_deal_synced: enrollment.updatedAt,
+                _id: enrollment.legacyId ?? enrollment.id,
+                id: enrollment.externalId ?? enrollment.id,
+                databaseId: enrollment.id,
+                DealId: enrollment.dealExternalId,
+                organizationId:
+                  organization.legacyId ??
+                  organization.externalId ??
+                  organization.id,
+                projectId:
+                  enrollment.project.legacyId ??
+                  enrollment.project.externalId ??
+                  enrollment.project.id,
+                programId: [
+                  {
+                    ...jsonObject(enrollment.program.metadata),
+                    _id:
+                      enrollment.program.legacyId ??
+                      enrollment.program.externalId ??
+                      enrollment.program.id,
+                    id: enrollment.program.externalId ?? enrollment.program.id,
+                    Name: enrollment.program.name,
+                    Program_Year: enrollment.program.year,
+                    Currency: enrollment.program.currency,
+                  },
+                ],
+                projectName: enrollment.project.name,
+              },
+            })),
+            users: organization.users.map((user) => ({
+              ...user,
+              _id: user.legacyId ?? user.id,
+              id: user.externalId ?? user.id,
+            })),
+          };
+        });
       }),
     };
   }

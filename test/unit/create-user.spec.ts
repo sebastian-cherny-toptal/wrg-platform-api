@@ -284,18 +284,16 @@ describe("create user endpoint", () => {
           }),
       },
       organization: {
-        findFirst: () => Promise.resolve({
-          id: "organization-id",
-          name: "Example Company",
-          metadata: {},
-          programs: [],
-        }),
-        findMany: () => Promise.resolve([{
-          id: "organization-id",
-          name: "Example Company",
-          metadata: {},
-          programs: [],
-        }]),
+        findFirst: () => Promise.resolve(null),
+        findMany: () =>
+          Promise.resolve([
+            {
+              id: "organization-id",
+              name: "Example Company",
+              metadata: {},
+              programs: [],
+            },
+          ]),
       },
       program: {
         findMany: () =>
@@ -308,6 +306,15 @@ describe("create user endpoint", () => {
           ]),
       },
       organizationProgram: {
+        findFirst: () =>
+          Promise.resolve({
+            organization: {
+              id: "organization-id",
+              name: "Example Company",
+              metadata: {},
+              programs: [],
+            },
+          }),
         update: (args: { data: { reportAccess: unknown } }) => {
           updatedReportAccess = args.data.reportAccess;
           return Promise.resolve({ id: "organization-program-id" });

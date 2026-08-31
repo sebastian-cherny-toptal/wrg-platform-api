@@ -143,6 +143,105 @@ async function createTestApp(): Promise<NestFastifyApplication> {
 }
 
 describe("native admin, payment and Zoho compatibility endpoints", () => {
+  it("lists distinct program-local organization identities for client assignment", async () => {
+    const enrollment = (id: string, name: string, year: number) => ({
+      id,
+      legacyId: null,
+      externalId: `external-${id}`,
+      dealExternalId: null,
+      stage: "Closed",
+      isWinner: false,
+      reportAccess: {},
+      paymentDetails: {},
+      metadata: {},
+      metrics: {
+        Source_Organization_ID: "3",
+        Source_Organization_Name: name,
+      },
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+      project: {
+        id: `project-${year}`,
+        legacyId: null,
+        externalId: null,
+        name: "Baton Rouge",
+      },
+      program: {
+        id: `program-${year}`,
+        legacyId: null,
+        externalId: null,
+        metadata: {},
+        name: `Baton Rouge ${year}`,
+        year,
+        currency: "USD",
+      },
+    });
+    const service = new CompatibilityAdminService(
+      {
+        organization: {
+          findMany: () =>
+            Promise.resolve([
+              {
+                id: "organization-id",
+                legacyId: null,
+                externalId: null,
+                name: "AccuTemp Services",
+                stripeCustomerId: null,
+                metadata: {},
+                createdAt: new Date("2026-01-01T00:00:00.000Z"),
+                programs: [
+                  enrollment("enrollment-2024", "AccuTemp Services", 2024),
+                  enrollment("enrollment-2025", "Adams and Reese", 2025),
+                  enrollment(
+                    "enrollment-2026",
+                    "Advanced Office Systems",
+                    2026,
+                  ),
+                ],
+                users: [],
+              },
+            ]),
+        },
+      } as never,
+      {} as never,
+      {} as never,
+    );
+
+    const response = await service.organizations({
+      sub: "admin-id",
+      organizationId: null,
+      roles: ["admin"],
+      permissions: [],
+    });
+
+    assert.deepEqual(
+      response.data.map((organization) => ({
+        selectionId: organization.selectionId,
+        name: organization.sourceOrganizationName,
+        programs: organization.orgPrograms.map(
+          (entry) => entry.orgs.programId[0]?.Name,
+        ),
+      })),
+      [
+        {
+          selectionId: "enrollment-2024",
+          name: "AccuTemp Services",
+          programs: ["Baton Rouge 2024"],
+        },
+        {
+          selectionId: "enrollment-2025",
+          name: "Adams and Reese",
+          programs: ["Baton Rouge 2025"],
+        },
+        {
+          selectionId: "enrollment-2026",
+          name: "Advanced Office Systems",
+          programs: ["Baton Rouge 2026"],
+        },
+      ],
+    );
+  });
+
   it("projects Zoho program records for the admin selector", async () => {
     const requestedFields = new Map<string, string[]>();
     const service = new CompatibilityZohoService(

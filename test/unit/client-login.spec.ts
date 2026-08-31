@@ -157,7 +157,10 @@ describe("client login endpoint", () => {
               stage: "active",
               reportAccess: { BBP_Access: "yes" },
               paymentDetails: {},
-              metrics: { SEV_Filter: "department" },
+              metrics: {
+                SEV_Filter: "department",
+                Source_Organization_Name: "Advanced Office Systems",
+              },
               metadata: {},
               project,
               program,
@@ -204,6 +207,11 @@ describe("client login endpoint", () => {
     assert.equal(response.data.accessToken, "native-access-token");
     assert.equal(response.data.userData.username, "client-user");
     assert.equal(response.data.userData.role, "client");
+    assert.equal(
+      (response.data.userData.organizationId as { Account_Name: string })
+        .Account_Name,
+      "Advanced Office Systems",
+    );
     assert.equal("passwordHash" in response.data.userData, false);
     const organizationPrograms = response.data.userData
       .organizationProgram as Array<{

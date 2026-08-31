@@ -275,22 +275,15 @@ function jsonObject(value: Prisma.JsonValue): Prisma.JsonObject {
 }
 
 function normalizedOrganizationName(value: unknown): string {
-  return String(value ?? "").trim().toLocaleLowerCase().replace(/[^a-z0-9]+/gu, " ").trim();
+  return String(value ?? "")
+    .trim()
+    .toLocaleLowerCase()
+    .replace(/[^a-z0-9]+/gu, " ")
+    .trim();
 }
 
-function organizationIdentityKeys(organization: {
-  name: string;
-  metadata: Prisma.JsonValue;
-  programs?: Array<{ metrics: Prisma.JsonValue }>;
-}): Set<string> {
-  const metadata = jsonObject(organization.metadata);
-  const sourceIds = [
-    metadata.sourceOrganizationId,
-    ...(organization.programs ?? []).map(({ metrics }) => jsonObject(metrics).Source_Organization_ID),
-  ].map((value) => String(value ?? "").trim().toLocaleLowerCase()).filter(Boolean);
-  return new Set(sourceIds.length
-    ? sourceIds.map((id) => `source:${id}`)
-    : [`name:${normalizedOrganizationName(organization.name)}`]);
+function organizationIdentityKeys(organization: { name: string }): Set<string> {
+  return new Set([`name:${normalizedOrganizationName(organization.name)}`]);
 }
 
 function basicClientReportAccess(
@@ -547,6 +540,16 @@ export class ClientLoginService {
       fees: program.fees,
     });
     const role = user.roles[0]?.role;
+    const primaryOrganizationProgram =
+      organizationPrograms.find(
+        (item) => item.id === user.organizationProgramId,
+      ) ?? organizationPrograms[0];
+    const organizationDisplayName = String(
+      (primaryOrganizationProgram
+        ? jsonObject(primaryOrganizationProgram.metrics)
+            .Source_Organization_Name
+        : null) ?? user.organization.name,
+    );
     const userData: Record<string, unknown> = {
       _id: user.legacyId ?? user.id,
       id: user.id,
@@ -560,8 +563,8 @@ export class ClientLoginService {
       organizationId: {
         _id: user.organization.legacyId ?? user.organization.id,
         id: user.organization.id,
-        Account_Name: user.organization.name,
-        name: user.organization.name,
+        Account_Name: organizationDisplayName,
+        name: organizationDisplayName,
         externalId: user.organization.externalId,
       },
       projectId: primaryProject ? projectData(primaryProject) : null,
@@ -731,7 +734,7 @@ export class UsersService {
       );
     }
 
-    const organization = dto.organizationId
+    let organization = dto.organizationId
       ? await this.prisma.organization.findFirst({
           where: isUuid(dto.organizationId)
             ? { id: dto.organizationId }
@@ -749,6 +752,30 @@ export class UsersService {
           },
         })
       : null;
+    if (dto.organizationId && !organization) {
+      const selectedEnrollment =
+        await this.prisma.organizationProgram.findFirst({
+          where: isUuid(dto.organizationId)
+            ? { id: dto.organizationId }
+            : {
+                OR: [
+                  { legacyId: dto.organizationId },
+                  { externalId: dto.organizationId },
+                ],
+              },
+          select: {
+            organization: {
+              select: {
+                id: true,
+                name: true,
+                metadata: true,
+                programs: { select: { metrics: true } },
+              },
+            },
+          },
+        });
+      organization = selectedEnrollment?.organization ?? null;
+    }
     if (dto.organizationId && !organization) {
       throw new NotFoundException("Organization not found");
     }
@@ -776,18 +803,24 @@ export class UsersService {
       ? organizationIdentityKeys(organization)
       : new Set<string>();
     const equivalentOrganizations = organization
-      ? (await this.prisma.organization.findMany({
-          select: {
-            id: true,
-            name: true,
-            metadata: true,
-            programs: { select: { metrics: true } },
-          },
-        })).filter((candidate) =>
-          [...organizationIdentityKeys(candidate)].some((key) => identityKeys.has(key)),
+      ? (
+          await this.prisma.organization.findMany({
+            select: {
+              id: true,
+              name: true,
+              metadata: true,
+              programs: { select: { metrics: true } },
+            },
+          })
+        ).filter((candidate) =>
+          [...organizationIdentityKeys(candidate)].some((key) =>
+            identityKeys.has(key),
+          ),
         )
       : [];
-    const equivalentOrganizationIds = equivalentOrganizations.map(({ id }) => id);
+    const equivalentOrganizationIds = equivalentOrganizations.map(
+      ({ id }) => id,
+    );
     const enrollments = organization
       ? await this.prisma.organizationProgram.findMany({
           where: {
@@ -805,13 +838,18 @@ export class UsersService {
         })
       : [];
     const selectedEnrollments = selectedPrograms
-      .map((program) =>
-        enrollments.find((enrollment) =>
-          enrollment.programId === program.id &&
-          enrollment.organizationId === organization?.id,
-        ) ?? enrollments.find((enrollment) => enrollment.programId === program.id),
+      .map(
+        (program) =>
+          enrollments.find(
+            (enrollment) =>
+              enrollment.programId === program.id &&
+              enrollment.organizationId === organization?.id,
+          ) ??
+          enrollments.find((enrollment) => enrollment.programId === program.id),
       )
-      .filter((enrollment): enrollment is (typeof enrollments)[number] => Boolean(enrollment));
+      .filter((enrollment): enrollment is (typeof enrollments)[number] =>
+        Boolean(enrollment),
+      );
     if (isClient && selectedEnrollments.length !== selectedPrograms.length) {
       throw new BadRequestException(
         "One or more programs are not available to the selected organization",
@@ -854,27 +892,37 @@ export class UsersService {
 
     try {
       const createUser = async (
-        database: Pick<Prisma.TransactionClient, "user" | "organizationProgram">,
+        database: Pick<
+          Prisma.TransactionClient,
+          "user" | "organizationProgram"
+        >,
       ) => {
         if (organization && equivalentOrganizationIds.length > 1) {
-          const allEquivalentEnrollments = await database.organizationProgram.findMany({
-            where: { organizationId: { in: equivalentOrganizationIds } },
-            select: { id: true, organizationId: true, programId: true },
-          });
+          const allEquivalentEnrollments =
+            await database.organizationProgram.findMany({
+              where: { organizationId: { in: equivalentOrganizationIds } },
+              select: { id: true, organizationId: true, programId: true },
+            });
           const canonicalProgramIds = new Set(
             allEquivalentEnrollments
-              .filter(({ organizationId }) => organizationId === organization.id)
+              .filter(
+                ({ organizationId }) => organizationId === organization.id,
+              )
               .map(({ programId }) => programId),
           );
           await Promise.all(
             allEquivalentEnrollments
-              .filter(({ organizationId, programId }) =>
-                organizationId !== organization.id && !canonicalProgramIds.has(programId),
+              .filter(
+                ({ organizationId, programId }) =>
+                  organizationId !== organization.id &&
+                  !canonicalProgramIds.has(programId),
               )
-              .map(({ id }) => database.organizationProgram.update({
-                where: { id },
-                data: { organizationId: organization.id },
-              })),
+              .map(({ id }) =>
+                database.organizationProgram.update({
+                  where: { id },
+                  data: { organizationId: organization.id },
+                }),
+              ),
           );
           await database.user.updateMany({
             where: { organizationId: { in: equivalentOrganizationIds } },

@@ -1863,8 +1863,6 @@ export class HistoricalImportService {
       select: {
         id: true,
         name: true,
-        metadata: true,
-        programs: { select: { metrics: true } },
       },
     });
     for (const [key, details] of organizationRows) {
@@ -1887,18 +1885,9 @@ export class HistoricalImportService {
         );
       });
       const reusableOrganization = existingOrganizations.find((candidate) => {
-        const metadata = objectBody(candidate.metadata);
-        const sourceIds = [
-          metadata.sourceOrganizationId,
-          ...candidate.programs.map(
-            ({ metrics }) => objectBody(metrics).Source_Organization_ID,
-          ),
-        ]
-          .map((value) => String(value ?? "").trim())
-          .filter(Boolean);
-        if (details.workbookOrganizationId && sourceIds.length) {
-          return sourceIds.includes(details.workbookOrganizationId);
-        }
+        // Workbook organization IDs are scoped to a program. For example,
+        // Baton Rouge ID 3 belongs to different companies in 2024, 2025, and
+        // 2026, so it must never be used as a cross-program identity.
         return normalizeOrganizationName(candidate.name) === normalizedName;
       });
       const organizationId =
