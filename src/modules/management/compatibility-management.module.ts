@@ -9,10 +9,13 @@ import {
   NotFoundException,
   Param,
   Query,
+  Res,
   UseGuards,
   VERSION_NEUTRAL,
 } from "@nestjs/common";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
+import ExcelJS from "exceljs";
+import type { FastifyReply } from "fastify";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../database/prisma.service.js";
 import {
@@ -21,6 +24,28 @@ import {
   JwtAuthGuard,
   type Principal,
 } from "../auth/auth.module.js";
+import {
+  KEY_IMPACT_ID,
+  RESPONSE_DETAIL_ID,
+  SORTED_VERBATIMS_ID,
+} from "../reports/report-catalog.js";
+
+const organizationsConnectionHeaders = [
+  "Alias Name",
+  "Organization ID",
+  "Stage",
+  "Surveys Sent",
+  "Report Category",
+  "FDD Payment Type",
+  "Sorted EV Payment Type",
+  "EV Sorting Filter",
+  "RD Payment Type",
+  "KIA Payment Type",
+  "CY Winner",
+  "CY Category",
+  "CY Category Rank",
+  "CY Overall Rank",
+] as const;
 
 function isUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(
@@ -57,6 +82,110 @@ function metadataString(
     }
   }
   return null;
+}
+
+function numeric(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value !== "string" || !value.trim()) return null;
+  const parsed = Number(value.replaceAll(",", "").trim());
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function categoryRange(value: string): { minimum: number; maximum: number } | null {
+  const normalized = value.replaceAll(",", "").trim();
+  const range = /^(\d+)\s*-\s*(\d+)$/u.exec(normalized);
+  if (range) {
+    return { minimum: Number(range[1]), maximum: Number(range[2]) };
+  }
+  const openEnded = /^(\d+)\s*\+$/u.exec(normalized);
+  return openEnded
+    ? { minimum: Number(openEnded[1]), maximum: Number.POSITIVE_INFINITY }
+    : null;
+}
+
+function reportCategory(programMetadata: Prisma.JsonValue, metricsValue: Prisma.JsonValue): string {
+  const metadata = jsonObject(programMetadata);
+  const metrics = jsonObject(metricsValue);
+  const size = numeric(
+    metrics.Company_Size ??
+      metrics.Program_EE_Count ??
+      metrics.Total_Number_of_Program_EEs ??
+      metrics.Surveys_Sent,
+  );
+  if (size === null) return "";
+  const pricing = Array.isArray(metadata.categoryPricing)
+    ? metadata.categoryPricing
+    : [];
+  for (const entry of pricing) {
+    const category = jsonObject(entry);
+    const employeeSize = String(category.employeeSize ?? "").trim();
+    const range = categoryRange(employeeSize);
+    if (range && size >= range.minimum && size <= range.maximum) {
+      return employeeSize;
+    }
+  }
+  return "";
+}
+
+function orderItems(value: Prisma.JsonValue): Prisma.JsonObject[] {
+  const entries = Array.isArray(value) ? value : [value];
+  return entries.flatMap((entry) => {
+    const item = jsonObject(entry);
+    return Object.keys(item).length ? [item] : [];
+  });
+}
+
+function itemProductId(item: Prisma.JsonObject): string {
+  const keys = jsonObject(item.keys ?? {});
+  return String(item.productId ?? keys.productId ?? "").trim();
+}
+
+function paidPaymentType(value: unknown): string {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (normalized === "paid via check" || normalized === "check") {
+    return "Paid via Check";
+  }
+  if (
+    normalized === "paid via credit card" ||
+    normalized === "credit card" ||
+    normalized === "card"
+  ) {
+    return "Paid via Credit Card";
+  }
+  if (normalized === "paid via ach" || normalized === "ach") {
+    return "Paid via ACH";
+  }
+  return "";
+}
+
+function productPaymentType(
+  productId: string,
+  orders: Array<{ items: Prisma.JsonValue; paymentMethod: string | null }>,
+  paymentDetailsValue: Prisma.JsonValue,
+  legacyField: string,
+): string {
+  const order = orders.find((candidate) =>
+    orderItems(candidate.items).some((item) => itemProductId(item) === productId),
+  );
+  return (
+    paidPaymentType(order?.paymentMethod) ||
+    paidPaymentType(jsonObject(paymentDetailsValue)[legacyField])
+  );
+}
+
+function sortedEmployeeVerbatimsFilter(
+  orders: Array<{ items: Prisma.JsonValue }>,
+  metricsValue: Prisma.JsonValue,
+): string {
+  for (const order of orders) {
+    const item = orderItems(order.items).find(
+      (candidate) => itemProductId(candidate) === SORTED_VERBATIMS_ID,
+    );
+    if (!item) continue;
+    const filter = String(jsonObject(item.keys ?? {}).EV_Sorting_Filter ?? "").trim();
+    if (filter) return filter;
+  }
+  return String(jsonObject(metricsValue).SEV_Filter ?? "").trim();
 }
 
 @Injectable()
@@ -121,7 +250,11 @@ export class CompatibilityManagementService {
       orderBy: { createdAt: "desc" },
       include: {
         programs: {
-          include: { _count: { select: { organizations: true } } },
+          include: {
+            _count: {
+              select: { organizations: { where: { isIncluded: true } } },
+            },
+          },
         },
       },
     });
@@ -176,6 +309,7 @@ export class CompatibilityManagementService {
       include: {
         project: true,
         organizations: {
+          where: { isIncluded: true },
           include: { organization: true },
         },
       },
@@ -217,7 +351,7 @@ export class CompatibilityManagementService {
       },
       include: {
         project: true,
-        organizations: true,
+        organizations: { where: { isIncluded: true } },
         surveys: {
           include: {
             _count: { select: { respondents: true } },
@@ -287,6 +421,118 @@ export class CompatibilityManagementService {
         },
       },
     };
+  }
+
+  async organizationsConnectionWorkbook(
+    principal: Principal,
+    programReference: string,
+  ): Promise<Buffer> {
+    const allowedProjectIds = await this.allowedProjectIds(principal);
+    const program = await this.prisma.program.findFirst({
+      where: {
+        ...this.referenceWhere(programReference),
+        ...(allowedProjectIds ? { projectId: { in: allowedProjectIds } } : {}),
+      },
+      select: {
+        name: true,
+        metadata: true,
+        organizations: {
+          orderBy: { organization: { name: "asc" } },
+          select: {
+            stage: true,
+            isWinner: true,
+            isIncluded: true,
+            metrics: true,
+            paymentDetails: true,
+            organization: {
+              select: {
+                id: true,
+                legacyId: true,
+                externalId: true,
+                name: true,
+              },
+            },
+            orders: {
+              where: { status: "PAID" },
+              orderBy: { createdAt: "desc" },
+              select: { items: true, paymentMethod: true },
+            },
+          },
+        },
+      },
+    });
+    if (!program) throw new NotFoundException("Program not found");
+
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = "Workforce Research Group";
+    workbook.created = new Date();
+    const worksheet = workbook.addWorksheet("Organizations");
+    worksheet.addRow([...organizationsConnectionHeaders]);
+    for (const enrollment of program.organizations) {
+      const metrics = jsonObject(enrollment.metrics);
+      const sortedPayment = productPaymentType(
+        SORTED_VERBATIMS_ID,
+        enrollment.orders,
+        enrollment.paymentDetails,
+        "Sorted_EV_Payment",
+      );
+      worksheet.addRow([
+        enrollment.organization.name,
+        String(
+          metrics.Source_Organization_ID ??
+            enrollment.organization.legacyId ??
+            enrollment.organization.externalId ??
+            enrollment.organization.id,
+        ),
+        enrollment.stage ?? "",
+        numeric(metrics.Surveys_Sent) ?? "",
+        reportCategory(program.metadata, enrollment.metrics),
+        "Given by default",
+        sortedPayment,
+        sortedPayment
+          ? sortedEmployeeVerbatimsFilter(enrollment.orders, enrollment.metrics)
+          : "",
+        productPaymentType(
+          RESPONSE_DETAIL_ID,
+          enrollment.orders,
+          enrollment.paymentDetails,
+          "RDR_Payment",
+        ),
+        productPaymentType(
+          KEY_IMPACT_ID,
+          enrollment.orders,
+          enrollment.paymentDetails,
+          "KIA_Payment",
+        ),
+        !enrollment.isIncluded
+          ? "Non-selected"
+          : enrollment.isWinner
+            ? "Winner"
+            : "Non-Winner",
+        String(metrics.Current_Year_Category ?? ""),
+        "",
+        "",
+      ]);
+    }
+    worksheet.views = [{ state: "frozen", ySplit: 1 }];
+    worksheet.autoFilter = {
+      from: { row: 1, column: 1 },
+      to: { row: 1, column: organizationsConnectionHeaders.length },
+    };
+    worksheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
+    worksheet.getRow(1).fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FF27272A" },
+    };
+    worksheet.columns.forEach((column, index) => {
+      column.width = Math.min(
+        42,
+        Math.max(16, (organizationsConnectionHeaders[index]?.length ?? 14) + 2),
+      );
+    });
+    const bytes = await workbook.xlsx.writeBuffer();
+    return Buffer.from(bytes);
   }
 
   async deleteProject(principal: Principal, projectReference: string) {
@@ -474,6 +720,29 @@ export class CompatibilityManagementController {
     @Param("programId") programId: string,
   ) {
     return this.management.program(principal, programId);
+  }
+
+  @Get("programs/:programId/organizations-connection-fields.xlsx")
+  async organizationsConnectionWorkbook(
+    @CurrentUser() principal: Principal,
+    @Param("programId") programId: string,
+    @Res() reply: FastifyReply,
+  ): Promise<void> {
+    const workbook = await this.management.organizationsConnectionWorkbook(
+      principal,
+      programId,
+    );
+    reply
+      .header(
+        "content-type",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      )
+      .header(
+        "content-disposition",
+        'attachment; filename="Organizations_Connection_Fields.xlsx"',
+      )
+      .header("access-control-expose-headers", "*")
+      .send(workbook);
   }
 
   @Delete("projects/:id")

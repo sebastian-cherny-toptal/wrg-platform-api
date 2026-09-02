@@ -193,7 +193,10 @@ describe("secure admin dashboard previews", () => {
       },
       organizationProgram: {
         findUnique: () =>
-          Promise.resolve({ id: "1541a2be-4503-4c75-9f9f-e8c77d08c2a4" }),
+          Promise.resolve({
+            id: "1541a2be-4503-4c75-9f9f-e8c77d08c2a4",
+            isIncluded: true,
+          }),
       },
       impersonationGrant: {
         create: (input: { data: { actorUserId: string } }) => {

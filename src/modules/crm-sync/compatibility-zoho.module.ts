@@ -58,6 +58,10 @@ const dealFields = [
   "Deal_Organization_ID",
   "Current_Year_Category",
   "Surveys_Sent",
+  "Stage",
+  "Company_Size",
+  "Program_EE_Count",
+  "Total_Number_of_Program_EEs",
 ];
 
 interface ProgramOrganization {
@@ -65,6 +69,8 @@ interface ProgramOrganization {
   organizationName: string | null;
   isWinner: boolean;
   surveysSent: number;
+  stage: string | null;
+  companySize: number | null;
   currentYearCategory: string | null;
 }
 
@@ -206,6 +212,11 @@ export class CompatibilityZohoService {
           ? dealOrganizationName
           : (account?.name ?? null);
       const rawSurveysSent = Number(deal.Surveys_Sent);
+      const rawCompanySize = Number(
+        deal.Company_Size ??
+          deal.Program_EE_Count ??
+          deal.Total_Number_of_Program_EEs,
+      );
       const organizations = organizationsByProgram.get(program.id) ?? [];
       if (!organizations.some((entry) => entry.organizationId === organizationId)) {
         organizations.push({
@@ -217,6 +228,11 @@ export class CompatibilityZohoService {
             Number.isInteger(rawSurveysSent) && rawSurveysSent >= 0
               ? rawSurveysSent
               : 0,
+          stage: text(deal, "Stage"),
+          companySize:
+            Number.isInteger(rawCompanySize) && rawCompanySize >= 0
+              ? rawCompanySize
+              : null,
           currentYearCategory: text(deal, "Current_Year_Category"),
         });
       }

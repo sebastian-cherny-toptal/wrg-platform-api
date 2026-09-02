@@ -49,6 +49,7 @@ class ReportsController {
   }> {
     await this.prisma.organizationProgram.findFirstOrThrow({
       where: {
+        isIncluded: true,
         organizationId,
         program: { surveys: { some: { id: surveyId } } },
       },

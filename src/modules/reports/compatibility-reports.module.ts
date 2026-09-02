@@ -3450,7 +3450,7 @@ export class CompatibilityReportsService {
       throw new BadRequestException("Organization is required");
     }
     const enrollment = await this.prisma.organizationProgram.findFirst({
-      where: { organizationId, programId: program.id },
+      where: { organizationId, programId: program.id, isIncluded: true },
       select: { id: true, reportAccess: true, metrics: true, metadata: true },
     });
     if (!enrollment) {
@@ -3466,7 +3466,7 @@ export class CompatibilityReportsService {
     if (!survey) throw new NotFoundException("Survey not found");
     const organizationPrograms = await this.prisma.organizationProgram.findMany(
       {
-        where: { programId: program.id },
+        where: { programId: program.id, isIncluded: true },
         select: {
           organizationId: true,
           isWinner: true,
@@ -3843,6 +3843,7 @@ export class CompatibilityReportsService {
     const current = await this.context(principal, query);
     const enrollments = await this.prisma.organizationProgram.findMany({
       where: {
+        isIncluded: true,
         organizationId: current.organizationId,
         projectId: current.program.projectId,
         programId: { not: current.program.id },

@@ -56,7 +56,7 @@ class TenantsController {
   @Get(":organizationId/programs")
   programs(@Param("organizationId") organizationId: string) {
     return this.prisma.organizationProgram.findMany({
-      where: { organizationId },
+      where: { organizationId, isIncluded: true },
       include: { program: { include: { project: true } } },
     });
   }

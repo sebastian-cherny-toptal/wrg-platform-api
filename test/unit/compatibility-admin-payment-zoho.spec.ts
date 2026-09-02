@@ -606,9 +606,11 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
       {
         organizationId: "460737994",
         organizationName: "Acme",
-        isWinner: true,
-        surveysSent: 125,
-        currentYearCategory: "Large",
+          isWinner: true,
+          surveysSent: 125,
+          stage: null,
+          companySize: null,
+          currentYearCategory: "Large",
       },
     ]);
   });

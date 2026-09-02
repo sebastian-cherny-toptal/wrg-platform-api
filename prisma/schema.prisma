@@ -103,6 +103,7 @@ model OrganizationProgram {
   dealExternalId String?
   stage          String?
   isWinner       Boolean      @default(false)
+  isIncluded     Boolean      @default(true)
   reportAccess   Json         @default("{}")
   paymentDetails Json         @default("{}")
   fees           Json         @default("{}")

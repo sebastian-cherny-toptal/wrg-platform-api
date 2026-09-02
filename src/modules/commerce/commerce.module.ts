@@ -81,7 +81,11 @@ class CommerceService {
     });
     const organizationProgram = dto.organizationProgramId
       ? await this.prisma.organizationProgram.findFirstOrThrow({
-          where: { id: dto.organizationProgramId, organizationId },
+          where: {
+            id: dto.organizationProgramId,
+            organizationId,
+            isIncluded: true,
+          },
           select: { id: true, projectId: true, programId: true },
         })
       : null;

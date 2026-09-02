@@ -785,6 +785,7 @@ export class CompatibilityAdminService {
                 ...jsonObject(enrollment.metadata),
                 Stage: enrollment.stage,
                 isWinner: enrollment.isWinner,
+                isIncluded: enrollment.isIncluded,
                 Created_Time: enrollment.createdAt,
                 Last_time_deal_synced: enrollment.updatedAt,
                 _id: enrollment.legacyId ?? enrollment.id,

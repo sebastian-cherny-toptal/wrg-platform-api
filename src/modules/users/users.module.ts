@@ -417,6 +417,7 @@ export class ClientLoginService {
     const organizationPrograms = await this.prisma.organizationProgram.findMany(
       {
         where: {
+          isIncluded: true,
           organizationId: user.organization.id,
           ...(primaryProject ? { projectId: primaryProject.id } : {}),
           programId: {
@@ -755,8 +756,9 @@ export class UsersService {
       const selectedEnrollment =
         await this.prisma.organizationProgram.findFirst({
           where: isUuid(dto.organizationId)
-            ? { id: dto.organizationId }
+            ? { id: dto.organizationId, isIncluded: true }
             : {
+                isIncluded: true,
                 OR: [
                   { legacyId: dto.organizationId },
                   { externalId: dto.organizationId },
@@ -823,6 +825,7 @@ export class UsersService {
     const enrollments = organization
       ? await this.prisma.organizationProgram.findMany({
           where: {
+            isIncluded: true,
             organizationId: { in: equivalentOrganizationIds },
             programId: { in: selectedPrograms.map(({ id }) => id) },
           },

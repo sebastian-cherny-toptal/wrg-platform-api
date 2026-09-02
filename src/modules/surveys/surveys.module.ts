@@ -56,6 +56,7 @@ class SurveysController {
                 program: {
                   organizations: {
                     some: {
+                      isIncluded: true,
                       organizationId: principal.organizationId ?? "__none__",
                     },
                   },

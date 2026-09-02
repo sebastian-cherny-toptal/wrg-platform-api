@@ -13,6 +13,7 @@ import {
 } from "@nestjs/platform-fastify";
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import ExcelJS from "exceljs";
 import { ExtractJwt, Strategy } from "passport-jwt";
 import { PrismaService } from "../../src/database/prisma.service.js";
 import {
@@ -35,6 +36,10 @@ const managementStub = {
   projects: () => mark("projects"),
   programs: () => mark("programs"),
   program: () => mark("program"),
+  organizationsConnectionWorkbook: () => {
+    mark("organizationsConnectionWorkbook");
+    return Buffer.from("workbook");
+  },
   deleteProject: () => mark("deleteProject"),
   deleteProgram: () => mark("deleteProgram"),
   permissions: () => mark("permissions"),
@@ -75,6 +80,7 @@ async function createTestApp(): Promise<NestFastifyApplication> {
     exclude: [
       { path: "admin/:one", method: RequestMethod.ALL },
       { path: "admin/:one/:two", method: RequestMethod.ALL },
+      { path: "admin/:one/:two/:three", method: RequestMethod.ALL },
     ],
   });
   app.enableVersioning({
@@ -120,6 +126,11 @@ describe("native management compatibility endpoints", () => {
           headers,
         }),
         app.inject({
+          method: "GET",
+          url: "/admin/programs/program-1/organizations-connection-fields.xlsx",
+          headers,
+        }),
+        app.inject({
           method: "DELETE",
           url: "/admin/projects/project-1",
           headers,
@@ -143,6 +154,7 @@ describe("native management compatibility endpoints", () => {
         projects: 2,
         programs: 1,
         program: 1,
+        organizationsConnectionWorkbook: 1,
         deleteProject: 1,
         deleteProgram: 1,
         permissions: 1,
@@ -150,6 +162,132 @@ describe("native management compatibility endpoints", () => {
     } finally {
       await app.close();
     }
+  });
+
+  it("exports organization connection fields with categories and payments", async () => {
+    const prisma = {
+      program: {
+        findFirst: () =>
+          Promise.resolve({
+            name: "Feedback 2026",
+            metadata: {
+              categoryPricing: [
+                { tier: "Small", employeeSize: "25-99", priceCents: 1 },
+                { tier: "Medium", employeeSize: "100-199", priceCents: 1 },
+              ],
+            },
+            organizations: [
+              {
+                stage: "Full Package",
+                isWinner: true,
+                isIncluded: true,
+                metrics: {
+                  Source_Organization_ID: "49",
+                  Surveys_Sent: 80,
+                  Company_Size: 30,
+                  Current_Year_Category: "Small",
+                  SEV_Filter: "Department",
+                },
+                paymentDetails: {},
+                organization: {
+                  id: "organization-id",
+                  legacyId: null,
+                  externalId: null,
+                  name: "Acme Health",
+                },
+                orders: [
+                  {
+                    paymentMethod: "Paid via ACH",
+                    items: [
+                      {
+                        productId: "report-verbatims-sorted",
+                        keys: {
+                          productId: "report-verbatims-sorted",
+                          EV_Sorting_Filter: "Department",
+                        },
+                      },
+                      {
+                        productId: "report-response-detail",
+                        keys: { productId: "report-response-detail" },
+                      },
+                    ],
+                  },
+                ],
+              },
+              {
+                stage: "Closed",
+                isWinner: false,
+                isIncluded: false,
+                metrics: {
+                  Source_Organization_ID: "50",
+                  Surveys_Sent: 120,
+                  Current_Year_Category: "Medium",
+                },
+                paymentDetails: {},
+                organization: {
+                  id: "excluded-id",
+                  legacyId: null,
+                  externalId: null,
+                  name: "Excluded Group",
+                },
+                orders: [],
+              },
+            ],
+          }),
+      },
+    } as unknown as PrismaService;
+    const service = new CompatibilityManagementService(prisma);
+    const buffer = await service.organizationsConnectionWorkbook(
+      {
+        sub: "admin-id",
+        organizationId: null,
+        roles: ["admin"],
+        permissions: [],
+      },
+      "program-id",
+    );
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer as never);
+    const worksheet = workbook.getWorksheet("Organizations");
+    assert.ok(worksheet);
+    const headerValues = worksheet.getRow(1).values;
+    assert.ok(Array.isArray(headerValues));
+    assert.deepEqual(headerValues.slice(1), [
+      "Alias Name",
+      "Organization ID",
+      "Stage",
+      "Surveys Sent",
+      "Report Category",
+      "FDD Payment Type",
+      "Sorted EV Payment Type",
+      "EV Sorting Filter",
+      "RD Payment Type",
+      "KIA Payment Type",
+      "CY Winner",
+      "CY Category",
+      "CY Category Rank",
+      "CY Overall Rank",
+    ]);
+    const firstOrganizationValues = worksheet.getRow(2).values;
+    assert.ok(Array.isArray(firstOrganizationValues));
+    assert.deepEqual(firstOrganizationValues.slice(1), [
+      "Acme Health",
+      "49",
+      "Full Package",
+      80,
+      "25-99",
+      "Given by default",
+      "Paid via ACH",
+      "Department",
+      "Paid via ACH",
+      "",
+      "Winner",
+      "Small",
+      "",
+      "",
+    ]);
+    assert.equal(worksheet.getRow(3).getCell(11).value, "Non-selected");
+    assert.equal(worksheet.getRow(3).getCell(5).value, "100-199");
   });
 
   it("maps normalized roles to the legacy administration projection", async () => {

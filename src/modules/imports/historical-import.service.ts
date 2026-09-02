@@ -111,6 +111,8 @@ export interface HistoricalImportMetadata {
     organizationName?: string;
     isWinner: boolean;
     surveysSent: number;
+    stage?: string;
+    companySize?: number;
     currentYearCategory?: string;
   }>;
   organizationPrograms?: Array<{
@@ -121,6 +123,8 @@ export interface HistoricalImportMetadata {
     surveysSent: number;
     isWinner: boolean;
     isIncluded: boolean;
+    stage?: string;
+    companySize?: number;
     currentYearCategory?: string;
   }>;
   reportCatalog?: ReportCatalogProduct[];
@@ -452,14 +456,28 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
           const entry = objectBody(raw);
           const organizationId = requiredString(entry, "organizationId");
           const organizationName = optionalString(entry, "organizationName");
+          const stage = optionalString(entry, "stage");
           const currentYearCategory = optionalString(
             entry,
             "currentYearCategory",
           );
           const surveysSent = Number(entry.surveysSent);
+          const rawCompanySize = entry.companySize;
+          const companySize =
+            rawCompanySize === undefined || rawCompanySize === null
+              ? undefined
+              : Number(rawCompanySize);
           if (!Number.isInteger(surveysSent) || surveysSent < 0) {
             throw new BadRequestException(
               "Zoho Surveys Sent must be a non-negative integer",
+            );
+          }
+          if (
+            companySize !== undefined &&
+            (!Number.isInteger(companySize) || companySize < 0)
+          ) {
+            throw new BadRequestException(
+              "Zoho company size must be a non-negative integer",
             );
           }
           return {
@@ -467,6 +485,8 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
             ...(organizationName ? { organizationName } : {}),
             isWinner: entry.isWinner === true,
             surveysSent,
+            ...(stage ? { stage } : {}),
+            ...(companySize !== undefined ? { companySize } : {}),
             ...(currentYearCategory ? { currentYearCategory } : {}),
           };
         });
@@ -494,12 +514,26 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
             "sourceOrganizationId",
           );
           const organizationName = optionalString(entry, "organizationName");
+          const stage = optionalString(entry, "stage");
           const currentYearCategory = optionalString(
             entry,
             "currentYearCategory",
           );
           const isWinner = entry.isWinner === true;
           const isIncluded = entry.isIncluded !== false;
+          const rawCompanySize = entry.companySize;
+          const companySize =
+            rawCompanySize === undefined || rawCompanySize === null
+              ? undefined
+              : Number(rawCompanySize);
+          if (
+            companySize !== undefined &&
+            (!Number.isInteger(companySize) || companySize < 0)
+          ) {
+            throw new BadRequestException(
+              "Company size must be a non-negative integer",
+            );
+          }
           if (!organizationProgramId && !organizationKey) {
             throw new BadRequestException(
               "Each Surveys Sent value must identify an organization",
@@ -514,6 +548,8 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
             surveysSent,
             isWinner,
             isIncluded,
+            ...(stage ? { stage } : {}),
+            ...(companySize !== undefined ? { companySize } : {}),
           };
         });
   const reportCatalog =
@@ -1338,6 +1374,10 @@ export class HistoricalImportService {
         surveysSent: existing?.surveysSent ?? details.efsRespondents,
         isWinner: ranking?.isWinner ?? existing?.isWinner ?? false,
         isIncluded: existing?.isIncluded !== false,
+        ...(existing?.stage ? { stage: existing.stage } : {}),
+        ...(existing?.companySize !== undefined
+          ? { companySize: existing.companySize }
+          : {}),
         ...(ranking?.category
           ? { currentYearCategory: ranking.category }
           : existing?.currentYearCategory
@@ -1825,10 +1865,24 @@ export class HistoricalImportService {
   ): Promise<Map<string, string>> {
     const importPrefix = importPrefixFor(draft.importId);
     const organizationIds = new Map<string, string>();
-    const excludedOrganizationKeys = new Set(
+    const configuredIncluded = new Map(
       (draft.organizationPrograms ?? []).flatMap((entry) =>
-        !entry.isIncluded && entry.organizationKey
-          ? [entry.organizationKey]
+        entry.organizationKey
+          ? ([[entry.organizationKey, entry.isIncluded]] as const)
+          : [],
+      ),
+    );
+    const configuredStages = new Map(
+      (draft.organizationPrograms ?? []).flatMap((entry) =>
+        entry.organizationKey && entry.stage
+          ? ([[entry.organizationKey, entry.stage]] as const)
+          : [],
+      ),
+    );
+    const configuredCompanySizes = new Map(
+      (draft.organizationPrograms ?? []).flatMap((entry) =>
+        entry.organizationKey && entry.companySize !== undefined
+          ? ([[entry.organizationKey, entry.companySize]] as const)
           : [],
       ),
     );
@@ -1877,9 +1931,11 @@ export class HistoricalImportService {
       },
     });
     for (const [key, details] of organizationRows) {
-      if (excludedOrganizationKeys.has(key)) continue;
       const surveysSent = configuredSent.get(key) ?? details.efsRespondents;
       const isWinner = configuredWinners.get(key) ?? false;
+      const isIncluded = configuredIncluded.get(key) ?? true;
+      const stage = configuredStages.get(key) ?? "Closed";
+      const companySize = configuredCompanySizes.get(key) ?? details.companySize;
       const currentYearCategory = configuredCategories.get(key);
       const normalizedName = normalizeOrganizationName(details.displayName);
       const matched = existingEnrollments.find(({ metrics }) => {
@@ -1933,7 +1989,9 @@ export class HistoricalImportService {
         await prisma.organizationProgram.update({
           where: { id: matched.id },
           data: {
+            isIncluded,
             isWinner,
+            stage,
             metrics: {
               ...metrics,
               Surveys_Sent: surveysSent,
@@ -1942,8 +2000,8 @@ export class HistoricalImportService {
                 metrics.Source_Organization_ID ??
                 null,
               Source_Organization_Name: details.displayName,
-              ...(details.companySize !== undefined
-                ? { Company_Size: details.companySize }
+              ...(companySize !== undefined
+                ? { Company_Size: companySize }
                 : {}),
               ...(currentYearCategory
                 ? { Current_Year_Category: currentYearCategory }
@@ -1961,7 +2019,8 @@ export class HistoricalImportService {
           },
         },
         update: {
-          stage: "Closed",
+          stage,
+          isIncluded,
           isWinner,
           reportAccess: {
             WFR_Access: "no",
@@ -1976,8 +2035,8 @@ export class HistoricalImportService {
             Surveys_Sent: surveysSent,
             Source_Organization_ID: details.workbookOrganizationId ?? null,
             Source_Organization_Name: details.displayName,
-            ...(details.companySize !== undefined
-              ? { Company_Size: details.companySize }
+            ...(companySize !== undefined
+              ? { Company_Size: companySize }
               : {}),
             ...(currentYearCategory
               ? { Current_Year_Category: currentYearCategory }
@@ -1989,7 +2048,8 @@ export class HistoricalImportService {
           projectId,
           programId,
           externalId: `${importPrefix}:enrollment:${token}`,
-          stage: "Closed",
+          stage,
+          isIncluded,
           isWinner,
           reportAccess: {
             WFR_Access: "no",
@@ -2004,8 +2064,8 @@ export class HistoricalImportService {
             Surveys_Sent: surveysSent,
             Source_Organization_ID: details.workbookOrganizationId ?? null,
             Source_Organization_Name: details.displayName,
-            ...(details.companySize !== undefined
-              ? { Company_Size: details.companySize }
+            ...(companySize !== undefined
+              ? { Company_Size: companySize }
               : {}),
             ...(currentYearCategory
               ? { Current_Year_Category: currentYearCategory }
@@ -2037,6 +2097,8 @@ export class HistoricalImportService {
       select: {
         id: true,
         organizationId: true,
+        stage: true,
+        isIncluded: true,
         isWinner: true,
         metrics: true,
       },
@@ -2049,6 +2111,8 @@ export class HistoricalImportService {
           surveysSent,
           isWinner,
           isIncluded,
+          stage,
+          companySize,
           currentYearCategory,
         }) => {
           const enrollment = byId.get(organizationProgramId);
@@ -2056,7 +2120,7 @@ export class HistoricalImportService {
             throw new BadRequestException(
               "An organization program no longer exists",
             );
-          if (!isIncluded) {
+          if (!isIncluded && enrollment.isIncluded) {
             await prisma.user.updateMany({
               where: { organizationProgramId },
               data: { organizationProgramId: null },
@@ -2071,15 +2135,19 @@ export class HistoricalImportService {
                 survey: { programId },
               },
             });
-            await prisma.organizationProgram.delete({
+            await prisma.organizationProgram.update({
               where: { id: organizationProgramId },
+              data: { isIncluded: false },
             });
             return;
           }
           const metrics = objectBody(enrollment.metrics);
           if (
             Number(metrics.Surveys_Sent ?? 0) === surveysSent &&
+            enrollment.isIncluded === isIncluded &&
             enrollment.isWinner === isWinner &&
+            (!stage || enrollment.stage === stage) &&
+            (companySize === undefined || metrics.Company_Size === companySize) &&
             (!currentYearCategory ||
               metrics.Current_Year_Category === currentYearCategory)
           )
@@ -2087,10 +2155,13 @@ export class HistoricalImportService {
           await prisma.organizationProgram.update({
             where: { id: organizationProgramId },
             data: {
+              isIncluded,
               isWinner,
+              ...(stage ? { stage } : {}),
               metrics: {
                 ...metrics,
                 Surveys_Sent: surveysSent,
+                ...(companySize !== undefined ? { Company_Size: companySize } : {}),
                 ...(currentYearCategory
                   ? { Current_Year_Category: currentYearCategory }
                   : {}),

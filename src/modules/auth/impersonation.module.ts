@@ -304,8 +304,11 @@ export class ImpersonationService {
           programId: grant.program.id,
         },
       },
-      select: { reportAccess: true, metadata: true },
+      select: { isIncluded: true, reportAccess: true, metadata: true },
     });
+    if (enrollment?.isIncluded === false) {
+      throw new ForbiddenException("Organization is not included in this program");
+    }
     const reportAccess = jsonObject(enrollment?.reportAccess ?? {});
     const entitlements = Object.fromEntries(
       entitlementKeys.map((key) => [
@@ -494,9 +497,9 @@ export class ImpersonationService {
           programId: program.id,
         },
       },
-      select: { id: true },
+      select: { id: true, isIncluded: true },
     });
-    if (!enrollment) {
+    if (!enrollment?.isIncluded) {
       throw new BadRequestException(
         "Organization does not belong to this program",
       );
