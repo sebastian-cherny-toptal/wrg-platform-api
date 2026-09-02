@@ -886,7 +886,9 @@ export class CompatibilityAdminService {
           .map((item) => {
             const value = jsonObject(item);
             const keys = jsonObject(value.keys);
-            return optionalString(keys.EV_Sorting_Filter);
+            return optionalString(
+              keys.EV_Sorting_Filter ?? value.EV_Sorting_Filter,
+            );
           })
           .find((filter): filter is string => Boolean(filter));
         return {

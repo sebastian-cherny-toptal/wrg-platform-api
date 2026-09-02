@@ -4,10 +4,10 @@ Strict TypeScript/NestJS service that **replaces** the legacy Express/Mongoose b
 
 It serves two surfaces on one port:
 
-| Surface | Paths | Stack |
-|---------|--------|--------|
+| Surface                               | Paths                                                                                           | Stack                                  |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------- | -------------------------------------- |
 | **Native compatibility** (FE drop-in) | `/user`, `/client`, `/admin`, `/webhook`, `/payment`, `/zoho`, `/dashboard`, `/ping`, `/health` | NestJS / Fastify / PostgreSQL / Prisma |
-| **Platform API** | `/api/v1/*`, `/docs`, `/openapi.json` | NestJS / Fastify / PostgreSQL / Prisma |
+| **Platform API**                      | `/api/v1/*`, `/docs`, `/openapi.json`                                                           | NestJS / Fastify / PostgreSQL / Prisma |
 
 Point `REACT_APP_API_ENDPOINT` at this service the same way you pointed it at `wrg-platform-be`.
 
@@ -61,9 +61,14 @@ matches its `Alias Name` values to 2026 organizations. Use
 `CY Winner` values (`Yes` or `No`) set each matching organization-program's
 winner status; other values are ignored.
 
-The command is idempotent: each run replaces only records in the `seed-br`
-namespace, leaving ordinary application data untouched. The ZIP can instead be
-an extracted directory when passed via `--source` or `BR_SEED_SOURCE`. The
+Before writing, the command compares the `test.baton` user, its project and
+program links, and the seeded organization-program count with the incoming
+seed's expected metrics. When every metric matches, it skips the rebuild. Set
+`BR_SEED_FORCE_UPDATE=true` to force the existing `seed-br` records to be
+deleted and recreated. When a rebuild is needed, only records in the `seed-br`
+namespace are replaced, leaving ordinary application data untouched. The ZIP
+can instead be an extracted directory when passed via `--source` or
+`BR_SEED_SOURCE`. The
 reusable parser lives in `src/modules/imports/xlsx-survey-importer.ts`; a future
 multipart endpoint can save an upload to a temporary path and use the same
 definition/row iteration API as the seed CLI.

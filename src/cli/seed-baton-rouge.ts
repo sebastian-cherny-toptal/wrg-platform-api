@@ -38,6 +38,12 @@ import {
 } from "./baton-rouge-rankings.js";
 import { clearPreviousBatonRougeSeed } from "./baton-rouge-seed-cleanup.js";
 import {
+  batonRougeSeedMetricsMatch,
+  expectedBatonRougeSeedMetrics,
+  inspectBatonRougeSeed,
+  shouldSkipBatonRougeSeed,
+} from "./baton-rouge-seed-inspection.js";
+import {
   canonicalSeedOrganizationName,
   seedOrganizationCount,
   selectSeedOrganizations,
@@ -157,7 +163,6 @@ interface CliOptions {
   rankingSource: string;
   reportSourceExplicit: boolean;
   reportSource: string;
-  skipIfPresent: boolean;
   source: string;
 }
 
@@ -208,7 +213,6 @@ function parseOptions(argv: string[]): CliOptions {
   let rankingSource = process.env.BR_RANKING_SOURCE
     ? resolve(process.env.BR_RANKING_SOURCE)
     : defaultRankingSource;
-  let skipIfPresent = false;
   let reportSourceExplicit = Boolean(process.env.BR_REPORT_SOURCE);
   let reportSource = process.env.BR_REPORT_SOURCE
     ? resolve(process.env.BR_REPORT_SOURCE)
@@ -220,7 +224,8 @@ function parseOptions(argv: string[]): CliOptions {
       continue;
     }
     if (argument === "--skip-if-present") {
-      skipIfPresent = true;
+      // Retained for compatibility. Complete seed data is now skipped by
+      // default unless BR_SEED_FORCE_UPDATE is exactly "true".
       continue;
     }
     if (argument === "--source") {
@@ -256,7 +261,6 @@ function parseOptions(argv: string[]): CliOptions {
     rankingSource,
     reportSource,
     reportSourceExplicit,
-    skipIfPresent,
     source,
   };
 }
@@ -452,6 +456,57 @@ function organizationKey(
   return fallback === null || String(fallback).trim() === ""
     ? `unknown ${year} ${row}`
     : `organization id ${year} ${String(fallback).trim()}`;
+}
+
+async function expectedOrganizationProgramCount(
+  sources: SourceWorkbook[],
+  organizationCount: number,
+): Promise<number> {
+  const organizationKeysByYear = new Map<number, Set<string>>();
+  for (const source of sources) {
+    const definition = await readXlsxSurveyDefinition({
+      fileName: source.fileName,
+      filePath: source.filePath,
+      questionId: (dataLabel) => dataLabel,
+    });
+    const availableOrganizations = new Map<string, true>();
+    await forEachXlsxSurveyRow(definition, {}, (row) => {
+      const sourceOrganizationName = canonicalSeedOrganizationName(
+        row.organizationName,
+      );
+      if (!sourceOrganizationName) return;
+      availableOrganizations.set(
+        organizationKey(
+          sourceOrganizationName,
+          source.year,
+          row.rowNumber,
+          row.organizationId,
+        ),
+        true,
+      );
+    });
+    const targetKey = organizationKey(targetOrganizationName, source.year, 0);
+    let selectedOrganizations: Map<string, true>;
+    try {
+      selectedOrganizations = selectSeedOrganizations(
+        availableOrganizations,
+        targetKey,
+        organizationCount,
+      );
+    } catch (error) {
+      throw new Error(`${source.fileName}: ${(error as Error).message}`);
+    }
+    const yearOrganizationKeys =
+      organizationKeysByYear.get(source.year) ?? new Set<string>();
+    for (const key of selectedOrganizations.keys()) {
+      yearOrganizationKeys.add(key);
+    }
+    organizationKeysByYear.set(source.year, yearOrganizationKeys);
+  }
+  return [...organizationKeysByYear.values()].reduce(
+    (total, organizationKeys) => total + organizationKeys.size,
+    0,
+  );
 }
 
 function sourceOrganization(key: string, sourceName?: string) {
@@ -1201,31 +1256,71 @@ async function main(): Promise<void> {
   if (!options.dryRun && !databaseUrl) {
     throw new Error("DATABASE_URL is required");
   }
-  if (options.skipIfPresent && !options.dryRun && databaseUrl) {
+  setSeedStage("load-source-workbooks");
+  const loadedSources = loadSourceWorkbooks(options.source);
+  const sources = loadedSources.workbooks;
+  const reportYears = [...new Set(sources.map(({ year }) => year))];
+  if (!options.dryRun && databaseUrl) {
+    setSeedStage("inspect-incoming-seed");
+    const expectedEnrollmentCount = await expectedOrganizationProgramCount(
+      sources,
+      options.organizationCount,
+    );
     setSeedStage("inspect-existing-seed");
     const inspectionClient = new PrismaClient({
       adapter: new PrismaPg({ connectionString: databaseUrl }),
     });
     try {
-      const existingProgramCount = await inspectionClient.program.count({
-        where: { externalId: { startsWith: `${seedPrefix}-program-` } },
+      const expectedMetrics = expectedBatonRougeSeedMetrics(
+        reportYears.length,
+        expectedEnrollmentCount,
+      );
+      const actualMetrics = await inspectBatonRougeSeed(inspectionClient);
+      const metricsMatch = batonRougeSeedMetricsMatch(
+        actualMetrics,
+        expectedMetrics,
+      );
+      seedLog("Existing seed metrics inspected.", {
+        actualOrganizationPrograms: actualMetrics.organizationPrograms,
+        actualProgramsLinked: actualMetrics.programsLinked,
+        actualProjectsLinked: actualMetrics.projectsLinked,
+        actualUsernameExists: actualMetrics.usernameExists,
+        expectedOrganizationPrograms: expectedMetrics.organizationPrograms,
+        expectedProgramsLinked: expectedMetrics.programsLinked,
+        expectedProjectsLinked: expectedMetrics.projectsLinked,
+        expectedUsernameExists: expectedMetrics.usernameExists,
       });
-      if (existingProgramCount > 0) {
+      if (
+        shouldSkipBatonRougeSeed(
+          actualMetrics,
+          expectedMetrics,
+          process.env.BR_SEED_FORCE_UPDATE,
+        )
+      ) {
+        setSeedStage("complete");
         console.log(
-          `Skipping Baton Rouge seed: found ${existingProgramCount} existing fixture program(s).`,
+          "Skipping Baton Rouge seed: existing seed metrics match the incoming data. " +
+            'Set BR_SEED_FORCE_UPDATE="true" to delete and recreate it.',
         );
+        loadedSources.cleanup();
         return;
       }
+      if (metricsMatch) {
+        seedLog(
+          'BR_SEED_FORCE_UPDATE is "true"; deleting and recreating matching seed data.',
+        );
+      } else {
+        seedLog("Existing seed metrics differ; rebuilding seed data.");
+      }
+    } catch (error) {
+      loadedSources.cleanup();
+      throw error;
     } finally {
       await inspectionClient.$disconnect();
     }
   }
-  setSeedStage("load-source-workbooks");
-  const loadedSources = loadSourceWorkbooks(options.source);
   setSeedStage("load-ranking-data");
   const rankingData = await loadBatonRougeRankingData(options.rankingSource);
-  const sources = loadedSources.workbooks;
-  const reportYears = [...new Set(sources.map(({ year }) => year))];
   let reportSource =
     extname(options.source).toLowerCase() === ".zip" &&
     !options.reportSourceExplicit

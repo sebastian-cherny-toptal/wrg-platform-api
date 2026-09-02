@@ -388,6 +388,143 @@ describe("compatibility report categories", () => {
     );
   });
 
+  it("sorts each open-ended question by the purchased demographic and returns its label", async () => {
+    const departmentQuestion = {
+      id: "department",
+      legacyId: null,
+      externalId: null,
+      dataLabel: "custom_department",
+      caption: "Department",
+      type: "demographic",
+      position: 1,
+      metadata: {
+        QuestionTypeId: 2,
+        filterLabel: "Department",
+        QuestionResponses: {
+          "1": "Administration/Management",
+          "2": "Human Resources",
+          "10": "Technology",
+        },
+      },
+    };
+    const openQuestion = {
+      id: "open-question-1",
+      legacyId: null,
+      externalId: null,
+      dataLabel: "q_OpenEnded_1",
+      caption: "What should we improve?",
+      type: "open-text",
+      position: 2,
+      metadata: { QuestionTypeId: 9 },
+    };
+    let departments: Array<number | string> = [10, 2, 1, 10, 2];
+    const prisma = {
+      program: {
+        findFirst: () => ({
+          id: "program-1",
+          projectId: "project-1",
+          name: "Test program",
+          year: 2026,
+          startsAt: null,
+          metadata: {},
+          project: { id: "project-1", name: "Test project" },
+        }),
+      },
+      organizationProgram: {
+        findFirst: () => ({
+          id: "enrollment-1",
+          reportAccess: { EV_Access: "yes", SEV_Access: "yes" },
+          metrics: { SEV_Filter: "Department" },
+          metadata: {},
+        }),
+        findMany: () => [],
+      },
+      survey: {
+        findFirst: () => ({
+          id: "survey-1",
+          title: "Test survey",
+          startsAt: null,
+          endsAt: null,
+        }),
+      },
+      question: { findMany: () => [departmentQuestion, openQuestion] },
+      respondent: {
+        findMany: () =>
+          departments.map((department, index) => ({
+            id: `respondent-${index + 1}`,
+            legacyId: null,
+            externalId: null,
+            metadata: {},
+            responses: [
+              {
+                questionId: departmentQuestion.id,
+                value: department,
+                score: null,
+                question: departmentQuestion,
+              },
+              {
+                questionId: openQuestion.id,
+                value: `Answer from respondent ${index + 1}`,
+                score: null,
+                question: openQuestion,
+              },
+            ],
+          })),
+      },
+    } as unknown as PrismaService;
+
+    const service = new CompatibilityReportsService(prisma);
+    const result = await service.openResponseAnswers(
+      {
+        sub: "client-1",
+        organizationId: "organization-1",
+        roles: ["client"],
+        permissions: [],
+      },
+      { selectedProgramId: "program-1", isDummy: false },
+      openQuestion.id,
+    );
+
+    assert.deepEqual(
+      result.data.respondentData.map((respondent) => ({
+        id: respondent.RespondentId,
+        sortingValue: respondent.sortingValue,
+      })),
+      [
+        { id: "respondent-3", sortingValue: "Administration/Management" },
+        { id: "respondent-2", sortingValue: "Human Resources" },
+        { id: "respondent-5", sortingValue: "Human Resources" },
+        { id: "respondent-1", sortingValue: "Technology" },
+        { id: "respondent-4", sortingValue: "Technology" },
+      ],
+    );
+    assert.equal(result.data.sortingFilter?.label, "Department");
+
+    departments = [
+      "Sales 10",
+      "Sales 2",
+      "Administration",
+      "Human Resources",
+      "Finance",
+    ];
+    const alphanumericResult = await service.openResponseAnswers(
+      {
+        sub: "client-1",
+        organizationId: "organization-1",
+        roles: ["client"],
+        permissions: [],
+      },
+      { selectedProgramId: "program-1", isDummy: false },
+      openQuestion.id,
+    );
+    assert.deepEqual(
+      alphanumericResult.data.respondentData.map(
+        ({ sortingValue }) => sortingValue,
+      ),
+      ["Administration", "Finance", "Human Resources", "Sales 2", "Sales 10"],
+    );
+  });
+
   it("sorts section comparison categories from questionGroups.keys()", async () => {
     const questions = [
       benchmarkQuestion(

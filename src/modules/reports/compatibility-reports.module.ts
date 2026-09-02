@@ -1553,6 +1553,7 @@ export class CompatibilityReportsService {
         .map((Value, index) => ({
           _id: `dummy-respondent-${index + 1}`,
           RespondentId: `dummy-respondent-${index + 1}`,
+          sortingValue: undefined as string | undefined,
           responses: {
             QuestionId: question.id,
             DataLabel: question.id,
@@ -1566,6 +1567,9 @@ export class CompatibilityReportsService {
         data: {
           respondentData,
           dataLen: respondentData.length,
+          sortingFilter: undefined as
+            | { questionId: string; label: string }
+            | undefined,
           queryQuestion: {
             Caption: question.caption,
             Id: question.id,
@@ -1574,14 +1578,25 @@ export class CompatibilityReportsService {
         },
       };
     }
-    const questions = await this.openQuestions(context.survey.id);
+    const sortingReference = metadataString(
+      context.enrollmentMetrics,
+      "SEV_Filter",
+    );
+    const questions = await this.openQuestions(
+      context.survey.id,
+      sortingReference ? { questionId: sortingReference } : undefined,
+    );
     const question = questions.find(
-      (candidate) =>
-        candidate.id === questionReference ||
-        candidate.legacyId === questionReference ||
-        candidate.externalId === questionReference,
+      (candidate) => this.questionMatchesReference(candidate, questionReference),
     );
     if (!question) throw new NotFoundException("Question not found");
+    const sortingQuestion = sortingReference
+      ? questions.find(
+          (candidate) =>
+            candidate.id !== question.id &&
+            this.questionMatchesReference(candidate, sortingReference),
+        )
+      : undefined;
     const respondents = await this.organizationRespondents(
       context,
       queryFilter,
@@ -1591,6 +1606,22 @@ export class CompatibilityReportsService {
         (candidate) => candidate.questionId === question.id,
       );
       const value = response ? responseCaption(response.value) : null;
+      const sortingResponse = sortingQuestion
+        ? respondent.responses.find(
+            (candidate) => candidate.questionId === sortingQuestion.id,
+          )
+        : undefined;
+      const sortingSortValue = sortingResponse
+        ? responseCaption(sortingResponse.value)
+        : null;
+      const sortingValue =
+        sortingResponse && sortingQuestion
+          ? demographicResponseCaption(
+              sortingResponse.value,
+              sortingQuestion,
+              context.program.year,
+            )
+          : null;
       return value
         ? [
             {
@@ -1604,6 +1635,8 @@ export class CompatibilityReportsService {
                 Value: value,
                 ResponseCaption: " ",
               },
+              sortingValue: sortingValue ?? undefined,
+              sortingSortValue,
             },
           ]
         : [];
@@ -1613,18 +1646,44 @@ export class CompatibilityReportsService {
         "The information is not visible due to confidentiality reasons. The number of employee responses is less than 5.",
       );
     }
-    respondentData.sort((left, right) =>
-      left.responses.Value.localeCompare(right.responses.Value, "en", {
+    respondentData.sort((left, right) => {
+      if (sortingQuestion) {
+        if (left.sortingSortValue === right.sortingSortValue) return 0;
+        if (!left.sortingSortValue) return 1;
+        if (!right.sortingSortValue) return -1;
+        return left.sortingSortValue.localeCompare(
+          right.sortingSortValue,
+          "en",
+          { numeric: true, sensitivity: "base" },
+        );
+      }
+      return left.responses.Value.localeCompare(right.responses.Value, "en", {
         numeric: true,
         sensitivity: "base",
-      }),
-    );
+      });
+    });
     return {
       success: true,
       message: "success",
       data: {
-        respondentData,
+        respondentData: respondentData.map(
+          ({ _id, RespondentId, responses, sortingValue }) => ({
+            _id,
+            RespondentId,
+            responses,
+            sortingValue,
+          }),
+        ),
         dataLen: respondentData.length,
+        sortingFilter: sortingQuestion
+          ? {
+              questionId:
+                sortingQuestion.legacyId ??
+                sortingQuestion.externalId ??
+                sortingQuestion.id,
+              label: this.demographicLabel(sortingQuestion),
+            }
+          : undefined,
         queryQuestion: {
           Caption: question.caption,
           Id: question.legacyId ?? question.externalId ?? question.id,
@@ -3607,15 +3666,32 @@ export class CompatibilityReportsService {
       return open;
     }
     const reference = String(filterReference);
-    const filterQuestion = questions.find(
-      (question) =>
-        question.id === reference ||
-        question.legacyId === reference ||
-        question.externalId === reference,
+    const filterQuestion = questions.find((question) =>
+      this.questionMatchesReference(question, reference),
     );
     return filterQuestion && !open.some(({ id }) => id === filterQuestion.id)
       ? [...open, filterQuestion]
       : open;
+  }
+
+  private questionMatchesReference(
+    question: BenchmarkQuestion,
+    reference: string,
+  ): boolean {
+    const normalized = reference.trim().toLocaleLowerCase("en");
+    if (!normalized) return false;
+    return [
+      question.id,
+      question.legacyId,
+      question.externalId,
+      question.dataLabel,
+      question.caption,
+      metadataString(question.metadata, "filterLabel"),
+    ].some(
+      (candidate) =>
+        typeof candidate === "string" &&
+        candidate.trim().toLocaleLowerCase("en") === normalized,
+    );
   }
 
   private groups(context: ReportContext): BenchmarkGroup[] {
