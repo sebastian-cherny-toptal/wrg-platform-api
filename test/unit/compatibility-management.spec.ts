@@ -181,6 +181,10 @@ describe("native management compatibility endpoints", () => {
                 stage: "Full Package",
                 isWinner: true,
                 isIncluded: true,
+                currentZohoCategory: "Small/Medium",
+                benchmarkCategory: "Small",
+                categoryRank: "2",
+                overallRank: "4",
                 metrics: {
                   Source_Organization_ID: "49",
                   Surveys_Sent: 80,
@@ -218,6 +222,10 @@ describe("native management compatibility endpoints", () => {
                 stage: "Closed",
                 isWinner: false,
                 isIncluded: false,
+                currentZohoCategory: "Medium",
+                benchmarkCategory: "Medium",
+                categoryRank: null,
+                overallRank: null,
                 metrics: {
                   Source_Organization_ID: "50",
                   Surveys_Sent: 120,
@@ -275,7 +283,7 @@ describe("native management compatibility endpoints", () => {
       "49",
       "Full Package",
       80,
-      "25-99",
+      "Small/Medium",
       "Given by default",
       "Paid via ACH",
       "Department",
@@ -283,11 +291,11 @@ describe("native management compatibility endpoints", () => {
       "",
       "Winner",
       "Small",
-      "",
-      "",
+      "2",
+      "4",
     ]);
     assert.equal(worksheet.getRow(3).getCell(11).value, "Non-selected");
-    assert.equal(worksheet.getRow(3).getCell(5).value, "100-199");
+    assert.equal(worksheet.getRow(3).getCell(5).value, "Medium");
   });
 
   it("maps normalized roles to the legacy administration projection", async () => {

@@ -789,6 +789,8 @@ export class CompatibilityAdminService {
                 employees_count: enrollment.employeesCount,
                 overall_rank: enrollment.overallRank,
                 category_rank: enrollment.categoryRank,
+                current_zoho_category: enrollment.currentZohoCategory,
+                benchmark_category: enrollment.benchmarkCategory,
                 Created_Time: enrollment.createdAt,
                 Last_time_deal_synced: enrollment.updatedAt,
                 _id: enrollment.legacyId ?? enrollment.id,

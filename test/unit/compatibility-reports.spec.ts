@@ -366,24 +366,32 @@ describe("compatibility report categories", () => {
       roles: ["client"],
       permissions: [],
     };
-    const clientVerbatimsDemo = await service.openResponseQuestions(client, dummyQuery);
-    const clientResponseDetailDemo = await service.responseDetailSections(client, dummyQuery);
-    const clientKeyImpactDemo = await service.keyImpactAnalysis(client, dummyQuery);
-    assert.ok(clientVerbatimsDemo.data.every(({ id }) => id.startsWith("dummy-")));
+    const clientVerbatimsDemo = await service.openResponseQuestions(
+      client,
+      dummyQuery,
+    );
+    const clientResponseDetailDemo = await service.responseDetailSections(
+      client,
+      dummyQuery,
+    );
+    const clientKeyImpactDemo = await service.keyImpactAnalysis(
+      client,
+      dummyQuery,
+    );
+    assert.ok(
+      clientVerbatimsDemo.data.every(({ id }) => id.startsWith("dummy-")),
+    );
     assert.ok(clientResponseDetailDemo.data.length > 0);
-    assert.deepEqual(clientKeyImpactDemo.data.mapping, defaultKeyImpactContributions);
+    assert.deepEqual(
+      clientKeyImpactDemo.data.mapping,
+      defaultKeyImpactContributions,
+    );
     await assert.rejects(
-      service.demographicResponseCounts(
-        client,
-        { ...query, isDummy: true },
-      ),
+      service.demographicResponseCounts(client, { ...query, isDummy: true }),
       /Dummy report data is only available to promotional users/u,
     );
     await assert.rejects(
-      service.sectionComparison(
-        client,
-        query,
-      ),
+      service.sectionComparison(client, query),
       /This program does not include access to the requested report/u,
     );
   });
@@ -636,13 +644,23 @@ describe("compatibility report categories", () => {
           ...winners.map((organizationId) => ({
             organizationId,
             isWinner: true,
-            metrics: { Current_Year_Winner: "No" },
+            currentZohoCategory: "Small/Medium",
+            benchmarkCategory: "Super",
+            metrics: {
+              Current_Year_Winner: "No",
+              Current_Year_Category: "Small/Medium",
+            },
             organization: { metadata: {} },
           })),
           ...nonWinners.map((organizationId) => ({
             organizationId,
             isWinner: false,
-            metrics: { Current_Year_Winner: "Yes" },
+            currentZohoCategory: "Small/Medium",
+            benchmarkCategory: "Super",
+            metrics: {
+              Current_Year_Winner: "Yes",
+              Current_Year_Category: "Small/Medium",
+            },
             organization: { metadata: {} },
           })),
         ],
@@ -686,7 +704,15 @@ describe("compatibility report categories", () => {
       { selectedProgramId: "program-1", isDummy: false },
     );
 
-    assert.deepEqual(result.data.data[0]?.dataValues, [100, 0]);
+    assert.deepEqual(result.data.data[0]?.dataValues, [100, 0, 100, 0]);
     assert.equal(result.data.cohortOrganizationCount, 4);
+    assert.ok(
+      result.data.tableHeaders.some(({ title }) => title === "Super Employers"),
+    );
+    assert.ok(
+      result.data.tableHeaders.every(
+        ({ title }) => title !== "Small/Medium Employers",
+      ),
+    );
   });
 });

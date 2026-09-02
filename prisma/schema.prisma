@@ -89,36 +89,55 @@ model Program {
   users               UserProgram[]
   orders              Order[]
   impersonationGrants ImpersonationGrant[]
+  zohoCategories      ProgramZohoCategory[]
 
   @@index([projectId])
 }
 
+model ProgramZohoCategory {
+  id               String   @id @default(uuid()) @db.Uuid
+  programId        String   @db.Uuid
+  tier             String
+  zohoCategoryName String   @map("zoho_category_name")
+  employeeSize     String   @map("employee_size")
+  priceCents       Int      @map("price_cents")
+  sortOrder        Int      @map("sort_order")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  program          Program  @relation(fields: [programId], references: [id], onDelete: Cascade)
+
+  @@unique([programId, tier])
+  @@index([programId, sortOrder])
+}
+
 model OrganizationProgram {
-  id             String       @id @default(uuid()) @db.Uuid
-  legacyId       String?      @unique
-  externalId     String?      @unique
-  organizationId String       @db.Uuid
-  projectId      String       @db.Uuid
-  programId      String       @db.Uuid
-  dealExternalId String?
-  stage          String?
-  isWinner       Boolean      @default(false)
-  isIncluded     Boolean      @default(true)
-  employeesCount Int?         @map("employees_count")
-  overallRank    String?      @map("overall_rank")
-  categoryRank   String?      @map("category_rank")
-  reportAccess   Json         @default("{}")
-  paymentDetails Json         @default("{}")
-  fees           Json         @default("{}")
-  metrics        Json         @default("{}")
-  metadata       Json         @default("{}")
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  project        Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  program        Program      @relation(fields: [programId], references: [id], onDelete: Cascade)
-  users          User[]
-  orders         Order[]
+  id                  String       @id @default(uuid()) @db.Uuid
+  legacyId            String?      @unique
+  externalId          String?      @unique
+  organizationId      String       @db.Uuid
+  projectId           String       @db.Uuid
+  programId           String       @db.Uuid
+  dealExternalId      String?
+  stage               String?
+  isWinner            Boolean      @default(false)
+  isIncluded          Boolean      @default(true)
+  employeesCount      Int?         @map("employees_count")
+  overallRank         String?      @map("overall_rank")
+  categoryRank        String?      @map("category_rank")
+  currentZohoCategory String?      @map("current_zoho_category")
+  benchmarkCategory   String?      @map("benchmark_category")
+  reportAccess        Json         @default("{}")
+  paymentDetails      Json         @default("{}")
+  fees                Json         @default("{}")
+  metrics             Json         @default("{}")
+  metadata            Json         @default("{}")
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+  organization        Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  project             Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  program             Program      @relation(fields: [programId], references: [id], onDelete: Cascade)
+  users               User[]
+  orders              Order[]
 
   @@unique([organizationId, programId])
   @@index([projectId])

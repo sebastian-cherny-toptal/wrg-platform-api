@@ -1,4 +1,5 @@
 import { BadRequestException } from "@nestjs/common";
+import { employeeSizeRange } from "../programs/program-zoho-category.js";
 
 export type ReportPurchaseMode = "checkout" | "contact";
 export type ReportFulfillment = "instant" | "manual";
@@ -118,8 +119,7 @@ export function effectiveReportCatalog(value: unknown): ReportCatalogProduct[] {
       ...(typeof candidate.description === "string" && candidate.description.trim()
         ? { description: candidate.description }
         : {}),
-      ...(typeof candidate.priceCents === "number" &&
-      Number.isInteger(candidate.priceCents) && candidate.priceCents >= 0
+      ...(typeof candidate.priceCents === "number" && Number.isInteger(candidate.priceCents) && candidate.priceCents >= 0
         ? { priceCents: candidate.priceCents }
         : {}),
       ...(typeof candidate.available === "boolean"
@@ -204,27 +204,66 @@ export function standardPackagePriceCents(
 ): number | null {
   const metadata = jsonObject(programMetadata);
   const metrics = jsonObject(enrollmentMetrics);
-  const category = String(metrics.Current_Year_Category ?? "").trim().toLowerCase();
+  const category = String(
+    metrics.currentZohoCategory ??
+      metrics.Current_Zoho_Category ??
+      metrics.Current_Year_Category ??
+      "",
+  )
+    .trim()
+    .toLowerCase();
   const companySize = numeric(
     metrics.Company_Size ??
       metrics.Program_EE_Count ??
       metrics.Total_Number_of_Program_EEs ??
       metrics.Surveys_Sent,
   );
-  const tier = pricingFieldByTier[category]
-    ? category
-    : companySize === null
-      ? null
-      : tierForCompanySize(companySize);
-  if (!tier) return null;
   const categoryPricing: unknown = metadata.categoryPricing;
   const configuredTiers: unknown[] = Array.isArray(categoryPricing)
-    ? categoryPricing as unknown[]
+    ? (categoryPricing as unknown[])
     : [];
-  const configured = configuredTiers.find((entry) => {
-    const value = jsonObject(entry);
-    return String(value.tier ?? "").trim().toLowerCase() === tier;
-  });
+  const configuredByName = category
+    ? configuredTiers.find((entry) => {
+        const value = jsonObject(entry);
+        return [value.zohoCategoryName, value.tier].some(
+          (candidate) =>
+            String(candidate ?? "")
+              .trim()
+              .toLowerCase() === category,
+        );
+      })
+    : undefined;
+  const configuredBySize = companySize === null
+    ? undefined
+    : configuredTiers.find((entry) => {
+        const range = employeeSizeRange(jsonObject(entry).employeeSize);
+        return (
+          range !== null &&
+          companySize >= range.minimum &&
+          companySize <= range.maximum
+        );
+      });
+  const matchedConfiguration = configuredByName ?? configuredBySize;
+  const tier = matchedConfiguration
+    ? String(jsonObject(matchedConfiguration).tier ?? "")
+        .trim()
+        .toLowerCase()
+    : pricingFieldByTier[category]
+      ? category
+      : companySize === null
+        ? null
+        : tierForCompanySize(companySize);
+  if (!tier) return null;
+  const configured =
+    matchedConfiguration ??
+    configuredTiers.find((entry) => {
+      const value = jsonObject(entry);
+      return (
+        String(value.tier ?? "")
+          .trim()
+          .toLowerCase() === tier
+      );
+    });
   const cents = numeric(jsonObject(configured).priceCents);
   if (cents !== null && Number.isInteger(cents) && cents > 0) return cents;
   const legacyDollars = numeric(metadata[pricingFieldByTier[tier] ?? ""]);

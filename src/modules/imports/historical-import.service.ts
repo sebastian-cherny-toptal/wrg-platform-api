@@ -30,6 +30,11 @@ import {
   parsePublishedReportValues,
 } from "../reports/benefits-best-practices-workbook.js";
 import {
+  normalizeBenchmarkCategory,
+  normalizeZohoCategoryName,
+  programZohoCategoryTiers,
+} from "../programs/program-zoho-category.js";
+import {
   cellScalar,
   forEachXlsxSurveyRow,
   readXlsxSurveyDefinition,
@@ -55,17 +60,11 @@ const standardOpenQuestionCaptions: Record<string, string> = {
 
 export type HistoricalSurveyKind = "EA" | "EFS";
 
-export const categoryPricingTiers = [
-  "Boutique",
-  "Small",
-  "Medium",
-  "Large",
-  "Mega",
-  "Major",
-] as const;
+export const categoryPricingTiers = programZohoCategoryTiers;
 
 export interface HistoricalCategoryPricing {
   tier: (typeof categoryPricingTiers)[number];
+  zohoCategoryName: string;
   employeeSize: string;
   priceCents: number;
 }
@@ -104,7 +103,7 @@ export interface HistoricalImportMetadata {
   zohoWinnerOrganizations?: Array<{
     organizationId: string;
     organizationName?: string;
-    currentYearCategory?: string;
+    currentZohoCategory?: string;
   }>;
   zohoOrganizations?: Array<{
     organizationId: string;
@@ -114,7 +113,7 @@ export interface HistoricalImportMetadata {
     stage?: string;
     companySize?: number;
     employeesCount?: number;
-    currentYearCategory?: string;
+    currentZohoCategory?: string;
     overallRank?: string;
     categoryRank?: string;
   }>;
@@ -129,7 +128,8 @@ export interface HistoricalImportMetadata {
     stage?: string;
     companySize?: number;
     employeesCount?: number;
-    currentYearCategory?: string;
+    currentZohoCategory?: string;
+    benchmarkCategory?: string;
     overallRank?: string;
     categoryRank?: string;
   }>;
@@ -442,14 +442,13 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
           const entry = objectBody(raw);
           const organizationId = requiredString(entry, "organizationId");
           const organizationName = optionalString(entry, "organizationName");
-          const currentYearCategory = optionalString(
-            entry,
-            "currentYearCategory",
-          );
+          const currentZohoCategory =
+            optionalString(entry, "currentZohoCategory") ??
+            optionalString(entry, "currentYearCategory");
           return {
             organizationId,
             ...(organizationName ? { organizationName } : {}),
-            ...(currentYearCategory ? { currentYearCategory } : {}),
+            ...(currentZohoCategory ? { currentZohoCategory } : {}),
           };
         });
   const zohoOrganizations =
@@ -463,10 +462,9 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
           const organizationId = requiredString(entry, "organizationId");
           const organizationName = optionalString(entry, "organizationName");
           const stage = optionalString(entry, "stage");
-          const currentYearCategory = optionalString(
-            entry,
-            "currentYearCategory",
-          );
+          const currentZohoCategory =
+            optionalString(entry, "currentZohoCategory") ??
+            optionalString(entry, "currentYearCategory");
           const overallRank = optionalString(entry, "overallRank");
           const categoryRank = optionalString(entry, "categoryRank");
           const surveysSent = Number(entry.surveysSent);
@@ -509,7 +507,7 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
             ...(stage ? { stage } : {}),
             ...(companySize !== undefined ? { companySize } : {}),
             ...(employeesCount !== undefined ? { employeesCount } : {}),
-            ...(currentYearCategory ? { currentYearCategory } : {}),
+            ...(currentZohoCategory ? { currentZohoCategory } : {}),
             ...(overallRank ? { overallRank } : {}),
             ...(categoryRank ? { categoryRank } : {}),
           };
@@ -539,10 +537,21 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
           );
           const organizationName = optionalString(entry, "organizationName");
           const stage = optionalString(entry, "stage");
-          const currentYearCategory = optionalString(
+          const currentZohoCategory =
+            optionalString(entry, "currentZohoCategory") ??
+            optionalString(entry, "currentYearCategory");
+          const rawBenchmarkCategory = optionalString(
             entry,
-            "currentYearCategory",
+            "benchmarkCategory",
           );
+          const benchmarkCategory = rawBenchmarkCategory
+            ? normalizeBenchmarkCategory(rawBenchmarkCategory)
+            : null;
+          if (rawBenchmarkCategory && !benchmarkCategory) {
+            throw new BadRequestException(
+              `Invalid benchmark category: ${rawBenchmarkCategory}`,
+            );
+          }
           const overallRank = optionalString(entry, "overallRank");
           const categoryRank = optionalString(entry, "categoryRank");
           const isWinner = entry.isWinner === true;
@@ -583,7 +592,8 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
             ...(organizationKey ? { organizationKey } : {}),
             ...(sourceOrganizationId ? { sourceOrganizationId } : {}),
             ...(organizationName ? { organizationName } : {}),
-            ...(currentYearCategory ? { currentYearCategory } : {}),
+            ...(currentZohoCategory ? { currentZohoCategory } : {}),
+            ...(benchmarkCategory ? { benchmarkCategory } : {}),
             ...(overallRank ? { overallRank } : {}),
             ...(categoryRank ? { categoryRank } : {}),
             surveysSent,
@@ -613,6 +623,8 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
               throw new BadRequestException(`Invalid category tier: ${tier}`);
             }
             const employeeSize = requiredString(entry, "employeeSize");
+            const zohoCategoryName =
+              optionalString(entry, "zohoCategoryName") ?? tier;
             const priceCents = Number(entry.priceCents);
             if (!Number.isInteger(priceCents) || priceCents < 0) {
               throw new BadRequestException(
@@ -621,6 +633,7 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
             }
             return {
               tier: tier as (typeof categoryPricingTiers)[number],
+              zohoCategoryName,
               employeeSize,
               priceCents,
             };
@@ -634,6 +647,18 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
   ) {
     throw new BadRequestException(
       "Category pricing must include Boutique, Small, Medium, Large, Mega, and Major once each",
+    );
+  }
+  if (
+    categoryPricing &&
+    new Set(
+      categoryPricing.map(({ zohoCategoryName }) =>
+        normalizeZohoCategoryName(zohoCategoryName),
+      ),
+    ).size !== categoryPricing.length
+  ) {
+    throw new BadRequestException(
+      "Each Zoho category name must be unique within a program",
     );
   }
   return {
@@ -1345,11 +1370,10 @@ export class HistoricalImportService {
       const rawCategory = categoryColumn
         ? row.getCell(categoryColumn).text.trim()
         : "";
+      const benchmarkCategory = normalizeBenchmarkCategory(rawCategory);
       const entry: RankingEntry = {
         isWinner: rawWinner === "yes",
-        ...(rawCategory && rawCategory !== "7"
-          ? { category: rawCategory }
-          : {}),
+        ...(benchmarkCategory ? { category: benchmarkCategory } : {}),
       };
       const organizationId = organizationIdColumn
         ? row.getCell(organizationIdColumn).text.trim()
@@ -1428,9 +1452,9 @@ export class HistoricalImportService {
           ? { categoryRank: existing.categoryRank }
           : {}),
         ...(ranking?.category
-          ? { currentYearCategory: ranking.category }
-          : existing?.currentYearCategory
-            ? { currentYearCategory: existing.currentYearCategory }
+          ? { benchmarkCategory: ranking.category }
+          : existing?.benchmarkCategory
+            ? { benchmarkCategory: existing.benchmarkCategory }
             : {}),
       };
     });
@@ -1731,6 +1755,21 @@ export class HistoricalImportService {
           },
         });
       }
+      await this.prisma.programZohoCategory.deleteMany({
+        where: { programId },
+      });
+      if (draft.categoryPricing?.length) {
+        await this.prisma.programZohoCategory.createMany({
+          data: draft.categoryPricing.map((category, sortOrder) => ({
+            programId,
+            tier: category.tier,
+            zohoCategoryName: category.zohoCategoryName,
+            employeeSize: category.employeeSize,
+            priceCents: category.priceCents,
+            sortOrder,
+          })),
+        });
+      }
       if (eaFile && efsFile) {
         const organizationRows = await this.collectOrganizationRows(
           eaFile,
@@ -1973,19 +2012,34 @@ export class HistoricalImportService {
         )
         .map(({ organizationKey, isWinner }) => [organizationKey, isWinner]),
     );
-    const configuredCategories = new Map(
+    const configuredCurrentZohoCategories = new Map(
       (draft.organizationPrograms ?? [])
         .filter(
           (
             entry,
           ): entry is typeof entry & {
             organizationKey: string;
-            currentYearCategory: string;
-          } => Boolean(entry.organizationKey && entry.currentYearCategory),
+            currentZohoCategory: string;
+          } => Boolean(entry.organizationKey && entry.currentZohoCategory),
         )
-        .map(({ organizationKey, currentYearCategory }) => [
+        .map(({ organizationKey, currentZohoCategory }) => [
           organizationKey,
-          currentYearCategory,
+          currentZohoCategory,
+        ]),
+    );
+    const configuredBenchmarkCategories = new Map(
+      (draft.organizationPrograms ?? [])
+        .filter(
+          (
+            entry,
+          ): entry is typeof entry & {
+            organizationKey: string;
+            benchmarkCategory: string;
+          } => Boolean(entry.organizationKey && entry.benchmarkCategory),
+        )
+        .map(({ organizationKey, benchmarkCategory }) => [
+          organizationKey,
+          benchmarkCategory,
         ]),
     );
     const existingEnrollments = draft.programId
@@ -2010,7 +2064,8 @@ export class HistoricalImportService {
       const employeesCount = configuredEmployeesCounts.get(key);
       const overallRank = configuredOverallRanks.get(key);
       const categoryRank = configuredCategoryRanks.get(key);
-      const currentYearCategory = configuredCategories.get(key);
+      const currentZohoCategory = configuredCurrentZohoCategories.get(key);
+      const benchmarkCategory = configuredBenchmarkCategories.get(key);
       const normalizedName = normalizeOrganizationName(details.displayName);
       const matched = existingEnrollments.find(({ metrics }) => {
         const values = objectBody(metrics);
@@ -2069,6 +2124,8 @@ export class HistoricalImportService {
             employeesCount: employeesCount ?? null,
             overallRank: overallRank ?? null,
             categoryRank: categoryRank ?? null,
+            currentZohoCategory: currentZohoCategory ?? null,
+            benchmarkCategory: benchmarkCategory ?? null,
             metrics: {
               ...metrics,
               Surveys_Sent: surveysSent,
@@ -2080,8 +2137,11 @@ export class HistoricalImportService {
               ...(companySize !== undefined
                 ? { Company_Size: companySize }
                 : {}),
-              ...(currentYearCategory
-                ? { Current_Year_Category: currentYearCategory }
+              ...(currentZohoCategory
+                ? { Current_Year_Category: currentZohoCategory }
+                : {}),
+              ...(benchmarkCategory
+                ? { Benchmark_Category: benchmarkCategory }
                 : {}),
               ...(employeesCount !== undefined
                 ? { Total_Number_of_Program_EEs: employeesCount }
@@ -2111,6 +2171,8 @@ export class HistoricalImportService {
           employeesCount: employeesCount ?? null,
           overallRank: overallRank ?? null,
           categoryRank: categoryRank ?? null,
+          currentZohoCategory: currentZohoCategory ?? null,
+          benchmarkCategory: benchmarkCategory ?? null,
           reportAccess: {
             WFR_Access: "no",
             WBC_Access: "no",
@@ -2125,8 +2187,11 @@ export class HistoricalImportService {
             Source_Organization_ID: details.workbookOrganizationId ?? null,
             Source_Organization_Name: details.displayName,
             ...(companySize !== undefined ? { Company_Size: companySize } : {}),
-            ...(currentYearCategory
-              ? { Current_Year_Category: currentYearCategory }
+            ...(currentZohoCategory
+              ? { Current_Year_Category: currentZohoCategory }
+              : {}),
+            ...(benchmarkCategory
+              ? { Benchmark_Category: benchmarkCategory }
               : {}),
             ...(employeesCount !== undefined
               ? { Total_Number_of_Program_EEs: employeesCount }
@@ -2148,6 +2213,8 @@ export class HistoricalImportService {
           employeesCount: employeesCount ?? null,
           overallRank: overallRank ?? null,
           categoryRank: categoryRank ?? null,
+          currentZohoCategory: currentZohoCategory ?? null,
+          benchmarkCategory: benchmarkCategory ?? null,
           reportAccess: {
             WFR_Access: "no",
             WBC_Access: "no",
@@ -2162,8 +2229,11 @@ export class HistoricalImportService {
             Source_Organization_ID: details.workbookOrganizationId ?? null,
             Source_Organization_Name: details.displayName,
             ...(companySize !== undefined ? { Company_Size: companySize } : {}),
-            ...(currentYearCategory
-              ? { Current_Year_Category: currentYearCategory }
+            ...(currentZohoCategory
+              ? { Current_Year_Category: currentZohoCategory }
+              : {}),
+            ...(benchmarkCategory
+              ? { Benchmark_Category: benchmarkCategory }
               : {}),
             ...(employeesCount !== undefined
               ? { Total_Number_of_Program_EEs: employeesCount }
@@ -2205,6 +2275,8 @@ export class HistoricalImportService {
         employeesCount: true,
         overallRank: true,
         categoryRank: true,
+        currentZohoCategory: true,
+        benchmarkCategory: true,
         metrics: true,
       },
     });
@@ -2218,7 +2290,8 @@ export class HistoricalImportService {
           isIncluded,
           stage,
           companySize,
-          currentYearCategory,
+          currentZohoCategory,
+          benchmarkCategory,
           employeesCount,
           overallRank,
           categoryRank,
@@ -2257,8 +2330,10 @@ export class HistoricalImportService {
             (!stage || enrollment.stage === stage) &&
             (companySize === undefined ||
               metrics.Company_Size === companySize) &&
-            (!currentYearCategory ||
-              metrics.Current_Year_Category === currentYearCategory) &&
+            (!currentZohoCategory ||
+              enrollment.currentZohoCategory === currentZohoCategory) &&
+            (!benchmarkCategory ||
+              enrollment.benchmarkCategory === benchmarkCategory) &&
             (employeesCount === undefined ||
               enrollment.employeesCount === employeesCount) &&
             (!overallRank || enrollment.overallRank === overallRank) &&
@@ -2274,14 +2349,19 @@ export class HistoricalImportService {
               ...(employeesCount !== undefined ? { employeesCount } : {}),
               ...(overallRank ? { overallRank } : {}),
               ...(categoryRank ? { categoryRank } : {}),
+              ...(currentZohoCategory ? { currentZohoCategory } : {}),
+              ...(benchmarkCategory ? { benchmarkCategory } : {}),
               metrics: {
                 ...metrics,
                 Surveys_Sent: surveysSent,
                 ...(companySize !== undefined
                   ? { Company_Size: companySize }
                   : {}),
-                ...(currentYearCategory
-                  ? { Current_Year_Category: currentYearCategory }
+                ...(currentZohoCategory
+                  ? { Current_Year_Category: currentZohoCategory }
+                  : {}),
+                ...(benchmarkCategory
+                  ? { Benchmark_Category: benchmarkCategory }
                   : {}),
                 ...(employeesCount !== undefined
                   ? { Total_Number_of_Program_EEs: employeesCount }

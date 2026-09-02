@@ -81,11 +81,28 @@ describe("historical import service", () => {
           programYear: 2026,
           efsLaunchDate: "2026-01-01",
           efsDeadline: "2026-12-31",
+          categoryPricing: [
+            ["Boutique", "Boutique", "15-24", 45_000],
+            ["Small", "Small", "25-49", 55_000],
+            ["Medium", "Small/Medium", "50-99", 65_000],
+            ["Large", "Large", "100-249", 75_000],
+            ["Mega", "Mega", "250-999", 85_000],
+            ["Major", "Major", "1,000+", 95_000],
+          ].map(([tier, zohoCategoryName, employeeSize, priceCents]) => ({
+            tier,
+            zohoCategoryName,
+            employeeSize,
+            priceCents,
+          })),
         },
       );
 
       assert.equal(result.metadata.zohoProjectId, "zoho-project-1");
       assert.equal(result.metadata.projectId, undefined);
+      assert.equal(
+        result.metadata.categoryPricing?.[2]?.zohoCategoryName,
+        "Small/Medium",
+      );
       assert.equal(
         (storedInput as { zohoProjectId?: string }).zohoProjectId,
         "zoho-project-1",
@@ -271,7 +288,7 @@ describe("historical import service", () => {
           surveysSent: 1,
           isWinner: true,
           isIncluded: true,
-          currentYearCategory: "Medium",
+          benchmarkCategory: "Medium",
         },
       ]);
     } finally {

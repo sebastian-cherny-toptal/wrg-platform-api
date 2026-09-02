@@ -58,6 +58,10 @@ import {
   type ReportWorkbookMetadata,
   type ResponsePatternRanges,
 } from "./report-template-workbooks.js";
+import {
+  benchmarkCategories,
+  normalizeBenchmarkCategory,
+} from "../programs/program-zoho-category.js";
 
 const privacyThreshold = 5;
 const promotionalPreviewAccess = new Set([
@@ -72,22 +76,56 @@ const clientDemoAccess = new Set(["EV_Access", "RD_Access", "KIA_Access"]);
 const dummyResponseDetailSections = [
   {
     Engagement: [
-      { QuestionId: "dummy-detail-1", Caption: "I feel valued for the work I contribute." },
-      { QuestionId: "dummy-detail-2", Caption: "I would recommend this organization as a great place to work." },
+      {
+        QuestionId: "dummy-detail-1",
+        Caption: "I feel valued for the work I contribute.",
+      },
+      {
+        QuestionId: "dummy-detail-2",
+        Caption:
+          "I would recommend this organization as a great place to work.",
+      },
     ],
   },
   {
     Leadership: [
-      { QuestionId: "dummy-detail-3", Caption: "Leaders communicate a clear direction for the organization." },
+      {
+        QuestionId: "dummy-detail-3",
+        Caption: "Leaders communicate a clear direction for the organization.",
+      },
     ],
   },
 ];
 const dummyResponseDetailResult = [
   ["Response", "All employees", "Female", "Male", "Hybrid"],
-  ["Strongly Agree", { percentile: "41%", respondentCount: 74 }, { percentile: "45%", respondentCount: 42 }, { percentile: "36%", respondentCount: 29 }, { percentile: "47%", respondentCount: 31 }],
-  ["Agree", { percentile: "35%", respondentCount: 63 }, { percentile: "33%", respondentCount: 31 }, { percentile: "38%", respondentCount: 31 }, { percentile: "32%", respondentCount: 21 }],
-  ["Neutral", { percentile: "12%", respondentCount: 22 }, { percentile: "11%", respondentCount: 10 }, { percentile: "14%", respondentCount: 11 }, { percentile: "10%", respondentCount: 7 }],
-  ["Question Total", { average: "4.8", respondentCount: 180 }, { average: "4.9", respondentCount: 94 }, { average: "4.6", respondentCount: 81 }, { average: "5.0", respondentCount: 66 }],
+  [
+    "Strongly Agree",
+    { percentile: "41%", respondentCount: 74 },
+    { percentile: "45%", respondentCount: 42 },
+    { percentile: "36%", respondentCount: 29 },
+    { percentile: "47%", respondentCount: 31 },
+  ],
+  [
+    "Agree",
+    { percentile: "35%", respondentCount: 63 },
+    { percentile: "33%", respondentCount: 31 },
+    { percentile: "38%", respondentCount: 31 },
+    { percentile: "32%", respondentCount: 21 },
+  ],
+  [
+    "Neutral",
+    { percentile: "12%", respondentCount: 22 },
+    { percentile: "11%", respondentCount: 10 },
+    { percentile: "14%", respondentCount: 11 },
+    { percentile: "10%", respondentCount: 7 },
+  ],
+  [
+    "Question Total",
+    { average: "4.8", respondentCount: 180 },
+    { average: "4.9", respondentCount: 94 },
+    { average: "4.6", respondentCount: 81 },
+    { average: "5.0", respondentCount: 66 },
+  ],
 ];
 const dummyDemographicOptions = [
   {
@@ -137,8 +175,7 @@ export const defaultKeyImpactContributions = {
   "I am part of a team with a common purpose": 13.36,
   "I believe this organization values me": 10.62,
   "This organization treats me with dignity, not as just a number": 9.82,
-  "This organization is committed to producing high-quality products/services":
-    8.76,
+  "This organization is committed to producing high-quality products/services": 8.76,
   "This organizations benefits package is satisfactory": 8.17,
   "My share of healthcare costs is reasonable": 6.82,
   "I am kept aware of this organizations financial status": 6.16,
@@ -165,16 +202,16 @@ const defaultKeyImpactCategories: Record<
     "Communication and Workplace Culture",
 };
 
-const defaultKeyImpactReport = Object.entries(defaultKeyImpactContributions).map(
-  ([question, percentage]) => ({
-    label:
-      defaultKeyImpactCategories[
-        question as keyof typeof defaultKeyImpactContributions
-      ],
-    key: question,
-    value: percentage / 100,
-  }),
-);
+const defaultKeyImpactReport = Object.entries(
+  defaultKeyImpactContributions,
+).map(([question, percentage]) => ({
+  label:
+    defaultKeyImpactCategories[
+      question as keyof typeof defaultKeyImpactContributions
+    ],
+  key: question,
+  value: percentage / 100,
+}));
 
 function randomInteger(minimum: number, maximum: number): number {
   return Math.floor(Math.random() * (maximum - minimum + 1)) + minimum;
@@ -236,15 +273,7 @@ const categoryOrder = [
   "Culture and Belonging",
   "Survey Questions",
 ];
-const sizeOrder = [
-  "All",
-  "Boutique",
-  "Small",
-  "Medium",
-  "Large",
-  "Mega",
-  "Major",
-];
+const sizeOrder = ["All", ...benchmarkCategories];
 
 class CategoryDto {
   @ApiProperty({ type: String })
@@ -368,6 +397,8 @@ interface ReportContext {
   organizationPrograms: Array<{
     organizationId: string;
     isWinner: boolean;
+    currentZohoCategory: string | null;
+    benchmarkCategory: string | null;
     metrics: Prisma.JsonValue;
     organization: { metadata: Prisma.JsonValue };
   }>;
@@ -1568,8 +1599,7 @@ export class CompatibilityReportsService {
           respondentData,
           dataLen: respondentData.length,
           sortingFilter: undefined as
-            | { questionId: string; label: string }
-            | undefined,
+            { questionId: string; label: string } | undefined,
           queryQuestion: {
             Caption: question.caption,
             Id: question.id,
@@ -1586,8 +1616,8 @@ export class CompatibilityReportsService {
       context.survey.id,
       sortingReference ? { questionId: sortingReference } : undefined,
     );
-    const question = questions.find(
-      (candidate) => this.questionMatchesReference(candidate, questionReference),
+    const question = questions.find((candidate) =>
+      this.questionMatchesReference(candidate, questionReference),
     );
     if (!question) throw new NotFoundException("Question not found");
     const sortingQuestion = sortingReference
@@ -2499,7 +2529,12 @@ export class CompatibilityReportsService {
   async responseDetailSections(principal: Principal, query: ReportQuery) {
     const context = await this.context(principal, query);
     this.requiresDemo(principal, context, "RD_Access");
-    if (query.isDummy) return { success: true, message: "success", data: dummyResponseDetailSections };
+    if (query.isDummy)
+      return {
+        success: true,
+        message: "success",
+        data: dummyResponseDetailSections,
+      };
     const questions = await this.benchmarkQuestions(context.survey.id);
     const respondents = await this.organizationRespondents(context);
     if (respondents.length < privacyThreshold) {
@@ -2532,7 +2567,12 @@ export class CompatibilityReportsService {
   ) {
     const context = await this.context(principal, query);
     this.requiresDemo(principal, context, "RD_Access");
-    if (query.isDummy) return { success: true, message: "success", data: dummyResponseDetailResult };
+    if (query.isDummy)
+      return {
+        success: true,
+        message: "success",
+        data: dummyResponseDetailResult,
+      };
     const allQuestions = await this.prisma.question.findMany({
       where: { surveyId: context.survey.id },
       orderBy: { position: "asc" },
@@ -2626,11 +2666,7 @@ export class CompatibilityReportsService {
           (response) => response.questionId === question.id,
         );
         const caption = answer
-          ? reportResponseCaption(
-              answer.value,
-              question,
-              context.program.year,
-            )
+          ? reportResponseCaption(answer.value, question, context.program.year)
           : null;
         return caption ? [caption] : [];
       });
@@ -2675,12 +2711,10 @@ export class CompatibilityReportsService {
         return {
           text: question.caption,
           disagreement:
-            (responseDistribution[0] ?? 0) +
-            (responseDistribution[1] ?? 0),
+            (responseDistribution[0] ?? 0) + (responseDistribution[1] ?? 0),
           neutral: responseDistribution[2] ?? 0,
           agreement:
-            (responseDistribution[3] ?? 0) +
-            (responseDistribution[4] ?? 0),
+            (responseDistribution[3] ?? 0) + (responseDistribution[4] ?? 0),
           responseCount: respondents.length,
           responseDistribution,
           demographicResponseDistribution,
@@ -3117,10 +3151,7 @@ export class CompatibilityReportsService {
     const mapping = Object.fromEntries(
       storedReport.map((item) => {
         const percentage = item.value <= 1 ? item.value * 100 : item.value;
-        return [
-          item.key,
-          Math.round(percentage * 100) / 100,
-        ];
+        return [item.key, Math.round(percentage * 100) / 100];
       }),
     );
     return {
@@ -3430,24 +3461,27 @@ export class CompatibilityReportsService {
               ? responseCaption(demographicResponse.value)
               : null;
             return answer
-              ? [{
-                  answer: safeSpreadsheetValue(answer),
-                  ...(demographic
-                    ? { demographic: safeSpreadsheetValue(demographic) }
-                    : {}),
-                }]
+              ? [
+                  {
+                    answer: safeSpreadsheetValue(answer),
+                    ...(demographic
+                      ? { demographic: safeSpreadsheetValue(demographic) }
+                      : {}),
+                  },
+                ]
               : [];
           })
-          .sort((left, right) =>
-            (left.demographic ?? "").localeCompare(
-              right.demographic ?? "",
-              "en",
-              { numeric: true, sensitivity: "base" },
-            ) ||
-            left.answer.localeCompare(right.answer, "en", {
-              numeric: true,
-              sensitivity: "base",
-            }),
+          .sort(
+            (left, right) =>
+              (left.demographic ?? "").localeCompare(
+                right.demographic ?? "",
+                "en",
+                { numeric: true, sensitivity: "base" },
+              ) ||
+              left.answer.localeCompare(right.answer, "en", {
+                numeric: true,
+                sensitivity: "base",
+              }),
           ),
       })),
     });
@@ -3529,6 +3563,8 @@ export class CompatibilityReportsService {
         select: {
           organizationId: true,
           isWinner: true,
+          currentZohoCategory: true,
+          benchmarkCategory: true,
           metrics: true,
           organization: { select: { metadata: true } },
         },
@@ -3572,8 +3608,10 @@ export class CompatibilityReportsService {
       principal.roles.includes("admin") ||
       principal.roles.includes("super_admin") ||
       (context.isDummy &&
-        ((principal.roles.includes("promotional") && promotionalPreviewAccess.has(accessKey)) ||
-          (principal.roles.includes("client") && clientDemoAccess.has(accessKey))))
+        ((principal.roles.includes("promotional") &&
+          promotionalPreviewAccess.has(accessKey)) ||
+          (principal.roles.includes("client") &&
+            clientDemoAccess.has(accessKey))))
     )
       return false;
     const access = jsonObject(context.reportAccess);
@@ -3696,32 +3734,21 @@ export class CompatibilityReportsService {
 
   private groups(context: ReportContext): BenchmarkGroup[] {
     const categorized = context.organizationPrograms.flatMap((enrollment) => {
-      const storedCategory =
-        metadataString(
-          enrollment.metrics,
-          "Current_Year_Category",
-          "currentYearCategory",
-          "category",
-        ) ??
-        metadataString(
-          enrollment.organization.metadata,
-          "Current_Year_Category",
-          "currentYearCategory",
-          "category",
-        );
-      const metrics = jsonObject(enrollment.metrics);
-      const companySize = Number(metrics.Company_Size ?? metrics.companySize);
-      const category =
-        storedCategory ??
-        (Number.isFinite(companySize)
-          ? companySize >= 250
-            ? "Large"
-            : companySize >= 50
-              ? "Medium"
-              : companySize >= 15
-                ? "Small"
-                : "Boutique"
-          : null);
+      const category = normalizeBenchmarkCategory(
+        enrollment.benchmarkCategory ??
+          metadataString(
+            enrollment.metrics,
+            "Benchmark_Category",
+            "benchmarkCategory",
+            "Current_Year_Category",
+          ) ??
+          metadataString(
+            enrollment.organization.metadata,
+            "Benchmark_Category",
+            "benchmarkCategory",
+            "Current_Year_Category",
+          ),
+      );
       return [
         {
           organizationId: enrollment.organizationId,

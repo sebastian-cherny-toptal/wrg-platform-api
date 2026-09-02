@@ -58,7 +58,7 @@ interface ProgramOrganization {
   stage: string | null;
   companySize: number | null;
   employeesCount: number | null;
-  currentYearCategory: string | null;
+  currentZohoCategory: string | null;
   overallRank: string | null;
   categoryRank: string | null;
 }
@@ -241,7 +241,7 @@ export class CompatibilityZohoService {
             Number.isInteger(rawEmployeesCount) && rawEmployeesCount >= 0
               ? rawEmployeesCount
               : null,
-          currentYearCategory: text(deal, "Current_Year_Category"),
+          currentZohoCategory: text(deal, "Current_Year_Category"),
           overallRank: text(deal, "Current_Year_Overall_Rank"),
           categoryRank: text(deal, "Current_Year_Category_Rank"),
         });
@@ -287,6 +287,7 @@ export class CompatibilityZohoService {
         return employeeSize && Number.isFinite(amount)
           ? {
               tier,
+              zohoCategoryName: tier,
               employeeSize,
               priceCents: Math.max(0, Math.round(amount * 100)),
             }
@@ -325,10 +326,10 @@ export class CompatibilityZohoService {
           winnerOrganizations: (organizationsByProgram.get(record.id) ?? [])
             .filter(({ isWinner }) => isWinner)
             .map(
-              ({ organizationId, organizationName, currentYearCategory }) => ({
+              ({ organizationId, organizationName, currentZohoCategory }) => ({
                 organizationId,
                 organizationName,
-                currentYearCategory,
+                currentZohoCategory,
               }),
             ),
           ...(pricing ? { categoryPricing: pricing } : {}),

@@ -10,12 +10,19 @@ import {
 
 describe("report catalog configuration", () => {
   it("accepts the supported storefront products", () => {
-    assert.deepEqual(parseReportCatalog(reportProductTemplates), reportProductTemplates);
+    assert.deepEqual(
+      parseReportCatalog(reportProductTemplates),
+      reportProductTemplates,
+    );
   });
 
   it("rejects unknown products and invalid prices", () => {
-    assert.throws(() => parseReportCatalog([{ ...reportProductTemplates[0], id: "unknown" }]));
-    assert.throws(() => parseReportCatalog([{ ...reportProductTemplates[0], priceCents: -1 }]));
+    assert.throws(() =>
+      parseReportCatalog([{ ...reportProductTemplates[0], id: "unknown" }]),
+    );
+    assert.throws(() =>
+      parseReportCatalog([{ ...reportProductTemplates[0], priceCents: -1 }]),
+    );
   });
 
   it("ignores malformed legacy prices", () => {
@@ -51,6 +58,47 @@ describe("report catalog configuration", () => {
         standardPackagePriceCents({ categoryPricing }, { Company_Size }),
       ),
       expected,
+    );
+  });
+
+  it("resolves a standard-package price from a program-specific Zoho category name", () => {
+    const categoryPricing = [
+      {
+        tier: "Small",
+        zohoCategoryName: "Small/Medium",
+        employeeSize: "25-99",
+        priceCents: 111_000,
+      },
+    ];
+
+    assert.equal(
+      standardPackagePriceCents(
+        { categoryPricing },
+        { currentZohoCategory: " small/medium " },
+      ),
+      111_000,
+    );
+  });
+
+  it("uses program-specific employee ranges when the Zoho category is absent", () => {
+    const categoryPricing = [
+      {
+        tier: "Small",
+        zohoCategoryName: "Small",
+        employeeSize: "25-49",
+        priceCents: 55_000,
+      },
+      {
+        tier: "Medium",
+        zohoCategoryName: "Small/Medium",
+        employeeSize: "50-99",
+        priceCents: 65_000,
+      },
+    ];
+
+    assert.equal(
+      standardPackagePriceCents({ categoryPricing }, { Company_Size: 70 }),
+      65_000,
     );
   });
 

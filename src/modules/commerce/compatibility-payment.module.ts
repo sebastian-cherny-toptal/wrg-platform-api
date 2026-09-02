@@ -267,7 +267,18 @@ export class CompatibilityPaymentService {
       }
       const configured =
         productId === STANDARD_PACKAGE_ID
-          ? standardPackagePriceCents(metadata, context.enrollment.metrics)
+          ? standardPackagePriceCents(
+              {
+                ...metadata,
+                ...(context.program.zohoCategories.length
+                  ? { categoryPricing: context.program.zohoCategories }
+                  : {}),
+              },
+              {
+                ...jsonObject(context.enrollment.metrics),
+                currentZohoCategory: context.enrollment.currentZohoCategory,
+              },
+            )
           : (organizationFees[productId] ??
             programFees[productId] ??
             product.priceCents);
@@ -692,6 +703,17 @@ export class CompatibilityPaymentService {
     }
     const program = await this.prisma.program.findFirst({
       where: referenceWhere(programReference),
+      include: {
+        zohoCategories: {
+          orderBy: { sortOrder: "asc" },
+          select: {
+            tier: true,
+            zohoCategoryName: true,
+            employeeSize: true,
+            priceCents: true,
+          },
+        },
+      },
     });
     if (!program) throw new NotFoundException("Program not found");
     const enrollment = await this.prisma.organizationProgram.findUnique({

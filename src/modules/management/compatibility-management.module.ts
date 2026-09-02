@@ -29,6 +29,7 @@ import {
   RESPONSE_DETAIL_ID,
   SORTED_VERBATIMS_ID,
 } from "../reports/report-catalog.js";
+import { normalizeBenchmarkCategory } from "../programs/program-zoho-category.js";
 
 const organizationsConnectionHeaders = [
   "Alias Name",
@@ -91,7 +92,9 @@ function numeric(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function categoryRange(value: string): { minimum: number; maximum: number } | null {
+function categoryRange(
+  value: string,
+): { minimum: number; maximum: number } | null {
   const normalized = value.replaceAll(",", "").trim();
   const range = /^(\d+)\s*-\s*(\d+)$/u.exec(normalized);
   if (range) {
@@ -103,7 +106,10 @@ function categoryRange(value: string): { minimum: number; maximum: number } | nu
     : null;
 }
 
-function reportCategory(programMetadata: Prisma.JsonValue, metricsValue: Prisma.JsonValue): string {
+function reportCategory(
+  programMetadata: Prisma.JsonValue,
+  metricsValue: Prisma.JsonValue,
+): string {
   const metadata = jsonObject(programMetadata);
   const metrics = jsonObject(metricsValue);
   const size = numeric(
@@ -141,7 +147,9 @@ function itemProductId(item: Prisma.JsonObject): string {
 }
 
 function paidPaymentType(value: unknown): string {
-  const normalized = String(value ?? "").trim().toLowerCase();
+  const normalized = String(value ?? "")
+    .trim()
+    .toLowerCase();
   if (normalized === "paid via check" || normalized === "check") {
     return "Paid via Check";
   }
@@ -165,7 +173,9 @@ function productPaymentType(
   legacyField: string,
 ): string {
   const order = orders.find((candidate) =>
-    orderItems(candidate.items).some((item) => itemProductId(item) === productId),
+    orderItems(candidate.items).some(
+      (item) => itemProductId(item) === productId,
+    ),
   );
   return (
     paidPaymentType(order?.paymentMethod) ||
@@ -182,7 +192,9 @@ function sortedEmployeeVerbatimsFilter(
       (candidate) => itemProductId(candidate) === SORTED_VERBATIMS_ID,
     );
     if (!item) continue;
-    const filter = String(jsonObject(item.keys ?? {}).EV_Sorting_Filter ?? "").trim();
+    const filter = String(
+      jsonObject(item.keys ?? {}).EV_Sorting_Filter ?? "",
+    ).trim();
     if (filter) return filter;
   }
   return String(jsonObject(metricsValue).SEV_Filter ?? "").trim();
@@ -251,6 +263,7 @@ export class CompatibilityManagementService {
       include: {
         programs: {
           include: {
+            zohoCategories: { orderBy: { sortOrder: "asc" } },
             _count: {
               select: { organizations: { where: { isIncluded: true } } },
             },
@@ -308,6 +321,7 @@ export class CompatibilityManagementService {
       orderBy: [{ year: "desc" }, { createdAt: "desc" }],
       include: {
         project: true,
+        zohoCategories: { orderBy: { sortOrder: "asc" } },
         organizations: {
           where: { isIncluded: true },
           include: { organization: true },
@@ -351,6 +365,7 @@ export class CompatibilityManagementService {
       },
       include: {
         project: true,
+        zohoCategories: { orderBy: { sortOrder: "asc" } },
         organizations: { where: { isIncluded: true } },
         surveys: {
           include: {
@@ -364,12 +379,14 @@ export class CompatibilityManagementService {
     let nonWinnersCount = 0;
     const categoryCounts: Record<string, number> = {};
     for (const enrollment of program.organizations) {
-      const metrics = jsonObject(enrollment.metrics);
       const winner = enrollment.isWinner ? "Yes" : "No";
-      const category = metadataString(
-        metrics,
-        "Current_Year_Category",
-        "category",
+      const category = normalizeBenchmarkCategory(
+        enrollment.benchmarkCategory ??
+          metadataString(
+            enrollment.metrics,
+            "Benchmark_Category",
+            "Current_Year_Category",
+          ),
       );
       if (enrollment.isWinner) winnersCount += 1;
       else nonWinnersCount += 1;
@@ -442,6 +459,10 @@ export class CompatibilityManagementService {
             stage: true,
             isWinner: true,
             isIncluded: true,
+            currentZohoCategory: true,
+            benchmarkCategory: true,
+            categoryRank: true,
+            overallRank: true,
             metrics: true,
             paymentDetails: true,
             organization: {
@@ -486,7 +507,9 @@ export class CompatibilityManagementService {
         ),
         enrollment.stage ?? "",
         numeric(metrics.Surveys_Sent) ?? "",
-        reportCategory(program.metadata, enrollment.metrics),
+        enrollment.currentZohoCategory ??
+          metadataString(enrollment.metrics, "Current_Year_Category") ??
+          reportCategory(program.metadata, enrollment.metrics),
         "Given by default",
         sortedPayment,
         sortedPayment
@@ -509,9 +532,11 @@ export class CompatibilityManagementService {
           : enrollment.isWinner
             ? "Winner"
             : "Non-Winner",
-        String(metrics.Current_Year_Category ?? ""),
-        "",
-        "",
+        enrollment.benchmarkCategory ??
+          metadataString(enrollment.metrics, "Benchmark_Category") ??
+          "",
+        enrollment.categoryRank ?? "",
+        enrollment.overallRank ?? "",
       ]);
     }
     worksheet.views = [{ state: "frozen", ySplit: 1 }];
@@ -644,9 +669,27 @@ export class CompatibilityManagementService {
     startsAt: Date | null;
     endsAt: Date | null;
     createdAt: Date;
+    zohoCategories?: Array<{
+      tier: string;
+      zohoCategoryName: string;
+      employeeSize: string;
+      priceCents: number;
+    }>;
   }) {
+    const metadata = jsonObject(program.metadata);
+    const categoryPricing = program.zohoCategories?.length
+      ? program.zohoCategories.map(
+          ({ tier, zohoCategoryName, employeeSize, priceCents }) => ({
+            tier,
+            zohoCategoryName,
+            employeeSize,
+            priceCents,
+          }),
+        )
+      : metadata.categoryPricing;
     return {
-      ...jsonObject(program.metadata),
+      ...metadata,
+      ...(Array.isArray(categoryPricing) ? { categoryPricing } : {}),
       _id: program.legacyId ?? program.id,
       id: program.externalId ?? program.id,
       databaseId: program.id,

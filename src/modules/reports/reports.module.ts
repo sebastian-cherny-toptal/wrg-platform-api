@@ -109,7 +109,22 @@ class ReportCatalogController {
       where: { userId: principal.sub, ...(programId ? { programId } : {}) },
       orderBy: { program: { year: "desc" } },
       select: {
-        program: { select: { id: true, metadata: true, fees: true } },
+        program: {
+          select: {
+            id: true,
+            metadata: true,
+            fees: true,
+            zohoCategories: {
+              orderBy: { sortOrder: "asc" },
+              select: {
+                tier: true,
+                zohoCategoryName: true,
+                employeeSize: true,
+                priceCents: true,
+              },
+            },
+          },
+        },
       },
     });
     const products = await Promise.all(programs.map(async ({ program }) => {
@@ -133,6 +148,7 @@ class ReportCatalogController {
               fees: true,
               metadata: true,
               metrics: true,
+              currentZohoCategory: true,
               reportAccess: true,
               stage: true,
             },
@@ -149,8 +165,16 @@ class ReportCatalogController {
         enrollment?.stage,
       );
       const standardPrice = standardPackagePriceCents(
-        metadata,
-        enrollment?.metrics,
+        {
+          ...metadata,
+          ...(program.zohoCategories.length
+            ? { categoryPricing: program.zohoCategories }
+            : {}),
+        },
+        {
+          ...jsonObject(enrollment?.metrics),
+          currentZohoCategory: enrollment?.currentZohoCategory,
+        },
       );
       const availableProducts: Array<Record<string, unknown>> = [];
       for (const entry of catalog) {
