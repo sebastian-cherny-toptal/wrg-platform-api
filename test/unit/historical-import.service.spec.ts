@@ -270,6 +270,7 @@ describe("historical import service", () => {
           organizationName: "Acme Corp",
           surveysSent: 1,
           isWinner: true,
+          isIncluded: true,
           currentYearCategory: "Medium",
         },
       ]);

@@ -120,6 +120,7 @@ export interface HistoricalImportMetadata {
     organizationName?: string;
     surveysSent: number;
     isWinner: boolean;
+    isIncluded: boolean;
     currentYearCategory?: string;
   }>;
   reportCatalog?: ReportCatalogProduct[];
@@ -498,6 +499,7 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
             "currentYearCategory",
           );
           const isWinner = entry.isWinner === true;
+          const isIncluded = entry.isIncluded !== false;
           if (!organizationProgramId && !organizationKey) {
             throw new BadRequestException(
               "Each Surveys Sent value must identify an organization",
@@ -511,6 +513,7 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
             ...(currentYearCategory ? { currentYearCategory } : {}),
             surveysSent,
             isWinner,
+            isIncluded,
           };
         });
   const reportCatalog =
@@ -1334,6 +1337,7 @@ export class HistoricalImportService {
         organizationName: details.displayName,
         surveysSent: existing?.surveysSent ?? details.efsRespondents,
         isWinner: ranking?.isWinner ?? existing?.isWinner ?? false,
+        isIncluded: existing?.isIncluded !== false,
         ...(ranking?.category
           ? { currentYearCategory: ranking.category }
           : existing?.currentYearCategory
@@ -1821,6 +1825,13 @@ export class HistoricalImportService {
   ): Promise<Map<string, string>> {
     const importPrefix = importPrefixFor(draft.importId);
     const organizationIds = new Map<string, string>();
+    const excludedOrganizationKeys = new Set(
+      (draft.organizationPrograms ?? []).flatMap((entry) =>
+        !entry.isIncluded && entry.organizationKey
+          ? [entry.organizationKey]
+          : [],
+      ),
+    );
     const configuredSent = new Map(
       (draft.organizationPrograms ?? [])
         .filter((entry): entry is typeof entry & { organizationKey: string } =>
@@ -1866,6 +1877,7 @@ export class HistoricalImportService {
       },
     });
     for (const [key, details] of organizationRows) {
+      if (excludedOrganizationKeys.has(key)) continue;
       const surveysSent = configuredSent.get(key) ?? details.efsRespondents;
       const isWinner = configuredWinners.get(key) ?? false;
       const currentYearCategory = configuredCategories.get(key);
@@ -2022,7 +2034,12 @@ export class HistoricalImportService {
           in: changes.map(({ organizationProgramId }) => organizationProgramId),
         },
       },
-      select: { id: true, isWinner: true, metrics: true },
+      select: {
+        id: true,
+        organizationId: true,
+        isWinner: true,
+        metrics: true,
+      },
     });
     const byId = new Map(current.map((entry) => [entry.id, entry]));
     await Promise.all(
@@ -2031,6 +2048,7 @@ export class HistoricalImportService {
           organizationProgramId,
           surveysSent,
           isWinner,
+          isIncluded,
           currentYearCategory,
         }) => {
           const enrollment = byId.get(organizationProgramId);
@@ -2038,6 +2056,26 @@ export class HistoricalImportService {
             throw new BadRequestException(
               "An organization program no longer exists",
             );
+          if (!isIncluded) {
+            await prisma.user.updateMany({
+              where: { organizationProgramId },
+              data: { organizationProgramId: null },
+            });
+            await prisma.order.updateMany({
+              where: { organizationProgramId },
+              data: { organizationProgramId: null },
+            });
+            await prisma.respondent.deleteMany({
+              where: {
+                organizationId: enrollment.organizationId,
+                survey: { programId },
+              },
+            });
+            await prisma.organizationProgram.delete({
+              where: { id: organizationProgramId },
+            });
+            return;
+          }
           const metrics = objectBody(enrollment.metrics);
           if (
             Number(metrics.Surveys_Sent ?? 0) === surveysSent &&
@@ -2073,6 +2111,13 @@ export class HistoricalImportService {
     organizationIds: Map<string, string>,
   ): Promise<void> {
     const importPrefix = importPrefixFor(draft.importId);
+    const excludedOrganizationKeys = new Set(
+      (draft.organizationPrograms ?? []).flatMap((entry) =>
+        !entry.isIncluded && entry.organizationKey
+          ? [entry.organizationKey]
+          : [],
+      ),
+    );
     const surveyId = deterministicUuid(`${importPrefix}:survey:${kind}`);
     const definition = await readXlsxSurveyDefinition({
       fileName: workbook.fileName,
@@ -2195,8 +2240,10 @@ export class HistoricalImportService {
     await forEachXlsxSurveyRow(definition, {}, async (row) => {
       const displayName = row.organizationName?.trim();
       if (!displayName) return;
-      const organizationId = organizationIds.get(organizationKey(row));
+      const key = organizationKey(row);
+      const organizationId = organizationIds.get(key);
       if (!organizationId) {
+        if (excludedOrganizationKeys.has(key)) return;
         throw new BadRequestException(
           `${workbook.fileName}: organization could not be reconciled`,
         );
