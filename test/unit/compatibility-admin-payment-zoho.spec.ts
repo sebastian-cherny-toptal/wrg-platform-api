@@ -555,7 +555,7 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
     const requested: Array<{
       module: string;
       criteria: string;
-      fields: string[];
+      fields: string[] | undefined;
     }> = [];
     const service = new CompatibilityZohoService(
       {} as SyncQueue,
@@ -563,7 +563,7 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
         searchAllRecords: (
           module: string,
           criteria: string,
-          fields: string[],
+          fields?: string[],
         ) => {
           requested.push({ module, criteria, fields });
           return Promise.resolve([
@@ -576,6 +576,7 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
               Current_Year_Winner: "Yes",
               Current_Year_Category: "Large",
               Surveys_Sent: 125,
+              Unmapped_Custom_Field: "preserved",
             },
           ]);
         },
@@ -597,20 +598,28 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
     assert.ok(request);
     // searchAllRecords appends /search to the module path.
     assert.equal(request.module, "Deals");
-    assert.equal(
-      request.criteria,
-      "(Program:equals:zoho-program-1)",
-    );
-    assert.ok(request.fields.includes("Surveys_Sent"));
+    assert.equal(request.criteria, "(Program:equals:zoho-program-1)");
+    assert.equal(request.fields, undefined);
     assert.deepEqual(organizations, [
       {
+        id: "zoho-deal-1",
+        Program: { id: "zoho-program-1", name: "Baton Rouge 2026" },
+        Deal_Organization_ID: 460737994,
+        Deal_Name: "Acme-460737994-Best Places to Work in Baton Rouge 2026",
+        Current_Year_Winner: "Yes",
+        Current_Year_Category: "Large",
+        Surveys_Sent: 125,
+        Unmapped_Custom_Field: "preserved",
         organizationId: "460737994",
         organizationName: "Acme",
-          isWinner: true,
-          surveysSent: 125,
-          stage: null,
-          companySize: null,
-          currentYearCategory: "Large",
+        isWinner: true,
+        surveysSent: 125,
+        stage: null,
+        companySize: null,
+        employeesCount: null,
+        currentYearCategory: "Large",
+        overallRank: null,
+        categoryRank: null,
       },
     ]);
   });

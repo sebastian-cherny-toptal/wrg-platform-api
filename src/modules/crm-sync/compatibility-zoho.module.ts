@@ -49,29 +49,18 @@ const programFields = [
   "Category_1000_Fee",
 ];
 
-const dealFields = [
-  "id",
-  "Deal_Name",
-  "Current_Year_Winner",
-  "Program",
-  "Account_Name",
-  "Deal_Organization_ID",
-  "Current_Year_Category",
-  "Surveys_Sent",
-  "Stage",
-  "Company_Size",
-  "Program_EE_Count",
-  "Total_Number_of_Program_EEs",
-];
-
 interface ProgramOrganization {
+  [key: string]: unknown;
   organizationId: string;
   organizationName: string | null;
   isWinner: boolean;
   surveysSent: number;
   stage: string | null;
   companySize: number | null;
+  employeesCount: number | null;
   currentYearCategory: string | null;
+  overallRank: string | null;
+  categoryRank: string | null;
 }
 
 @Injectable()
@@ -79,7 +68,7 @@ export class CompatibilityZohoService {
   constructor(
     @Inject(SyncQueue) private readonly syncQueue: SyncQueue,
     @Inject(ZohoAdapter) private readonly zoho: ZohoAdapter,
-  ) { }
+  ) {}
 
   private assertAccess(principal: Principal): void {
     if (
@@ -113,7 +102,18 @@ export class CompatibilityZohoService {
 
   async listProjects(principal: Principal) {
     this.assertAccess(principal);
-    const records = await this.zoho.listAllRecords("Main_Projects", ["id", "Name", "Project_Abbreviation", "Created_Time", "Modified_Time", "Created_By", "Modified_By", "Owner", "Record_Status__s", "Currency"]);
+    const records = await this.zoho.listAllRecords("Main_Projects", [
+      "id",
+      "Name",
+      "Project_Abbreviation",
+      "Created_Time",
+      "Modified_Time",
+      "Created_By",
+      "Modified_By",
+      "Owner",
+      "Record_Status__s",
+      "Currency",
+    ]);
     return records.map((record) => ({
       id: record.id,
       name: record.Name,
@@ -167,7 +167,6 @@ export class CompatibilityZohoService {
     const deals = await this.zoho.searchAllRecords(
       "Deals",
       `(Program:equals:${normalizedProgramId})`,
-      dealFields,
     );
     return this.organizationsByProgram(deals).get(normalizedProgramId) ?? [];
   }
@@ -212,18 +211,17 @@ export class CompatibilityZohoService {
           ? dealOrganizationName
           : (account?.name ?? null);
       const rawSurveysSent = Number(deal.Surveys_Sent);
-      const rawCompanySize = Number(
-        deal.Company_Size ??
-          deal.Program_EE_Count ??
-          deal.Total_Number_of_Program_EEs,
-      );
+      const rawCompanySize = Number(deal.Company_Size ?? deal.Program_EE_Count);
+      const rawEmployeesCount = Number(deal.Total_Number_of_Program_EEs);
       const organizations = organizationsByProgram.get(program.id) ?? [];
-      if (!organizations.some((entry) => entry.organizationId === organizationId)) {
+      if (
+        !organizations.some((entry) => entry.organizationId === organizationId)
+      ) {
         organizations.push({
+          ...deal,
           organizationId,
           organizationName,
-          isWinner:
-            text(deal, "Current_Year_Winner")?.toLowerCase() === "yes",
+          isWinner: text(deal, "Current_Year_Winner")?.toLowerCase() === "yes",
           surveysSent:
             Number.isInteger(rawSurveysSent) && rawSurveysSent >= 0
               ? rawSurveysSent
@@ -233,7 +231,13 @@ export class CompatibilityZohoService {
             Number.isInteger(rawCompanySize) && rawCompanySize >= 0
               ? rawCompanySize
               : null,
+          employeesCount:
+            Number.isInteger(rawEmployeesCount) && rawEmployeesCount >= 0
+              ? rawEmployeesCount
+              : null,
           currentYearCategory: text(deal, "Current_Year_Category"),
+          overallRank: text(deal, "Current_Year_Overall_Rank"),
+          categoryRank: text(deal, "Current_Year_Category_Rank"),
         });
       }
       organizationsByProgram.set(program.id, organizations);
@@ -276,10 +280,10 @@ export class CompatibilityZohoService {
         );
         return employeeSize && Number.isFinite(amount)
           ? {
-            tier,
-            employeeSize,
-            priceCents: Math.max(0, Math.round(amount * 100)),
-          }
+              tier,
+              employeeSize,
+              priceCents: Math.max(0, Math.round(amount * 100)),
+            }
           : null;
       });
       const completed = pricing.filter(
@@ -314,11 +318,13 @@ export class CompatibilityZohoService {
           organizations: organizationsByProgram.get(record.id) ?? [],
           winnerOrganizations: (organizationsByProgram.get(record.id) ?? [])
             .filter(({ isWinner }) => isWinner)
-            .map(({ organizationId, organizationName, currentYearCategory }) => ({
-              organizationId,
-              organizationName,
-              currentYearCategory,
-            })),
+            .map(
+              ({ organizationId, organizationName, currentYearCategory }) => ({
+                organizationId,
+                organizationName,
+                currentYearCategory,
+              }),
+            ),
           ...(pricing ? { categoryPricing: pricing } : {}),
         };
       })
@@ -338,7 +344,7 @@ export class CompatibilityZohoController {
   constructor(
     @Inject(CompatibilityZohoService)
     private readonly zoho: CompatibilityZohoService,
-  ) { }
+  ) {}
 
   @Get("projects")
   async listProjects(@CurrentUser() principal: Principal) {
@@ -427,4 +433,4 @@ export class CompatibilityZohoController {
   providers: [CompatibilityZohoService],
   controllers: [CompatibilityZohoController],
 })
-export class CompatibilityZohoModule { }
+export class CompatibilityZohoModule {}

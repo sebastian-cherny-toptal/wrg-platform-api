@@ -226,7 +226,7 @@ def find_winner_program_example(
     fields = (
         "Deal_Name,Deal_Organization_ID,Account_Name,Program,Stage,"
         "Current_Year_Winner,Current_Year_Category,Current_Year_Overall_Rank,"
-        "Current_Year_Category_Rank,Surveys_Sent"
+        "Current_Year_Category_Rank,Surveys_Sent,Total_Number_of_Program_EEs"
     )
     _, winner_payload = crm_get(
         api_domain,
@@ -291,6 +291,7 @@ def find_winner_program_example(
             "category_rank": record.get("Current_Year_Category_Rank"),
             "surveys_sent": record.get("Surveys_Sent"),
             "stage": record.get("Stage"),
+            "employees_count": record.get("Total_Number_of_Program_EEs"),
         }
         for record in records
         if record.get("Current_Year_Winner") in {"Yes", "No"}

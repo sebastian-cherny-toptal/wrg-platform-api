@@ -113,7 +113,10 @@ export interface HistoricalImportMetadata {
     surveysSent: number;
     stage?: string;
     companySize?: number;
+    employeesCount?: number;
     currentYearCategory?: string;
+    overallRank?: string;
+    categoryRank?: string;
   }>;
   organizationPrograms?: Array<{
     organizationProgramId?: string;
@@ -125,7 +128,10 @@ export interface HistoricalImportMetadata {
     isIncluded: boolean;
     stage?: string;
     companySize?: number;
+    employeesCount?: number;
     currentYearCategory?: string;
+    overallRank?: string;
+    categoryRank?: string;
   }>;
   reportCatalog?: ReportCatalogProduct[];
   categoryPricing?: HistoricalCategoryPricing[];
@@ -461,12 +467,19 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
             entry,
             "currentYearCategory",
           );
+          const overallRank = optionalString(entry, "overallRank");
+          const categoryRank = optionalString(entry, "categoryRank");
           const surveysSent = Number(entry.surveysSent);
           const rawCompanySize = entry.companySize;
           const companySize =
             rawCompanySize === undefined || rawCompanySize === null
               ? undefined
               : Number(rawCompanySize);
+          const rawEmployeesCount = entry.employeesCount;
+          const employeesCount =
+            rawEmployeesCount === undefined || rawEmployeesCount === null
+              ? undefined
+              : Number(rawEmployeesCount);
           if (!Number.isInteger(surveysSent) || surveysSent < 0) {
             throw new BadRequestException(
               "Zoho Surveys Sent must be a non-negative integer",
@@ -480,6 +493,14 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
               "Zoho company size must be a non-negative integer",
             );
           }
+          if (
+            employeesCount !== undefined &&
+            (!Number.isInteger(employeesCount) || employeesCount < 0)
+          ) {
+            throw new BadRequestException(
+              "Employee count must be a non-negative integer",
+            );
+          }
           return {
             organizationId,
             ...(organizationName ? { organizationName } : {}),
@@ -487,7 +508,10 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
             surveysSent,
             ...(stage ? { stage } : {}),
             ...(companySize !== undefined ? { companySize } : {}),
+            ...(employeesCount !== undefined ? { employeesCount } : {}),
             ...(currentYearCategory ? { currentYearCategory } : {}),
+            ...(overallRank ? { overallRank } : {}),
+            ...(categoryRank ? { categoryRank } : {}),
           };
         });
   const organizationPrograms =
@@ -519,6 +543,8 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
             entry,
             "currentYearCategory",
           );
+          const overallRank = optionalString(entry, "overallRank");
+          const categoryRank = optionalString(entry, "categoryRank");
           const isWinner = entry.isWinner === true;
           const isIncluded = entry.isIncluded !== false;
           const rawCompanySize = entry.companySize;
@@ -526,12 +552,25 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
             rawCompanySize === undefined || rawCompanySize === null
               ? undefined
               : Number(rawCompanySize);
+          const rawEmployeesCount = entry.employeesCount;
+          const employeesCount =
+            rawEmployeesCount === undefined || rawEmployeesCount === null
+              ? undefined
+              : Number(rawEmployeesCount);
           if (
             companySize !== undefined &&
             (!Number.isInteger(companySize) || companySize < 0)
           ) {
             throw new BadRequestException(
               "Company size must be a non-negative integer",
+            );
+          }
+          if (
+            employeesCount !== undefined &&
+            (!Number.isInteger(employeesCount) || employeesCount < 0)
+          ) {
+            throw new BadRequestException(
+              "Employee count must be a non-negative integer",
             );
           }
           if (!organizationProgramId && !organizationKey) {
@@ -545,11 +584,14 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
             ...(sourceOrganizationId ? { sourceOrganizationId } : {}),
             ...(organizationName ? { organizationName } : {}),
             ...(currentYearCategory ? { currentYearCategory } : {}),
+            ...(overallRank ? { overallRank } : {}),
+            ...(categoryRank ? { categoryRank } : {}),
             surveysSent,
             isWinner,
             isIncluded,
             ...(stage ? { stage } : {}),
             ...(companySize !== undefined ? { companySize } : {}),
+            ...(employeesCount !== undefined ? { employeesCount } : {}),
           };
         });
   const reportCatalog =
@@ -1378,6 +1420,13 @@ export class HistoricalImportService {
         ...(existing?.companySize !== undefined
           ? { companySize: existing.companySize }
           : {}),
+        ...(existing?.employeesCount !== undefined
+          ? { employeesCount: existing.employeesCount }
+          : {}),
+        ...(existing?.overallRank ? { overallRank: existing.overallRank } : {}),
+        ...(existing?.categoryRank
+          ? { categoryRank: existing.categoryRank }
+          : {}),
         ...(ranking?.category
           ? { currentYearCategory: ranking.category }
           : existing?.currentYearCategory
@@ -1886,6 +1935,27 @@ export class HistoricalImportService {
           : [],
       ),
     );
+    const configuredEmployeesCounts = new Map(
+      (draft.organizationPrograms ?? []).flatMap((entry) =>
+        entry.organizationKey && entry.employeesCount !== undefined
+          ? ([[entry.organizationKey, entry.employeesCount]] as const)
+          : [],
+      ),
+    );
+    const configuredOverallRanks = new Map(
+      (draft.organizationPrograms ?? []).flatMap((entry) =>
+        entry.organizationKey && entry.overallRank
+          ? ([[entry.organizationKey, entry.overallRank]] as const)
+          : [],
+      ),
+    );
+    const configuredCategoryRanks = new Map(
+      (draft.organizationPrograms ?? []).flatMap((entry) =>
+        entry.organizationKey && entry.categoryRank
+          ? ([[entry.organizationKey, entry.categoryRank]] as const)
+          : [],
+      ),
+    );
     const configuredSent = new Map(
       (draft.organizationPrograms ?? [])
         .filter((entry): entry is typeof entry & { organizationKey: string } =>
@@ -1935,7 +2005,11 @@ export class HistoricalImportService {
       const isWinner = configuredWinners.get(key) ?? false;
       const isIncluded = configuredIncluded.get(key) ?? true;
       const stage = configuredStages.get(key) ?? "Closed";
-      const companySize = configuredCompanySizes.get(key) ?? details.companySize;
+      const companySize =
+        configuredCompanySizes.get(key) ?? details.companySize;
+      const employeesCount = configuredEmployeesCounts.get(key);
+      const overallRank = configuredOverallRanks.get(key);
+      const categoryRank = configuredCategoryRanks.get(key);
       const currentYearCategory = configuredCategories.get(key);
       const normalizedName = normalizeOrganizationName(details.displayName);
       const matched = existingEnrollments.find(({ metrics }) => {
@@ -1992,6 +2066,9 @@ export class HistoricalImportService {
             isIncluded,
             isWinner,
             stage,
+            employeesCount: employeesCount ?? null,
+            overallRank: overallRank ?? null,
+            categoryRank: categoryRank ?? null,
             metrics: {
               ...metrics,
               Surveys_Sent: surveysSent,
@@ -2005,6 +2082,15 @@ export class HistoricalImportService {
                 : {}),
               ...(currentYearCategory
                 ? { Current_Year_Category: currentYearCategory }
+                : {}),
+              ...(employeesCount !== undefined
+                ? { Total_Number_of_Program_EEs: employeesCount }
+                : {}),
+              ...(overallRank
+                ? { Current_Year_Overall_Rank: overallRank }
+                : {}),
+              ...(categoryRank
+                ? { Current_Year_Category_Rank: categoryRank }
                 : {}),
             },
           },
@@ -2022,6 +2108,9 @@ export class HistoricalImportService {
           stage,
           isIncluded,
           isWinner,
+          employeesCount: employeesCount ?? null,
+          overallRank: overallRank ?? null,
+          categoryRank: categoryRank ?? null,
           reportAccess: {
             WFR_Access: "no",
             WBC_Access: "no",
@@ -2035,11 +2124,16 @@ export class HistoricalImportService {
             Surveys_Sent: surveysSent,
             Source_Organization_ID: details.workbookOrganizationId ?? null,
             Source_Organization_Name: details.displayName,
-            ...(companySize !== undefined
-              ? { Company_Size: companySize }
-              : {}),
+            ...(companySize !== undefined ? { Company_Size: companySize } : {}),
             ...(currentYearCategory
               ? { Current_Year_Category: currentYearCategory }
+              : {}),
+            ...(employeesCount !== undefined
+              ? { Total_Number_of_Program_EEs: employeesCount }
+              : {}),
+            ...(overallRank ? { Current_Year_Overall_Rank: overallRank } : {}),
+            ...(categoryRank
+              ? { Current_Year_Category_Rank: categoryRank }
               : {}),
           },
         },
@@ -2051,6 +2145,9 @@ export class HistoricalImportService {
           stage,
           isIncluded,
           isWinner,
+          employeesCount: employeesCount ?? null,
+          overallRank: overallRank ?? null,
+          categoryRank: categoryRank ?? null,
           reportAccess: {
             WFR_Access: "no",
             WBC_Access: "no",
@@ -2064,11 +2161,16 @@ export class HistoricalImportService {
             Surveys_Sent: surveysSent,
             Source_Organization_ID: details.workbookOrganizationId ?? null,
             Source_Organization_Name: details.displayName,
-            ...(companySize !== undefined
-              ? { Company_Size: companySize }
-              : {}),
+            ...(companySize !== undefined ? { Company_Size: companySize } : {}),
             ...(currentYearCategory
               ? { Current_Year_Category: currentYearCategory }
+              : {}),
+            ...(employeesCount !== undefined
+              ? { Total_Number_of_Program_EEs: employeesCount }
+              : {}),
+            ...(overallRank ? { Current_Year_Overall_Rank: overallRank } : {}),
+            ...(categoryRank
+              ? { Current_Year_Category_Rank: categoryRank }
               : {}),
           },
         },
@@ -2100,6 +2202,9 @@ export class HistoricalImportService {
         stage: true,
         isIncluded: true,
         isWinner: true,
+        employeesCount: true,
+        overallRank: true,
+        categoryRank: true,
         metrics: true,
       },
     });
@@ -2114,6 +2219,9 @@ export class HistoricalImportService {
           stage,
           companySize,
           currentYearCategory,
+          employeesCount,
+          overallRank,
+          categoryRank,
         }) => {
           const enrollment = byId.get(organizationProgramId);
           if (!enrollment)
@@ -2147,9 +2255,14 @@ export class HistoricalImportService {
             enrollment.isIncluded === isIncluded &&
             enrollment.isWinner === isWinner &&
             (!stage || enrollment.stage === stage) &&
-            (companySize === undefined || metrics.Company_Size === companySize) &&
+            (companySize === undefined ||
+              metrics.Company_Size === companySize) &&
             (!currentYearCategory ||
-              metrics.Current_Year_Category === currentYearCategory)
+              metrics.Current_Year_Category === currentYearCategory) &&
+            (employeesCount === undefined ||
+              enrollment.employeesCount === employeesCount) &&
+            (!overallRank || enrollment.overallRank === overallRank) &&
+            (!categoryRank || enrollment.categoryRank === categoryRank)
           )
             return;
           await prisma.organizationProgram.update({
@@ -2158,12 +2271,26 @@ export class HistoricalImportService {
               isIncluded,
               isWinner,
               ...(stage ? { stage } : {}),
+              ...(employeesCount !== undefined ? { employeesCount } : {}),
+              ...(overallRank ? { overallRank } : {}),
+              ...(categoryRank ? { categoryRank } : {}),
               metrics: {
                 ...metrics,
                 Surveys_Sent: surveysSent,
-                ...(companySize !== undefined ? { Company_Size: companySize } : {}),
+                ...(companySize !== undefined
+                  ? { Company_Size: companySize }
+                  : {}),
                 ...(currentYearCategory
                   ? { Current_Year_Category: currentYearCategory }
+                  : {}),
+                ...(employeesCount !== undefined
+                  ? { Total_Number_of_Program_EEs: employeesCount }
+                  : {}),
+                ...(overallRank
+                  ? { Current_Year_Overall_Rank: overallRank }
+                  : {}),
+                ...(categoryRank
+                  ? { Current_Year_Category_Rank: categoryRank }
                   : {}),
               },
             },

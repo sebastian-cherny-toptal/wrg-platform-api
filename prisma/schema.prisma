@@ -104,6 +104,9 @@ model OrganizationProgram {
   stage          String?
   isWinner       Boolean      @default(false)
   isIncluded     Boolean      @default(true)
+  employeesCount Int?         @map("employees_count")
+  overallRank    String?      @map("overall_rank")
+  categoryRank   String?      @map("category_rank")
   reportAccess   Json         @default("{}")
   paymentDetails Json         @default("{}")
   fees           Json         @default("{}")

@@ -296,12 +296,15 @@ export class ZohoAdapter {
   async searchAllRecords(
     module: string,
     criteria: string,
-    fields: string[] = ["id"],
+    fields?: string[],
   ): Promise<ZohoRecord[]> {
     const records: ZohoRecord[] = [];
     const maxPages = 10;
     for (let page = 1; page <= maxPages; page += 1) {
-      const result = await this.searchPage(module, criteria, { fields, page });
+      const result = await this.searchPage(module, criteria, {
+        ...(fields ? { fields } : {}),
+        page,
+      });
       records.push(...result.data);
       if (!result.info?.more_records) return records;
     }
