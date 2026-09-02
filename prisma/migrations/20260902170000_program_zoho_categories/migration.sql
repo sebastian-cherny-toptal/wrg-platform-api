@@ -49,7 +49,7 @@ INSERT INTO "ProgramZohoCategory" (
   "updatedAt"
 )
 SELECT
-  md5(program."id"::text || ':' || category->>'tier')::uuid,
+  md5(program."id"::text || ':' || (category->>'tier'))::uuid,
   program."id",
   category->>'tier',
   COALESCE(NULLIF(category->>'zohoCategoryName', ''), category->>'tier'),
