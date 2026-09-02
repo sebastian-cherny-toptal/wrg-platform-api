@@ -212,7 +212,13 @@ export class CompatibilityZohoService {
           : (account?.name ?? null);
       const rawSurveysSent = Number(deal.Surveys_Sent);
       const rawCompanySize = Number(deal.Company_Size ?? deal.Program_EE_Count);
-      const rawEmployeesCount = Number(deal.Total_Number_of_Program_EEs);
+      const employeeCountValue = deal.Total_Number_of_Program_EEs;
+      const rawEmployeesCount =
+        employeeCountValue === null ||
+        employeeCountValue === undefined ||
+        employeeCountValue === ""
+          ? Number.NaN
+          : Number(employeeCountValue);
       const organizations = organizationsByProgram.get(program.id) ?? [];
       if (
         !organizations.some((entry) => entry.organizationId === organizationId)

@@ -50,6 +50,11 @@ workbooks are not beside the raw ZIP. Every non-dry run automatically reconciles
 survey/question/response totals, round-trips the published XLSX snapshots, and
 asserts that the report user has every imported program grant.
 
+The seed imports `BR_SEED_ORGANIZATIONS_COUNT` organizations from each raw
+workbook (10 by default when the value is missing or is not a positive integer).
+Commerce Title & Abstract Company is always selected first, and `test.baton`
+remains scoped only to that organization.
+
 The seed reads `BR 2026 Ranking Data Extract.xlsx` from the repository root and
 matches its `Alias Name` values to 2026 organizations. Use
 `--ranking-source <file>` or `BR_RANKING_SOURCE` to override that path. Valid

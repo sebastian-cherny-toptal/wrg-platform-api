@@ -37,6 +37,12 @@ import {
   rankingWinnerStatus,
 } from "./baton-rouge-rankings.js";
 import { clearPreviousBatonRougeSeed } from "./baton-rouge-seed-cleanup.js";
+import {
+  canonicalSeedOrganizationName,
+  seedOrganizationCount,
+  selectSeedOrganizations,
+  targetOrganizationName,
+} from "./baton-rouge-seed-organizations.js";
 
 const seedPrefix = "seed-br";
 const defaultSource = resolve(process.cwd(), "..", "Baton Rouge 24-26.zip");
@@ -48,8 +54,6 @@ const responseBatchSize = 2_000;
 const testUsername = "test.baton";
 const testUserEmail = "test.baton@example.test";
 const testUserPassword = "BatonRouge123!";
-const targetOrganizationName = "Commerce Title & Abstract Company";
-const sanitizedTargetOrganizationName = "Synthetic 06f796de0c9331b9";
 let currentSeedStage = "startup";
 
 function seedLog(
@@ -149,6 +153,7 @@ interface LoadedSources {
 
 interface CliOptions {
   dryRun: boolean;
+  organizationCount: number;
   rankingSource: string;
   reportSourceExplicit: boolean;
   reportSource: string;
@@ -245,6 +250,9 @@ function parseOptions(argv: string[]): CliOptions {
   }
   return {
     dryRun,
+    organizationCount: seedOrganizationCount(
+      process.env.BR_SEED_ORGANIZATIONS_COUNT,
+    ),
     rankingSource,
     reportSource,
     reportSourceExplicit,
@@ -393,9 +401,6 @@ function loadSourceWorkbooks(source: string): LoadedSources {
     .filter(({ fileName }) =>
       /^BR 20\d{2} - (?:EA|EFS) ORD\.xlsx$/iu.test(fileName),
     )
-    .filter(({ fileName }) =>
-      !fileName.includes("2026"),
-    )
     .map((file) => ({ ...file, ...sourceIdentity(file.fileName) }))
     .sort(
       (left, right) =>
@@ -447,13 +452,6 @@ function organizationKey(
   return fallback === null || String(fallback).trim() === ""
     ? `unknown ${year} ${row}`
     : `organization id ${year} ${String(fallback).trim()}`;
-}
-
-function isTargetOrganization(sourceName: string | undefined): boolean {
-  return (
-    sourceName === targetOrganizationName ||
-    sourceName === sanitizedTargetOrganizationName
-  );
 }
 
 function sourceOrganization(key: string, sourceName?: string) {
@@ -529,13 +527,14 @@ async function createReportUser(
       },
     },
   });
-  const enrollment =
-    enrollments.find(
-      ({ organization }) =>
-        new Set(organization.programs.map(({ program }) => program.year))
-          .size >= programs.length,
-    ) ?? enrollments[0];
-  if (!enrollment) throw new Error("Could not find a Baton Rouge enrollment");
+  const enrollment = enrollments.find(
+    ({ organization }) => organization.name === targetOrganizationName,
+  );
+  if (!enrollment) {
+    throw new Error(
+      `Could not find a Baton Rouge enrollment for "${targetOrganizationName}"`,
+    );
+  }
   const organizationEnrollments = await prisma.organizationProgram.findMany({
     where: {
       organizationId: enrollment.organizationId,
@@ -614,18 +613,26 @@ async function verifyImportedData(
         _count: { select: { questions: true, respondents: true } },
       },
     });
-    const responses = await prisma.response.count({
-      where: { respondent: { surveyId: survey.id } },
-    });
+    const [responses, organizations] = await Promise.all([
+      prisma.response.count({
+        where: { respondent: { surveyId: survey.id } },
+      }),
+      prisma.respondent.groupBy({
+        by: ["organizationId"],
+        where: { surveyId: survey.id },
+      }),
+    ]);
     if (
+      organizations.length !== expected.organizations ||
       survey._count.questions !== expected.questions ||
       survey._count.respondents !== expected.respondents ||
       responses !== expected.responses
     ) {
       throw new Error(
         `${key} database reconciliation failed: expected ` +
-          `${expected.questions}/${expected.respondents}/${expected.responses}, received ` +
-          `${survey._count.questions}/${survey._count.respondents}/${responses}`,
+          `${expected.organizations}/${expected.questions}/${expected.respondents}/${expected.responses}, received ` +
+          `${organizations.length}/${survey._count.questions}/${survey._count.respondents}/${responses} ` +
+          "(organizations/questions/respondents/responses)",
       );
     }
   }
@@ -702,17 +709,30 @@ async function verifyImportedData(
   const [reportUser, programCount] = await Promise.all([
     prisma.user.findUniqueOrThrow({
       where: { email: testUserEmail },
-      select: { _count: { select: { programs: true } } },
+      select: {
+        _count: { select: { programs: true } },
+        organization: { select: { name: true } },
+        organizationId: true,
+        organizationProgram: { select: { organizationId: true } },
+      },
     }),
     prisma.program.count({ where: { projectId } }),
   ]);
+  if (
+    reportUser.organization?.name !== targetOrganizationName ||
+    reportUser.organizationId !== reportUser.organizationProgram?.organizationId
+  ) {
+    throw new Error(
+      `Baton Rouge report user must be scoped only to "${targetOrganizationName}"`,
+    );
+  }
   if (reportUser._count.programs !== programCount) {
     throw new Error(
       "Baton Rouge report user must have access to every imported program",
     );
   }
   console.log(
-    "Verified all imported survey totals, published XLSX snapshots, and complete user program scope.",
+    "Verified all imported survey totals, published XLSX snapshots, and report user scope.",
   );
 }
 
@@ -732,6 +752,7 @@ async function seedSurvey(
   projectId: string,
   reports: PublishedReports,
   winnerStatuses: Map<string, boolean>,
+  organizationCount: number,
 ): Promise<SurveyStats> {
   const surveyLabel = `${source.year} ${source.kind}`;
   const surveyId = deterministicUuid(
@@ -780,40 +801,53 @@ async function seedSurvey(
       question.benchmarkValues = published.dataValues;
     });
   }
-  let respondentCount = 0;
-  const organizationRows = new Map<string, OrganizationSourceDetails>();
+  const allOrganizationRows = new Map<string, OrganizationSourceDetails>();
   seedLog(`${surveyLabel}: scanning source rows...`);
-  await forEachXlsxSurveyRow(
-    definition,
-    { includeOrganization: isTargetOrganization },
-    (row) => {
-      respondentCount += 1;
-      const key = organizationKey(
-        targetOrganizationName,
-        source.year,
-        row.rowNumber,
-        row.organizationId,
-      );
-      let existing = organizationRows.get(key);
-      if (!existing) {
-        existing = {
-          count: 0,
-          sourceOrganizationName: targetOrganizationName,
-        };
-        if (row.organizationId) {
-          existing.sourceOrganizationId = row.organizationId;
-        }
-      }
-      existing.count += 1;
-      if (row.companySize !== undefined) existing.size = row.companySize;
-      organizationRows.set(key, existing);
-    },
-  );
-  if (organizationRows.size === 0) {
-    throw new Error(
-      `${source.fileName}: no rows found for organization "${targetOrganizationName}"`,
+  await forEachXlsxSurveyRow(definition, {}, (row) => {
+    const sourceOrganizationName = canonicalSeedOrganizationName(
+      row.organizationName,
     );
+    if (!sourceOrganizationName) return;
+    const key = organizationKey(
+      sourceOrganizationName,
+      source.year,
+      row.rowNumber,
+      row.organizationId,
+    );
+    let existing = allOrganizationRows.get(key);
+    if (!existing) {
+      existing = {
+        count: 0,
+        sourceOrganizationName,
+      };
+      if (row.organizationId) {
+        existing.sourceOrganizationId = row.organizationId;
+      }
+    }
+    existing.count += 1;
+    if (row.companySize !== undefined) existing.size = row.companySize;
+    allOrganizationRows.set(key, existing);
+  });
+  const targetOrganizationKey = organizationKey(
+    targetOrganizationName,
+    source.year,
+    0,
+  );
+  let organizationRows: Map<string, OrganizationSourceDetails>;
+  try {
+    organizationRows = selectSeedOrganizations(
+      allOrganizationRows,
+      targetOrganizationKey,
+      organizationCount,
+    );
+  } catch (error) {
+    throw new Error(`${source.fileName}: ${(error as Error).message}`);
   }
+  const selectedOrganizationKeys = new Set(organizationRows.keys());
+  const respondentCount = [...organizationRows.values()].reduce(
+    (total, organization) => total + organization.count,
+    0,
+  );
   seedLog(`${surveyLabel}: source row scan complete.`, {
     organizations: organizationRows.size,
     respondents: respondentCount,
@@ -1059,16 +1093,28 @@ async function seedSurvey(
   seedLog(`${surveyLabel}: parsing rows and inserting responses...`);
   await forEachXlsxSurveyRow(
     definition,
-    { includeOrganization: isTargetOrganization },
+    {
+      includeOrganization: (sourceName) => {
+        const name = canonicalSeedOrganizationName(sourceName);
+        return Boolean(
+          name &&
+          selectedOrganizationKeys.has(organizationKey(name, source.year, 0)),
+        );
+      },
+    },
     async (row) => {
+      const sourceOrganizationName = canonicalSeedOrganizationName(
+        row.organizationName,
+      );
+      if (!sourceOrganizationName) return;
       const organization = sourceOrganization(
         organizationKey(
-          targetOrganizationName,
+          sourceOrganizationName,
           source.year,
           row.rowNumber,
           row.organizationId,
         ),
-        targetOrganizationName,
+        sourceOrganizationName,
       );
       const respondentToken = digest(
         `${source.year}:${source.kind}:${String(row.respondent ?? row.rowNumber)}`,
@@ -1202,6 +1248,10 @@ async function main(): Promise<void> {
     `2026 ranking source: ${options.rankingSource} (${winnerStatuses.size} valid assignments)`,
   );
   console.log(`Published report source: ${reportSource}`);
+  console.log(
+    `Organizations per workbook: ${options.organizationCount} ` +
+      `(BR_SEED_ORGANIZATIONS_COUNT)`,
+  );
   console.log(`Found ${sources.length} raw workbooks: ${actual.join(", ")}`);
 
   const prisma =
@@ -1243,6 +1293,7 @@ async function main(): Promise<void> {
         projectId,
         reports,
         winnerStatuses,
+        options.organizationCount,
       );
       totalRespondents += stats.respondents;
       totalResponses += stats.responses;
