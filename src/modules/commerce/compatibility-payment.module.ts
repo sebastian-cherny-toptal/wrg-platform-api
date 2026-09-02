@@ -180,6 +180,7 @@ export class CompatibilityPaymentService {
     await this.prisma.order.create({
       data: {
         organizationId: context.organization.id,
+        purchaserUserId: principal.sub,
         projectId: context.enrollment?.projectId ?? null,
         programId: context.enrollment?.programId ?? null,
         organizationProgramId: context.enrollment?.id ?? null,
@@ -189,7 +190,9 @@ export class CompatibilityPaymentService {
         amountMinor,
         items: inputJson(
           catalogOrder?.items ??
-            (Array.isArray(body.items) ? body.items : [{ amount: body.amount }]),
+            (Array.isArray(body.items)
+              ? body.items
+              : [{ amount: body.amount }]),
         ),
         paymentMethod: "Paid via Credit Card",
       },
@@ -215,11 +218,14 @@ export class CompatibilityPaymentService {
     }
     const ids = requested.map(({ productId }) => productId);
     if (new Set(ids).size !== ids.length) {
-      throw new BadRequestException("Each report product can only be purchased once");
+      throw new BadRequestException(
+        "Each report product can only be purchased once",
+      );
     }
     const metadata = jsonObject(context.program.metadata);
     const enrollmentMetadata = jsonObject(context.enrollment.metadata);
-    const effectiveCatalog = enrollmentMetadata.reportCatalog ?? metadata.reportCatalog;
+    const effectiveCatalog =
+      enrollmentMetadata.reportCatalog ?? metadata.reportCatalog;
     const catalog = effectiveReportCatalog(effectiveCatalog);
     const programFees = jsonObject(context.program.fees);
     const organizationFees = jsonObject(context.enrollment.fees);
@@ -229,27 +235,58 @@ export class CompatibilityPaymentService {
     );
     const includesStandard = ids.includes(STANDARD_PACKAGE_ID);
     const items = requested.map(({ productId, keys }) => {
-      const product = catalog.find((entry) => entry.id === productId && entry.available);
-      if (!product) throw new BadRequestException(`Unknown report product: ${productId}`);
+      const product = catalog.find(
+        (entry) => entry.id === productId && entry.available,
+      );
+      if (!product)
+        throw new BadRequestException(`Unknown report product: ${productId}`);
       if (product.purchaseMode !== "checkout") {
-        throw new BadRequestException(`${product.name} must be ordered through a WRG contact`);
+        throw new BadRequestException(
+          `${product.name} must be ordered through a WRG contact`,
+        );
       }
-      if (productIsOwned(productId, context.enrollment.reportAccess, context.enrollment.stage)) {
-        throw new BadRequestException(`${product.name} is already available for this organization`);
+      if (
+        productIsOwned(
+          productId,
+          context.enrollment.reportAccess,
+          context.enrollment.stage,
+        )
+      ) {
+        throw new BadRequestException(
+          `${product.name} is already available for this organization`,
+        );
       }
-      if (product.requiresStandardPackage && !standardOwned && !includesStandard) {
-        throw new BadRequestException(`${product.name} requires the Feedback Data Dashboard`);
+      if (
+        product.requiresStandardPackage &&
+        !standardOwned &&
+        !includesStandard
+      ) {
+        throw new BadRequestException(
+          `${product.name} requires the Feedback Data Dashboard`,
+        );
       }
-      const configured = productId === STANDARD_PACKAGE_ID
-        ? standardPackagePriceCents(metadata, context.enrollment.metrics)
-        : organizationFees[productId] ?? programFees[productId] ?? product.priceCents;
-      if (typeof configured !== "number" || !Number.isInteger(configured) || configured <= 0) {
-        throw new BadRequestException(`Report price is unavailable: ${productId}`);
+      const configured =
+        productId === STANDARD_PACKAGE_ID
+          ? standardPackagePriceCents(metadata, context.enrollment.metrics)
+          : (organizationFees[productId] ??
+            programFees[productId] ??
+            product.priceCents);
+      if (
+        typeof configured !== "number" ||
+        !Number.isInteger(configured) ||
+        configured <= 0
+      ) {
+        throw new BadRequestException(
+          `Report price is unavailable: ${productId}`,
+        );
       }
       const allowedKeys: JsonRecord = { productId };
       if (productId === SORTED_VERBATIMS_ID) {
         const filter = optionalString(keys.EV_Sorting_Filter);
-        if (!filter) throw new BadRequestException("A demographic filter is required for Sorted Employee Verbatims");
+        if (!filter)
+          throw new BadRequestException(
+            "A demographic filter is required for Sorted Employee Verbatims",
+          );
         allowedKeys.EV_Sorting_Filter = filter;
       }
       return {
@@ -297,12 +334,15 @@ export class CompatibilityPaymentService {
         keys: paymentKeys(item.keys),
       };
     });
-    const totalMinor = catalogOrder?.amountMinor ?? Math.round(
-      money(
-        body.total ?? normalizedItems.reduce((sum, item) => sum + item.amount, 0),
-        "total",
-      ) * 100,
-    );
+    const totalMinor =
+      catalogOrder?.amountMinor ??
+      Math.round(
+        money(
+          body.total ??
+            normalizedItems.reduce((sum, item) => sum + item.amount, 0),
+          "total",
+        ) * 100,
+      );
 
     if (useStripe) {
       const intent = await this.createIntent(
@@ -313,6 +353,7 @@ export class CompatibilityPaymentService {
       await this.prisma.order.create({
         data: {
           organizationId: context.organization.id,
+          purchaserUserId: principal.sub,
           projectId: enrollment.projectId,
           programId: enrollment.programId,
           organizationProgramId: enrollment.id,
@@ -330,6 +371,7 @@ export class CompatibilityPaymentService {
     await this.prisma.order.create({
       data: {
         organizationId: context.organization.id,
+        purchaserUserId: principal.sub,
         projectId: enrollment.projectId,
         programId: enrollment.programId,
         organizationProgramId: enrollment.id,
@@ -342,7 +384,10 @@ export class CompatibilityPaymentService {
     });
     const mergedKeys = catalogOrder
       ? this.crmFields(catalogOrder.items, "Needs Invoiced")
-      : Object.assign({}, ...normalizedItems.map(({ keys }) => keys)) as JsonRecord;
+      : (Object.assign(
+          {},
+          ...normalizedItems.map(({ keys }) => keys),
+        ) as JsonRecord);
     const sortedFilter = catalogOrder?.items.find(
       ({ productId }) => productId === SORTED_VERBATIMS_ID,
     )?.keys.EV_Sorting_Filter;
@@ -398,15 +443,19 @@ export class CompatibilityPaymentService {
       const value = catalogJsonObject(entry);
       const keys = catalogJsonObject(value.keys);
       const productId = optionalString(value.productId ?? keys.productId);
-      const amountMinor = Number(value.amountMinor ?? Number(value.amount) * 100);
+      const amountMinor = Number(
+        value.amountMinor ?? Number(value.amount) * 100,
+      );
       return productId && Number.isInteger(amountMinor) && amountMinor > 0
-        ? [{
-            productId,
-            amountMinor,
-            title: optionalString(value.title) ?? productId,
-            amount: amountMinor / 100,
-            keys,
-          }]
+        ? [
+            {
+              productId,
+              amountMinor,
+              title: optionalString(value.title) ?? productId,
+              amount: amountMinor / 100,
+              keys,
+            },
+          ]
         : [];
     });
     const enrollment = order.organizationProgram;
@@ -421,7 +470,8 @@ export class CompatibilityPaymentService {
         reportAccess.EV_Access = "yes";
         reportAccess.SEV_Access = "yes";
         const filter = optionalString(
-          items.find((item) => item.productId === productId)?.keys.EV_Sorting_Filter,
+          items.find((item) => item.productId === productId)?.keys
+            .EV_Sorting_Filter,
         );
         if (filter) metrics.SEV_Filter = filter;
       } else if (productId === RESPONSE_DETAIL_ID) {
@@ -734,10 +784,7 @@ export class CompatibilityPaymentController {
 
   @Post("confirm")
   @HttpCode(200)
-  confirmPayment(
-    @CurrentUser() principal: Principal,
-    @Body() body: unknown,
-  ) {
+  confirmPayment(@CurrentUser() principal: Principal, @Body() body: unknown) {
     return this.payment.confirmPaidOrder(principal, body);
   }
 

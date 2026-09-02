@@ -32,9 +32,9 @@ import {
 } from "../modules/reports/benefits-best-practices-workbook.js";
 import {
   batonRougeRankingYear,
-  loadBatonRougeWinnerStatuses,
+  loadBatonRougeRankingData,
   normalizeRankingOrganizationName,
-  rankingWinnerStatus,
+  type BatonRougeRankingData,
 } from "./baton-rouge-rankings.js";
 import { clearPreviousBatonRougeSeed } from "./baton-rouge-seed-cleanup.js";
 import {
@@ -597,7 +597,7 @@ async function verifyImportedData(
   sources: SourceWorkbook[],
   expectedStats: Map<string, SurveyStats>,
   reportsByYear: Map<number, PublishedReports>,
-  winnerStatuses: Map<string, boolean>,
+  rankingData: Map<string, BatonRougeRankingData>,
 ): Promise<void> {
   for (const source of sources) {
     const key = `${source.year}-${source.kind}`;
@@ -662,8 +662,11 @@ async function verifyImportedData(
     const enrollments = await prisma.organizationProgram.findMany({
       where: { programId: program.id },
       select: {
+        categoryRank: true,
         isWinner: true,
         metadata: true,
+        metrics: true,
+        overallRank: true,
         organization: { select: { name: true } },
       },
     });
@@ -693,16 +696,27 @@ async function verifyImportedData(
     if (
       program.year === batonRougeRankingYear &&
       enrollments.some((enrollment) => {
-        const expectedWinner = winnerStatuses.get(
+        const expectedRanking = rankingData.get(
           normalizeRankingOrganizationName(enrollment.organization.name),
         );
+        const metrics =
+          enrollment.metrics &&
+          typeof enrollment.metrics === "object" &&
+          !Array.isArray(enrollment.metrics)
+            ? enrollment.metrics
+            : {};
         return (
-          expectedWinner !== undefined && enrollment.isWinner !== expectedWinner
+          expectedRanking !== undefined &&
+          (enrollment.isWinner !== expectedRanking.isWinner ||
+            enrollment.overallRank !== expectedRanking.overallRank ||
+            enrollment.categoryRank !== expectedRanking.categoryRank ||
+            metrics.Current_Year_Category !==
+              expectedRanking.currentYearCategory)
         );
       })
     ) {
       throw new Error(
-        `${program.year} organization winner assignments did not match the ranking workbook`,
+        `${program.year} organization ranking data did not match the ranking workbook`,
       );
     }
   }
@@ -751,7 +765,7 @@ async function seedSurvey(
   source: SourceWorkbook,
   projectId: string,
   reports: PublishedReports,
-  winnerStatuses: Map<string, boolean>,
+  rankingData: Map<string, BatonRougeRankingData>,
   organizationCount: number,
 ): Promise<SurveyStats> {
   const surveyLabel = `${source.year} ${source.kind}`;
@@ -940,11 +954,15 @@ async function seedSurvey(
           ? { Source_Organization_Name: details.sourceOrganizationName }
           : {}),
       };
-      const isWinner = rankingWinnerStatus(
-        source.year,
-        details.sourceOrganizationName ?? organization.name,
-        winnerStatuses,
-      );
+      const ranking =
+        source.year === batonRougeRankingYear
+          ? rankingData.get(
+              normalizeRankingOrganizationName(
+                details.sourceOrganizationName ?? organization.name,
+              ),
+            )
+          : undefined;
+      const isWinner = ranking?.isWinner ?? false;
       await prisma.organizationProgram.upsert({
         where: {
           organizationId_programId: {
@@ -953,7 +971,9 @@ async function seedSurvey(
           },
         },
         update: {
+          categoryRank: ranking?.categoryRank ?? null,
           isWinner,
+          overallRank: ranking?.overallRank ?? null,
           metadata: {
             publishedReports: JSON.parse(
               JSON.stringify({
@@ -973,10 +993,9 @@ async function seedSurvey(
                   WFR_Access: "yes",
                 },
                 metrics: {
-                  Current_Year_Category: categoryFromOrdinal(
-                    details.size,
-                    details.count,
-                  ),
+                  Current_Year_Category:
+                    ranking?.currentYearCategory ??
+                    categoryFromOrdinal(details.size, details.count),
                   Surveys_Sent: details.count,
                   ...sourceIdentity,
                 },
@@ -990,6 +1009,8 @@ async function seedSurvey(
           externalId: `${seedPrefix}-enrollment-${source.year}-${digest(key, 12)}`,
           stage: "Active",
           isWinner,
+          overallRank: ranking?.overallRank ?? null,
+          categoryRank: ranking?.categoryRank ?? null,
           metadata: {
             publishedReports: JSON.parse(
               JSON.stringify({
@@ -1007,10 +1028,9 @@ async function seedSurvey(
             CR_Access: "no",
           },
           metrics: {
-            Current_Year_Category: categoryFromOrdinal(
-              details.size,
-              details.count,
-            ),
+            Current_Year_Category:
+              ranking?.currentYearCategory ??
+              categoryFromOrdinal(details.size, details.count),
             Surveys_Sent: details.count,
             ...sourceIdentity,
           },
@@ -1203,9 +1223,7 @@ async function main(): Promise<void> {
   setSeedStage("load-source-workbooks");
   const loadedSources = loadSourceWorkbooks(options.source);
   setSeedStage("load-ranking-data");
-  const winnerStatuses = await loadBatonRougeWinnerStatuses(
-    options.rankingSource,
-  );
+  const rankingData = await loadBatonRougeRankingData(options.rankingSource);
   const sources = loadedSources.workbooks;
   const reportYears = [...new Set(sources.map(({ year }) => year))];
   let reportSource =
@@ -1245,7 +1263,7 @@ async function main(): Promise<void> {
   );
   console.log(`Baton Rouge source: ${options.source}`);
   console.log(
-    `2026 ranking source: ${options.rankingSource} (${winnerStatuses.size} valid assignments)`,
+    `2026 ranking source: ${options.rankingSource} (${rankingData.size} valid assignments)`,
   );
   console.log(`Published report source: ${reportSource}`);
   console.log(
@@ -1292,7 +1310,7 @@ async function main(): Promise<void> {
         source,
         projectId,
         reports,
-        winnerStatuses,
+        rankingData,
         options.organizationCount,
       );
       totalRespondents += stats.respondents;
@@ -1314,7 +1332,7 @@ async function main(): Promise<void> {
         sources,
         expectedStats,
         publishedReports,
-        winnerStatuses,
+        rankingData,
       );
     }
     setSeedStage("complete");

@@ -29,7 +29,11 @@ import Stripe from "stripe";
 import { BodyDto } from "../../common/http/body-dto.js";
 import type { Env } from "../../config/env.js";
 import { PrismaService } from "../../database/prisma.service.js";
-import { JwtAuthGuard } from "../auth/auth.module.js";
+import {
+  CurrentUser,
+  JwtAuthGuard,
+  type Principal,
+} from "../auth/auth.module.js";
 import { TenantGuard } from "../tenants/tenants.module.js";
 
 class CheckoutDto {
@@ -75,7 +79,11 @@ class CommerceService {
     this.stripe = new Stripe(config.get("STRIPE_SECRET_KEY", { infer: true }));
   }
 
-  async checkout(organizationId: string, dto: CheckoutDto) {
+  async checkout(
+    organizationId: string,
+    purchaserUserId: string,
+    dto: CheckoutDto,
+  ) {
     const organization = await this.prisma.organization.findUniqueOrThrow({
       where: { id: organizationId },
     });
@@ -98,6 +106,7 @@ class CommerceService {
       return this.prisma.order.create({
         data: {
           organizationId,
+          purchaserUserId,
           ...orderContext,
           currency: dto.currency,
           amountMinor: dto.amountMinor,
@@ -112,6 +121,7 @@ class CommerceService {
       return this.prisma.order.create({
         data: {
           organizationId,
+          purchaserUserId,
           ...orderContext,
           paymentIntentId: `pi_mock_${crypto.randomUUID()}`,
           currency: dto.currency,
@@ -136,6 +146,7 @@ class CommerceService {
     const order = await this.prisma.order.create({
       data: {
         organizationId,
+        purchaserUserId,
         ...orderContext,
         paymentIntentId: intent.id,
         currency: dto.currency,
@@ -162,9 +173,10 @@ class CommerceController {
   @Post("checkout")
   checkout(
     @Param("organizationId") organizationId: string,
+    @CurrentUser() principal: Principal,
     @BodyDto(CheckoutDto) body: CheckoutDto,
   ) {
-    return this.commerce.checkout(organizationId, body);
+    return this.commerce.checkout(organizationId, principal.sub, body);
   }
 
   @Get("orders")

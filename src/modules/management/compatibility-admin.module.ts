@@ -863,6 +863,7 @@ export class CompatibilityAdminService {
         take: perPage,
         include: {
           organization: true,
+          purchaser: { select: { username: true, email: true } },
           organizationProgram: { include: { program: true } },
           program: true,
           project: true,
@@ -881,14 +882,24 @@ export class CompatibilityAdminService {
           .map((item) => optionalString(jsonObject(item).title))
           .filter((title): title is string => Boolean(title))
           .join(", ");
+        const sortingFilter = rawItems
+          .map((item) => {
+            const value = jsonObject(item);
+            const keys = jsonObject(value.keys);
+            return optionalString(keys.EV_Sorting_Filter);
+          })
+          .find((filter): filter is string => Boolean(filter));
         return {
           ...order,
           _id: order.legacyId ?? order.id,
           amount: order.amountMinor,
           itemTitle: jsonObject(order.items).title ?? null,
           productName: productName || null,
+          purchaserUsername:
+            order.purchaser?.username ?? order.purchaser?.email ?? null,
           client: order.organization.name,
           organizationName: order.organization.name,
+          sortingFilter: sortingFilter ?? null,
           programName: program?.name ?? null,
           keys: jsonObject(order.items).keys ?? order.items,
           isPaid: order.status === "PAID",

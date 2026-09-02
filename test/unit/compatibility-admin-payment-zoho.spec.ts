@@ -145,7 +145,7 @@ async function createTestApp(): Promise<NestFastifyApplication> {
 }
 
 describe("native admin, payment and Zoho compatibility endpoints", () => {
-  it("returns explicit product, client and program names in order logs", async () => {
+  it("returns purchaser, payment, product and sorting details in order logs", async () => {
     const service = new CompatibilityAdminService(
       {
         order: {
@@ -155,15 +155,23 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
                 id: "order-id",
                 legacyId: null,
                 amountMinor: 42_500,
+                currency: "USD",
                 items: [
                   {
-                    title: "Response Detail Report",
-                    keys: { productId: "report-response-detail" },
+                    title: "Sorted Employee Verbatims Department",
+                    keys: {
+                      productId: "report-verbatims-sorted",
+                      EV_Sorting_Filter: "Department",
+                    },
                   },
                 ],
                 status: "PAID",
                 paymentIntentId: "pi_test",
                 createdAt: new Date("2026-08-31T12:00:00Z"),
+                purchaser: {
+                  username: "acme-buyer",
+                  email: "buyer@acme.test",
+                },
                 organization: {
                   id: "organization-id",
                   legacyId: null,
@@ -208,15 +216,33 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
     );
 
     assert.deepEqual(
-      result.data.map(({ productName, client, programName }) => ({
-        productName,
-        client,
-        programName,
-      })),
+      result.data.map(
+        ({
+          productName,
+          purchaserUsername,
+          client,
+          amount,
+          currency,
+          sortingFilter,
+          programName,
+        }) => ({
+          productName,
+          purchaserUsername,
+          client,
+          amount,
+          currency,
+          sortingFilter,
+          programName,
+        }),
+      ),
       [
         {
-          productName: "Response Detail Report",
+          productName: "Sorted Employee Verbatims Department",
+          purchaserUsername: "acme-buyer",
           client: "Acme Health",
+          amount: 42_500,
+          currency: "USD",
+          sortingFilter: "Department",
           programName: "Feedback 2026",
         },
       ],

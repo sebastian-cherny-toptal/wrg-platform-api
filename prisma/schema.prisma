@@ -147,6 +147,7 @@ model User {
   programs                    UserProgram[]
   sessions                    Session[]
   auditLogs                   AuditLog[]
+  purchases                   Order[]              @relation("OrderPurchaser")
   impersonationGrantsAsActor  ImpersonationGrant[] @relation("ImpersonationActor")
   impersonationGrantsAsTarget ImpersonationGrant[] @relation("ImpersonationTarget")
 }
@@ -325,6 +326,7 @@ model Order {
   projectId             String?              @db.Uuid
   programId             String?              @db.Uuid
   organizationProgramId String?              @db.Uuid
+  purchaserUserId       String?              @db.Uuid
   paymentIntentId       String?              @unique
   status                OrderStatus          @default(PENDING)
   currency              String
@@ -337,8 +339,10 @@ model Order {
   project               Project?             @relation(fields: [projectId], references: [id])
   program               Program?             @relation(fields: [programId], references: [id])
   organizationProgram   OrganizationProgram? @relation(fields: [organizationProgramId], references: [id])
+  purchaser             User?                @relation("OrderPurchaser", fields: [purchaserUserId], references: [id], onDelete: SetNull)
 
   @@index([organizationId, createdAt])
+  @@index([purchaserUserId])
 }
 
 model Asset {

@@ -2,6 +2,13 @@ import ExcelJS from "exceljs";
 
 export const batonRougeRankingYear = 2026;
 
+export interface BatonRougeRankingData {
+  categoryRank: string;
+  currentYearCategory: string;
+  isWinner: boolean;
+  overallRank: string;
+}
+
 export function normalizeRankingOrganizationName(value: string): string {
   return value
     .normalize("NFKD")
@@ -16,12 +23,26 @@ export function rankingWinnerStatus(
   statuses: Map<string, boolean>,
 ): boolean {
   if (year !== batonRougeRankingYear) return false;
-  return statuses.get(normalizeRankingOrganizationName(organizationName)) ?? false;
+  return (
+    statuses.get(normalizeRankingOrganizationName(organizationName)) ?? false
+  );
 }
 
 export async function loadBatonRougeWinnerStatuses(
   filePath: string,
 ): Promise<Map<string, boolean>> {
+  const rankings = await loadBatonRougeRankingData(filePath);
+  return new Map(
+    [...rankings].map(([organizationName, ranking]) => [
+      organizationName,
+      ranking.isWinner,
+    ]),
+  );
+}
+
+export async function loadBatonRougeRankingData(
+  filePath: string,
+): Promise<Map<string, BatonRougeRankingData>> {
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.readFile(filePath);
   const worksheet = workbook.worksheets[0];
@@ -35,13 +56,23 @@ export async function loadBatonRougeWinnerStatuses(
   });
   const organizationNameColumn = headers.get("aliasname");
   const winnerColumn = headers.get("cywinner");
-  if (!organizationNameColumn || !winnerColumn) {
+  const categoryColumn = headers.get("cycategory");
+  const overallRankColumn = headers.get("cyoverallrank");
+  const categoryRankColumn = headers.get("cycategoryrank");
+  if (
+    !organizationNameColumn ||
+    !winnerColumn ||
+    !categoryColumn ||
+    !overallRankColumn ||
+    !categoryRankColumn
+  ) {
     throw new Error(
-      `${filePath} must include "Alias Name" and "CY Winner" columns`,
+      `${filePath} must include "Alias Name", "CY Winner", "CY Category", ` +
+        '"CY Overall Rank", and "CY Category Rank" columns',
     );
   }
 
-  const statuses = new Map<string, boolean>();
+  const rankings = new Map<string, BatonRougeRankingData>();
   for (let rowNumber = 2; rowNumber <= worksheet.rowCount; rowNumber += 1) {
     const row = worksheet.getRow(rowNumber);
     const organizationName = normalizeRankingOrganizationName(
@@ -51,17 +82,22 @@ export async function loadBatonRougeWinnerStatuses(
     if (!organizationName || (rawWinner !== "yes" && rawWinner !== "no")) {
       continue;
     }
-    const isWinner = rawWinner === "yes";
-    const existing = statuses.get(organizationName);
-    if (existing !== undefined && existing !== isWinner) {
+    const ranking = {
+      categoryRank: row.getCell(categoryRankColumn).text.trim(),
+      currentYearCategory: row.getCell(categoryColumn).text.trim(),
+      isWinner: rawWinner === "yes",
+      overallRank: row.getCell(overallRankColumn).text.trim(),
+    };
+    const existing = rankings.get(organizationName);
+    if (existing !== undefined && existing.isWinner !== ranking.isWinner) {
       throw new Error(
         `${filePath} contains conflicting winner statuses for ${row.getCell(organizationNameColumn).text}`,
       );
     }
-    statuses.set(organizationName, isWinner);
+    rankings.set(organizationName, ranking);
   }
-  if (statuses.size === 0) {
+  if (rankings.size === 0) {
     throw new Error(`${filePath} contains no valid Yes/No winner assignments`);
   }
-  return statuses;
+  return rankings;
 }
