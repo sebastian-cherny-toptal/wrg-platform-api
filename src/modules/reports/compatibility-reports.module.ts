@@ -3151,8 +3151,7 @@ export class CompatibilityReportsService {
           return [{ label: item.label, key: item.key, value }];
         })
       : [];
-    const storedReport =
-      uploadedReport.length > 0 ? uploadedReport : defaultKeyImpactReport;
+    const storedReport = uploadedReport;
     const mapping = Object.fromEntries(
       storedReport.map((item) => {
         const percentage = item.value <= 1 ? item.value * 100 : item.value;
@@ -3647,6 +3646,9 @@ export class CompatibilityReportsService {
     )
       return false;
     const access = jsonObject(context.reportAccess);
+    const kiaPurchased =
+      accessKey === "KIA_Access" &&
+      typeof jsonObject(context.enrollmentMetrics).KIA_Order_Status === "string";
     const aliases = {
       WBC_Access: "workforceBenchmark",
       EV_Access: "employeeVerbatims",
@@ -3660,7 +3662,7 @@ export class CompatibilityReportsService {
     const allowed =
       value === true ||
       (typeof value === "string" && value.trim().toLowerCase() === "yes");
-    if (!allowed) {
+    if (!allowed && !kiaPurchased) {
       throw new ForbiddenException(
         "This program does not include access to the requested report",
       );

@@ -250,6 +250,7 @@ export class CompatibilityPaymentService {
           productId,
           context.enrollment.reportAccess,
           context.enrollment.stage,
+          context.enrollment.metrics,
         )
       ) {
         throw new BadRequestException(
@@ -485,6 +486,7 @@ export class CompatibilityPaymentService {
       } else if (productId === RESPONSE_DETAIL_ID) {
         reportAccess.RD_Access = "yes";
       } else if (productId === KEY_IMPACT_ID) {
+        reportAccess.KIA_Access = "yes";
         metrics.KIA_Order_Status = "Processing";
       }
     }
@@ -576,6 +578,7 @@ export class CompatibilityPaymentService {
         productReference,
         context.enrollment.reportAccess,
         context.enrollment.stage,
+        context.enrollment.metrics,
       )
     ) {
       return { success: true, reconciled: 0 };

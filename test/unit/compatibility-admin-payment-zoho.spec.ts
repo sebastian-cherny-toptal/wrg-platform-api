@@ -25,6 +25,7 @@ import {
 import {
   CompatibilityZohoController,
   CompatibilityZohoService,
+  zohoOrganizationName,
 } from "../../src/modules/crm-sync/compatibility-zoho.module.js";
 import { SyncQueue } from "../../src/modules/crm-sync/crm-sync.module.js";
 import { ZohoAdapter } from "../../src/modules/integrations/integrations.module.js";
@@ -40,6 +41,19 @@ const mark = (name: string) => {
   calls.set(name, (calls.get(name) ?? 0) + 1);
   return { success: true };
 };
+
+describe("Zoho organization name parsing", () => {
+  it("removes a numeric composite suffix even when the matched account ID differs", () => {
+    assert.equal(
+      zohoOrganizationName(
+        "AAA Hoosier Motor Club-350392900-Best Places to Work in Indiana 2026",
+        "zoho-account-id",
+        "AAA Hoosier Motor Club",
+      ),
+      "AAA Hoosier Motor Club",
+    );
+  });
+});
 
 const adminStub = {
   createRole: () => mark("createRole"),
@@ -328,6 +342,57 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
     assert.deepEqual(result, { success: true, status: "paid" });
     assert.deepEqual(updatedReportAccess, { RD_Access: "yes" });
     assert.equal(updatedOrderStatus, "PAID");
+  });
+
+  it("persists KIA ownership while the purchased report is awaiting upload", async () => {
+    let enrollmentUpdate: Record<string, unknown> | undefined;
+    const prisma = {
+      order: {
+        findUnique: () =>
+          Promise.resolve({
+            id: "kia-order-id",
+            items: [
+              {
+                productId: "report-kia",
+                title: "Key Impact Analysis",
+                amount: 820,
+                amountMinor: 82_000,
+                keys: { productId: "report-kia" },
+              },
+            ],
+            organizationProgram: {
+              id: "enrollment-id",
+              stage: "Full Package",
+              reportAccess: { KIA_Access: "no" },
+              metrics: {},
+              paymentDetails: {},
+              dealExternalId: null,
+            },
+          }),
+        update: () => Promise.resolve({ id: "kia-order-id" }),
+      },
+      organizationProgram: {
+        update: (args: { data: Record<string, unknown> }) => {
+          enrollmentUpdate = args.data;
+          return Promise.resolve({ id: "enrollment-id" });
+        },
+      },
+      $transaction: (operations: Array<Promise<unknown>>) =>
+        Promise.all(operations),
+    };
+    const service = new CompatibilityPaymentService(
+      prisma as never,
+      { get: () => "sk_test_example" } as never,
+      {} as never,
+    );
+
+    await service.fulfillPaidOrder("pi_kia");
+
+    assert.ok(enrollmentUpdate);
+    assert.deepEqual(enrollmentUpdate.reportAccess, { KIA_Access: "yes" });
+    assert.deepEqual(enrollmentUpdate.metrics, {
+      KIA_Order_Status: "Processing",
+    });
   });
 
   it("lists distinct program-local organization identities for client assignment", async () => {

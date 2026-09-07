@@ -192,6 +192,7 @@ class ReportCatalogController {
             entry.id,
             enrollment?.reportAccess,
             enrollment?.stage,
+            enrollment?.metrics,
           );
           availableProducts.push({
             ...entry,

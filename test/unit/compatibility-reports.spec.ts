@@ -95,7 +95,7 @@ describe("compatibility report categories", () => {
     assert.equal(result.data.responseRate, 100);
   });
 
-  it("returns the legacy key-impact defaults when no report asset exists", async () => {
+  it("returns an empty key-impact report while the purchased file is awaiting upload", async () => {
     const prisma = {
       program: {
         findFirst: () => ({
@@ -140,14 +140,8 @@ describe("compatibility report categories", () => {
       { selectedProgramId: "program-1", isDummy: false },
     );
 
-    assert.deepEqual(result.data.mapping, defaultKeyImpactContributions);
-    assert.equal(result.data.report.length, 10);
-    assert.equal(
-      result.data.report[0]?.value,
-      defaultKeyImpactContributions[
-        "I understand how my work impacts organizational success"
-      ] / 100,
-    );
+    assert.deepEqual(result.data.mapping, {});
+    assert.deepEqual(result.data.report, []);
   });
 
   it("includes zero-count standard demographic options", async () => {

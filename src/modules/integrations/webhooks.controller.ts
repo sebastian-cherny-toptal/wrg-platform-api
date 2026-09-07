@@ -245,6 +245,8 @@ export class WebhookIngestionService {
       reportAccess.EV_Access = "yes";
       reportAccess.SEV_Access = "yes";
     }
+    const kiaPaid = paid(/kia.*payment/iu);
+    if (kiaPaid) reportAccess.KIA_Access = "yes";
     const pendingOrders = await this.prisma.order.findMany({
       where: {
         organizationProgramId: enrollment.id,
@@ -287,6 +289,14 @@ export class WebhookIngestionService {
         data: {
           stage,
           reportAccess: reportAccess as Prisma.InputJsonValue,
+          metrics: {
+            ...(enrollment.metrics !== null &&
+            typeof enrollment.metrics === "object" &&
+            !Array.isArray(enrollment.metrics)
+              ? enrollment.metrics as Record<string, unknown>
+              : {}),
+            ...(kiaPaid ? { KIA_Order_Status: "Processing" } : {}),
+          } as Prisma.InputJsonValue,
           paymentDetails: {
             ...(enrollment.paymentDetails !== null &&
             typeof enrollment.paymentDetails === "object" &&

@@ -70,6 +70,19 @@ export interface ProgramOrganization {
   categoryRank: string | null;
 }
 
+export function zohoOrganizationName(
+  rawDealName: string | null,
+  organizationId: string,
+  accountName: string | null = null,
+): string | null {
+  if (!rawDealName) return accountName;
+  const markerIndex = rawDealName.lastIndexOf(`-${organizationId}-`);
+  if (markerIndex > 0) return rawDealName.slice(0, markerIndex).trim();
+  const withoutCompositeSuffix = rawDealName.replace(/-\d{6,}-.+$/u, "").trim();
+  const parsed = withoutCompositeSuffix.split(" - ")[0]?.trim() ?? "";
+  return parsed.length > 0 ? parsed : accountName;
+}
+
 @Injectable()
 export class CompatibilityZohoService {
   constructor(
@@ -206,17 +219,11 @@ export class CompatibilityZohoService {
       const organizationId =
         text(deal, "Deal_Organization_ID") ?? account?.id ?? "";
       if (!organizationId) continue;
-      const rawDealName = text(deal, "Deal_Name");
-      const organizationIdMarker = `-${organizationId}-`;
-      const markerIndex = rawDealName?.lastIndexOf(organizationIdMarker) ?? -1;
-      const dealOrganizationName =
-        rawDealName && markerIndex > 0
-          ? rawDealName.slice(0, markerIndex).trim()
-          : rawDealName?.split(" - ")[0]?.trim();
-      const organizationName =
-        dealOrganizationName && dealOrganizationName.length > 0
-          ? dealOrganizationName
-          : (account?.name ?? null);
+      const organizationName = zohoOrganizationName(
+        text(deal, "Deal_Name"),
+        organizationId,
+        account?.name ?? null,
+      );
       const rawSurveysSent = Number(deal.Surveys_Sent);
       const rawCompanySize = Number(deal.Company_Size ?? deal.Program_EE_Count);
       const employeeCountValue = deal.Total_Number_of_Program_EEs;

@@ -132,7 +132,6 @@ export type ProgramZohoResyncField =
   | "stage"
   | "isWinner"
   | "surveysSent"
-  | "companySize"
   | "employeesCount"
   | "overallRank"
   | "categoryRank"
@@ -191,7 +190,6 @@ const resyncFields: ProgramZohoResyncField[] = [
   "stage",
   "isWinner",
   "surveysSent",
-  "companySize",
   "employeesCount",
   "overallRank",
   "categoryRank",
@@ -219,7 +217,6 @@ function resyncValues(
       stage: zoho.stage,
       isWinner: zoho.isWinner,
       surveysSent: zoho.surveysSent,
-      companySize: zoho.companySize,
       employeesCount: zoho.employeesCount,
       overallRank: zoho.overallRank,
       categoryRank: zoho.categoryRank,
@@ -234,7 +231,6 @@ function resyncValues(
     stage: enrollment.stage,
     isWinner: enrollment.isWinner,
     surveysSent: numeric(metrics.Surveys_Sent),
-    companySize: numeric(metrics.Company_Size ?? metrics.Program_EE_Count),
     employeesCount: enrollment.employeesCount,
     overallRank: enrollment.overallRank,
     categoryRank: enrollment.categoryRank,
@@ -302,7 +298,6 @@ export class ProgramZohoResyncService {
               ...metrics,
               Source_Organization_Name: zoho.organizationName,
               Surveys_Sent: zoho.surveysSent,
-              Company_Size: zoho.companySize,
               Report_Category: zoho.reportCategory,
               Current_Year_Category: zoho.currentZohoCategory,
             } as Prisma.InputJsonValue,

@@ -284,12 +284,17 @@ export function productIsOwned(
   productId: string,
   reportAccess: unknown,
   stage?: string | null,
+  metrics?: unknown,
 ): boolean {
   const access = jsonObject(reportAccess);
   if (productId === STANDARD_PACKAGE_ID)
     return hasStandardPackage(access, stage);
   if (productId === SORTED_VERBATIMS_ID) return access.SEV_Access === "yes";
   if (productId === RESPONSE_DETAIL_ID) return access.RD_Access === "yes";
-  if (productId === KEY_IMPACT_ID) return access.KIA_Access === "yes";
+  if (productId === KEY_IMPACT_ID) {
+    const status = jsonObject(metrics).KIA_Order_Status;
+    return access.KIA_Access === "yes" ||
+      (typeof status === "string" && status.trim().length > 0);
+  }
   return false;
 }

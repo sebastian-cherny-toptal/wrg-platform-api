@@ -832,6 +832,71 @@ export class CompatibilityAdminService {
     };
   }
 
+  async pendingKeyImpactAnalyses(principal: Principal) {
+    this.assertPermission(principal, "uploadKeyImpactAnalysisAccess");
+    const enrollments = await this.prisma.organizationProgram.findMany({
+      include: {
+        organization: true,
+        program: true,
+        project: true,
+        orders: {
+          where: { status: "PAID" },
+          orderBy: { updatedAt: "desc" },
+        },
+      },
+      orderBy: { updatedAt: "desc" },
+    });
+    const organizationIds = [
+      ...new Set(enrollments.map(({ organizationId }) => organizationId)),
+    ];
+    const assets = organizationIds.length
+      ? await this.prisma.asset.findMany({
+          where: { organizationId: { in: organizationIds } },
+          select: { metadata: true },
+        })
+      : [];
+    const uploadedEnrollmentIds = new Set(
+      assets.flatMap(({ metadata }) => {
+        const value = jsonObject(metadata);
+        return value.kind === "keyImpactAnalysis" &&
+          typeof value.organizationProgramId === "string"
+          ? [value.organizationProgramId]
+          : [];
+      }),
+    );
+    const includesKia = (items: Prisma.JsonValue): boolean => {
+      const entries = Array.isArray(items) ? items : [items];
+      return entries.some((entry) => {
+        const item = jsonObject(entry);
+        const keys = jsonObject(item.keys);
+        return (item.productId ?? keys.productId) === "report-kia";
+      });
+    };
+    const data = enrollments.flatMap((enrollment) => {
+      const access = jsonObject(enrollment.reportAccess);
+      const metrics = jsonObject(enrollment.metrics);
+      const kiaOrder = enrollment.orders.find((order) => includesKia(order.items));
+      const purchased =
+        String(access.KIA_Access ?? "").toLowerCase() === "yes" ||
+        typeof metrics.KIA_Order_Status === "string" ||
+        Boolean(kiaOrder);
+      if (!purchased || uploadedEnrollmentIds.has(enrollment.id)) return [];
+      return [{
+        organizationId: enrollment.organization.id,
+        organizationName: enrollment.organization.name,
+        organizationProgramId: enrollment.id,
+        programId: enrollment.program.id,
+        programName: enrollment.program.name,
+        programYear: enrollment.program.year,
+        projectId: enrollment.project.id,
+        projectName: enrollment.project.name,
+        purchasedAt: (kiaOrder?.updatedAt ?? enrollment.updatedAt).toISOString(),
+        status: String(metrics.KIA_Order_Status ?? "Processing"),
+      }];
+    });
+    return { success: true, data };
+  }
+
   async orderLogs(
     principal: Principal,
     pageValue: unknown,
@@ -1378,6 +1443,11 @@ export class CompatibilityAdminController {
     @Query("programId") programId: string | undefined,
   ) {
     return this.admin.organizations(principal, id, programId);
+  }
+
+  @Get("key-impact-analysis/pending")
+  pendingKeyImpactAnalyses(@CurrentUser() principal: Principal) {
+    return this.admin.pendingKeyImpactAnalyses(principal);
   }
 
   @Get("order/log")
