@@ -839,6 +839,24 @@ export async function createVerbatimWorkbook(input: {
 }): Promise<Buffer> {
   const workbook = await loadTemplate("employee-verbatims.xlsx");
   const includeDemographic = Boolean(input.demographicTitle?.trim());
+  workbook.eachSheet((sheet, sheetId) => {
+    const responseCount = input.questions[sheetId - 1]?.responses.length ?? 0;
+    const lastTemplateRow = sheet.rowCount;
+    const templateResponseCount = Math.max(0, lastTemplateRow - 4);
+    const prototypeRow = sheet.getRow(lastTemplateRow);
+    for (let index = templateResponseCount; index < responseCount; index += 1) {
+      const row = sheet.getRow(index + 5);
+      row.height = prototypeRow.height;
+      for (let column = 1; column <= sheet.columnCount; column += 1) {
+        row.getCell(column).style = structuredClone(
+          prototypeRow.getCell(column).style,
+        );
+      }
+      const tokenIndex = String(index + 1).padStart(3, "0");
+      row.getCell(1).value = `{{QUESTION_${sheetId}_RESPONSE_${tokenIndex}}}`;
+      row.getCell(2).value = `{{QUESTION_${sheetId}_DEMOGRAPHIC_${tokenIndex}}}`;
+    }
+  });
   fillTokens(workbook, (name) => {
     if (name === "ORGANIZATION_NAME") return input.metadata.organizationName;
     if (name === "PROGRAM_NAME") return input.metadata.programName;

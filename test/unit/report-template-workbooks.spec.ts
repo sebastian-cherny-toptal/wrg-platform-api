@@ -267,6 +267,36 @@ describe("employee verbatim workbook generation", () => {
     assert.equal(sheet.getCell("B5").value, "Human Resources");
     assert.equal(sheet.getCell("B6").value, "Customer Service/Care/Support");
   });
+
+  it("extends both template sheets when responses exceed their placeholder rows", async () => {
+    const responses = (prefix: string, count: number) =>
+      Array.from({ length: count }, (_, index) => ({
+        answer: `${prefix} ${index + 1}`,
+        demographic: `Group ${index + 1}`,
+      }));
+    const buffer = await createVerbatimWorkbook({
+      metadata: {
+        organizationName: "Test organization",
+        programName: "Test program",
+        surveyDates: "2026",
+      },
+      demographicTitle: "Department",
+      questions: [
+        { text: "Question one", responses: responses("First answer", 137) },
+        { text: "Question two", responses: responses("Second answer", 83) },
+      ],
+    });
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer as never);
+    const firstSheet = workbook.getWorksheet("Verbatims Q1");
+    const secondSheet = workbook.getWorksheet("Verbatims Q2");
+    assert.ok(firstSheet);
+    assert.ok(secondSheet);
+    assert.equal(firstSheet.getCell("A141").value, "First answer 137");
+    assert.equal(firstSheet.getCell("B141").value, "Group 137");
+    assert.equal(secondSheet.getCell("A87").value, "Second answer 83");
+    assert.equal(secondSheet.getCell("B87").value, "Group 83");
+  });
 });
 
 describe("benchmark workbook generation", () => {
