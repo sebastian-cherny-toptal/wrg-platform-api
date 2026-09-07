@@ -315,6 +315,10 @@ export class ProgramZohoResyncService {
           );
         }
       }
+      await transaction.program.update({
+        where: { id: preview.programId },
+        data: { latestZohoSync: syncedAt },
+      });
     });
     return {
       ...preview,
@@ -432,9 +436,7 @@ export class ProgramZohoResyncService {
         organizationName: String(resyncValues(enrollment).organizationName),
       }))
       .sort((left, right) =>
-        left.organizationProgramId.localeCompare(
-          right.organizationProgramId,
-        ),
+        left.organizationProgramId.localeCompare(right.organizationProgramId),
       );
     const revisionSource = {
       programId: program.id,
@@ -1024,6 +1026,7 @@ export class CompatibilityManagementService {
     metadata: Prisma.JsonValue;
     startsAt: Date | null;
     endsAt: Date | null;
+    latestZohoSync: Date;
     createdAt: Date;
     zohoCategories?: Array<{
       tier: string;
@@ -1055,6 +1058,7 @@ export class CompatibilityManagementService {
       fees: program.fees,
       StartDate: program.startsAt,
       EndDate: program.endsAt,
+      latestZohoSync: program.latestZohoSync,
       createAt: program.createdAt,
     };
   }

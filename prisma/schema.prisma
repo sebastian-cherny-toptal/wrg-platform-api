@@ -81,6 +81,7 @@ model Program {
   metadata            Json                  @default("{}")
   startsAt            DateTime?
   endsAt              DateTime?
+  latestZohoSync      DateTime              @default(now()) @map("latest_zoho_sync")
   createdAt           DateTime              @default(now())
   updatedAt           DateTime              @updatedAt
   project             Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)

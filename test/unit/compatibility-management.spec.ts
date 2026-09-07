@@ -242,11 +242,18 @@ describe("native management compatibility endpoints", () => {
     let update:
       | { where: Record<string, unknown>; data: Record<string, unknown> }
       | undefined;
+    let latestZohoSync: Date | undefined;
     const transactionClient = {
       organizationProgram: {
         updateMany: (args: typeof update) => {
           update = args;
           return Promise.resolve({ count: 1 });
+        },
+      },
+      program: {
+        update: ({ data }: { data: { latestZohoSync: Date } }) => {
+          latestZohoSync = data.latestZohoSync;
+          return Promise.resolve({ id: "program-id" });
         },
       },
     };
@@ -302,6 +309,7 @@ describe("native management compatibility endpoints", () => {
 
     assert.equal(applied.appliedCount, 1);
     assert.ok(update);
+    assert.ok(latestZohoSync instanceof Date);
     assert.deepEqual(update.where, {
       id: "enrollment-id",
       programId: "program-id",
@@ -327,6 +335,10 @@ describe("native management compatibility endpoints", () => {
         },
         updatedAt: "timestamp",
       },
+    );
+    assert.equal(
+      (update.data.updatedAt as Date).toISOString(),
+      latestZohoSync.toISOString(),
     );
   });
 
