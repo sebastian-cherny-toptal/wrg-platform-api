@@ -3570,7 +3570,20 @@ export class CompatibilityReportsService {
       );
     }
     const survey = await this.prisma.survey.findFirst({
-      where: { programId: program.id },
+      where: {
+        programId: program.id,
+        OR: [
+          { metadata: { path: ["kind"], equals: "employee" } },
+          {
+            title: {
+              contains: "Employee Feedback Survey",
+              mode: "insensitive",
+            },
+          },
+          { externalId: { endsWith: "-efs", mode: "insensitive" } },
+          { externalId: { endsWith: ":efs", mode: "insensitive" } },
+        ],
+      },
       orderBy: [{ endsAt: "desc" }, { createdAt: "desc" }],
       select: { id: true, title: true, startsAt: true, endsAt: true },
     });

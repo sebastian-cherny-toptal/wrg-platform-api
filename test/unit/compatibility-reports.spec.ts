@@ -27,6 +27,74 @@ function benchmarkQuestion(
 }
 
 describe("compatibility report categories", () => {
+  it("uses the employee survey when the employer assessment ends later", async () => {
+    let surveyQuery: unknown;
+    const prisma = {
+      program: {
+        findFirst: () => ({
+          id: "program-1",
+          projectId: "project-1",
+          name: "Indiana 2026",
+          year: 2026,
+          startsAt: null,
+          metadata: {},
+          project: { id: "project-1", name: "Indiana" },
+        }),
+      },
+      organizationProgram: {
+        findFirst: () => ({
+          id: "enrollment-1",
+          reportAccess: {},
+          metrics: { Surveys_Sent: 996 },
+          metadata: {},
+          organization: { name: "Allied Solutions" },
+        }),
+        findMany: () => [],
+      },
+      survey: {
+        findFirst: (query: unknown) => {
+          surveyQuery = query;
+          const employeeSurveyRequested =
+            JSON.stringify(query).includes('"employee"');
+          return employeeSurveyRequested
+            ? {
+                id: "employee-survey",
+                title: "Indiana 2026 Employee Feedback Survey",
+                startsAt: new Date("2026-01-01T00:00:00.000Z"),
+                endsAt: new Date("2026-01-15T23:59:59.999Z"),
+              }
+            : {
+                id: "employer-survey",
+                title: "Indiana 2026 Employer Assessment",
+                startsAt: new Date("2026-01-01T00:00:00.000Z"),
+                endsAt: new Date("2026-05-31T23:59:59.999Z"),
+              };
+        },
+      },
+      respondent: {
+        count: ({ where }: { where: { surveyId: string } }) =>
+          where.surveyId === "employee-survey" ? 996 : 1,
+      },
+    } as unknown as PrismaService;
+
+    const result = await new CompatibilityReportsService(
+      prisma,
+    ).surveyResponseRate(
+      {
+        sub: "client-1",
+        organizationId: "organization-1",
+        roles: ["client"],
+        permissions: [],
+      },
+      { selectedProgramId: "program-1", isDummy: false },
+    );
+
+    assert.match(JSON.stringify(surveyQuery), /employee/u);
+    assert.equal(result.data.sendSurvey, 996);
+    assert.equal(result.data.completedSurvey, 996);
+    assert.equal(result.data.responseRate, 100);
+  });
+
   it("returns the legacy key-impact defaults when no report asset exists", async () => {
     const prisma = {
       program: {
