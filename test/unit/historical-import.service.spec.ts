@@ -392,9 +392,9 @@ describe("historical import service", () => {
       internals.saveDraft = () => Promise.resolve();
       internals.collectOrganizationRows = (...args) => {
         reconciliationFileKinds.push(
-          ...args.slice(0, 2).map((file) =>
-            String((file as { kind?: unknown }).kind),
-          ),
+          ...args
+            .slice(0, 2)
+            .map((file) => String((file as { kind?: unknown }).kind)),
         );
         return Promise.resolve(new Map<string, never>());
       };
