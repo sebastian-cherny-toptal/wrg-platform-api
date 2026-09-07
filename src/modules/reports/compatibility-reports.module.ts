@@ -379,6 +379,9 @@ interface ReportContext {
   reportAccess: Prisma.JsonValue;
   enrollmentMetrics: Prisma.JsonValue;
   enrollmentMetadata: Prisma.JsonValue;
+  organization?: {
+    name: string;
+  };
   program: {
     id: string;
     projectId: string;
@@ -1006,13 +1009,15 @@ export class CompatibilityReportsService {
       }) ?? "Not available";
     return {
       organizationName:
+        context.organization?.name ??
         metadataString(
           context.enrollmentMetrics,
           "OrganizationName",
           "organizationName",
           "CompanyName",
           "companyName",
-        ) ?? "Organization",
+        ) ??
+        "Organization",
       programName: context.program.name,
       surveyDates: `${formatDate(context.survey.startsAt)} to ${formatDate(context.survey.endsAt)}`,
     };
@@ -3443,7 +3448,9 @@ export class CompatibilityReportsService {
     });
     return createVerbatimWorkbook({
       metadata: await this.reportWorkbookMetadata(principal, query, context),
-      ...(filterQuestion ? { demographicTitle: filterQuestion.caption } : {}),
+      ...(filterQuestion
+        ? { demographicTitle: this.demographicLabel(filterQuestion) }
+        : {}),
       questions: reportQuestions.map((question) => ({
         text: question.caption,
         responses: respondents
@@ -3457,9 +3464,14 @@ export class CompatibilityReportsService {
                   (item) => item.questionId === filterQuestion.id,
                 )
               : undefined;
-            const demographic = demographicResponse
-              ? responseCaption(demographicResponse.value)
-              : null;
+            const demographic =
+              demographicResponse && filterQuestion
+                ? demographicResponseCaption(
+                    demographicResponse.value,
+                    filterQuestion,
+                    context.program.year,
+                  )
+                : null;
             return answer
               ? [
                   {
@@ -3544,7 +3556,13 @@ export class CompatibilityReportsService {
     }
     const enrollment = await this.prisma.organizationProgram.findFirst({
       where: { organizationId, programId: program.id, isIncluded: true },
-      select: { id: true, reportAccess: true, metrics: true, metadata: true },
+      select: {
+        id: true,
+        reportAccess: true,
+        metrics: true,
+        metadata: true,
+        organization: { select: { name: true } },
+      },
     });
     if (!enrollment) {
       throw new ForbiddenException(
@@ -3577,6 +3595,7 @@ export class CompatibilityReportsService {
       reportAccess: enrollment.reportAccess,
       enrollmentMetrics: enrollment.metrics,
       enrollmentMetadata: enrollment.metadata,
+      organization: enrollment.organization,
       program,
       survey,
       organizationPrograms,

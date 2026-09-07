@@ -232,6 +232,41 @@ describe("employee verbatim workbook generation", () => {
     assert.equal(sheet.getCell("A5").value, "Autonomy");
     assert.equal(sheet.getCell("A6").value, "People");
   });
+
+  it("includes the sorting field and each respondent's displayed value", async () => {
+    const buffer = await createVerbatimWorkbook({
+      metadata: {
+        organizationName: "Actual Organization Name",
+        programName: "Test program",
+        surveyDates: "2026",
+      },
+      demographicTitle: "Department",
+      questions: [
+        {
+          text: "What do you value?",
+          responses: [
+            { answer: "Autonomy", demographic: "Human Resources" },
+            {
+              answer: "People",
+              demographic: "Customer Service/Care/Support",
+            },
+          ],
+        },
+      ],
+    });
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer as never);
+    const sheet = workbook.getWorksheet("Verbatims Q1");
+    assert.ok(sheet);
+    assert.equal(sheet.columnCount, 2);
+    assert.match(
+      String(sheet.getCell("A3").value),
+      /Actual Organization Name/u,
+    );
+    assert.equal(sheet.getCell("B4").value, "Department");
+    assert.equal(sheet.getCell("B5").value, "Human Resources");
+    assert.equal(sheet.getCell("B6").value, "Customer Service/Care/Support");
+  });
 });
 
 describe("benchmark workbook generation", () => {

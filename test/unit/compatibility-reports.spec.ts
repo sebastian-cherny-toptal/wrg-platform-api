@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { Prisma } from "@prisma/client";
+import ExcelJS from "exceljs";
 import type { PrismaService } from "../../src/database/prisma.service.js";
 import {
   CompatibilityReportsService,
@@ -444,6 +445,9 @@ describe("compatibility report categories", () => {
           reportAccess: { EV_Access: "yes", SEV_Access: "yes" },
           metrics: { SEV_Filter: "Department" },
           metadata: {},
+          organization: {
+            name: "Actual Organization Name",
+          },
         }),
         findMany: () => [],
       },
@@ -507,6 +511,39 @@ describe("compatibility report categories", () => {
       ],
     );
     assert.equal(result.data.sortingFilter?.label, "Department");
+
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(
+      (await service.openResponsesWorkbook(
+        {
+          sub: "client-1",
+          organizationId: "organization-1",
+          roles: ["client"],
+          permissions: [],
+        },
+        { selectedProgramId: "program-1", isDummy: false },
+        { questionId: departmentQuestion.id },
+      )) as never,
+    );
+    const sheet = workbook.getWorksheet("Verbatims Q1");
+    assert.ok(sheet);
+    assert.match(
+      String(sheet.getCell("A3").value),
+      /Actual Organization Name/u,
+    );
+    assert.equal(sheet.getCell("B4").value, "Department");
+    assert.deepEqual(
+      ["B5", "B6", "B7", "B8", "B9"].map(
+        (address) => sheet.getCell(address).value,
+      ),
+      [
+        "Administration/Management",
+        "Human Resources",
+        "Human Resources",
+        "Technology",
+        "Technology",
+      ],
+    );
 
     departments = [
       "Sales 10",
