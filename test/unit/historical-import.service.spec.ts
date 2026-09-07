@@ -94,6 +94,17 @@ describe("historical import service", () => {
             employeeSize,
             priceCents,
           })),
+          organizationPrograms: [
+            {
+              organizationKey: "organization-1",
+              organizationName: "Acme",
+              surveysSent: 20,
+              isWinner: true,
+              isIncluded: true,
+              currentZohoCategory: "Small/Medium",
+              reportCategory: "25-99",
+            },
+          ],
         },
       );
 
@@ -102,6 +113,14 @@ describe("historical import service", () => {
       assert.equal(
         result.metadata.categoryPricing?.[2]?.zohoCategoryName,
         "Small/Medium",
+      );
+      assert.equal(
+        result.metadata.organizationPrograms?.[0]?.currentZohoCategory,
+        "Small/Medium",
+      );
+      assert.equal(
+        result.metadata.organizationPrograms[0].reportCategory,
+        "25-99",
       );
       assert.equal(
         (storedInput as { zohoProjectId?: string }).zohoProjectId,
@@ -264,7 +283,7 @@ describe("historical import service", () => {
         "CY Winner",
         "CY Category",
       ]);
-      rankingSheet.addRow(["Promote", "Acme Corp", "1", "Yes", "Medium"]);
+      rankingSheet.addRow(["Promote", "Acme Corp", "1", "Yes", "Small/Medium"]);
       rankingSheet.addRow(["Promote", "Pending Corp", "2", "7", "7"]);
       const rankingBuffer = Buffer.from(
         await rankingWorkbook.xlsx.writeBuffer(),
@@ -288,7 +307,7 @@ describe("historical import service", () => {
           surveysSent: 1,
           isWinner: true,
           isIncluded: true,
-          benchmarkCategory: "Medium",
+          currentZohoCategory: "Small/Medium",
         },
       ]);
     } finally {

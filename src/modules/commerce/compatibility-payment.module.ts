@@ -274,10 +274,7 @@ export class CompatibilityPaymentService {
                   ? { categoryPricing: context.program.zohoCategories }
                   : {}),
               },
-              {
-                ...jsonObject(context.enrollment.metrics),
-                currentZohoCategory: context.enrollment.currentZohoCategory,
-              },
+              jsonObject(context.enrollment.metrics),
             )
           : (organizationFees[productId] ??
             programFees[productId] ??

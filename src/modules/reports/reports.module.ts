@@ -127,91 +127,95 @@ class ReportCatalogController {
         },
       },
     });
-    const products = await Promise.all(programs.map(async ({ program }) => {
-      const metadata = program.metadata;
-      if (
-        !metadata ||
-        typeof metadata !== "object" ||
-        Array.isArray(metadata)
-      ) {
-        return [];
-      }
-      const enrollment = principal.organizationId
-        ? await this.prisma.organizationProgram.findUnique({
-            where: {
-              organizationId_programId: {
-                organizationId: principal.organizationId,
-                programId: program.id,
+    const products = await Promise.all(
+      programs.map(async ({ program }) => {
+        const metadata = program.metadata;
+        if (
+          !metadata ||
+          typeof metadata !== "object" ||
+          Array.isArray(metadata)
+        ) {
+          return [];
+        }
+        const enrollment = principal.organizationId
+          ? await this.prisma.organizationProgram.findUnique({
+              where: {
+                organizationId_programId: {
+                  organizationId: principal.organizationId,
+                  programId: program.id,
+                },
               },
-            },
-            select: {
-              fees: true,
-              metadata: true,
-              metrics: true,
-              currentZohoCategory: true,
-              reportAccess: true,
-              stage: true,
-            },
-          })
-        : null;
-      const overrideCatalog = jsonObject(enrollment?.metadata).reportCatalog;
-      const catalog = effectiveReportCatalog(
-        Array.isArray(overrideCatalog) ? overrideCatalog : metadata.reportCatalog,
-      );
-      const programFees = jsonObject(program.fees);
-      const organizationFees = jsonObject(enrollment?.fees);
-      const standardOwned = hasStandardPackage(
-        enrollment?.reportAccess,
-        enrollment?.stage,
-      );
-      const standardPrice = standardPackagePriceCents(
-        {
-          ...metadata,
-          ...(program.zohoCategories.length
-            ? { categoryPricing: program.zohoCategories }
-            : {}),
-        },
-        {
-          ...jsonObject(enrollment?.metrics),
-          currentZohoCategory: enrollment?.currentZohoCategory,
-        },
-      );
-      const availableProducts: Array<Record<string, unknown>> = [];
-      for (const entry of catalog) {
-        if (!entry.available) continue;
-        const configured = organizationFees[entry.id] ?? programFees[entry.id];
-        const priceCents = entry.id === STANDARD_PACKAGE_ID
-          ? standardPrice
-          : typeof configured === "number" && Number.isInteger(configured) && configured >= 0
-            ? configured
-            : entry.priceCents;
-        const owned = productIsOwned(
-          entry.id,
+              select: {
+                fees: true,
+                metadata: true,
+                metrics: true,
+                reportAccess: true,
+                stage: true,
+              },
+            })
+          : null;
+        const overrideCatalog = jsonObject(enrollment?.metadata).reportCatalog;
+        const catalog = effectiveReportCatalog(
+          Array.isArray(overrideCatalog)
+            ? overrideCatalog
+            : metadata.reportCatalog,
+        );
+        const programFees = jsonObject(program.fees);
+        const organizationFees = jsonObject(enrollment?.fees);
+        const standardOwned = hasStandardPackage(
           enrollment?.reportAccess,
           enrollment?.stage,
         );
-        availableProducts.push({
-          ...entry,
-          priceCents,
-          priceAvailable: priceCents !== null && priceCents > 0,
-          owned,
-          standardPackageOwned: standardOwned,
-          purchasable:
-            entry.purchaseMode === "checkout" &&
-            !owned &&
-            (entry.id === STANDARD_PACKAGE_ID || standardOwned),
-          deliveryMessage:
-            entry.fulfillment === "manual"
-              ? "Available in 7–10 business days"
-              : "Instant access after successful credit card payment",
-          ...(entry.id === "report-verbatims-sorted" &&
-          typeof jsonObject(enrollment?.metrics).SEV_Filter === "string"
-            ? { selection: jsonObject(enrollment?.metrics).SEV_Filter }
-            : {}),
-        });
-      }
-      return availableProducts;
-    }));
+        const standardPrice = standardPackagePriceCents(
+          {
+            ...metadata,
+            ...(program.zohoCategories.length
+              ? { categoryPricing: program.zohoCategories }
+              : {}),
+          },
+          jsonObject(enrollment?.metrics),
+        );
+        const availableProducts: Array<Record<string, unknown>> = [];
+        for (const entry of catalog) {
+          if (!entry.available) continue;
+          const configured =
+            organizationFees[entry.id] ?? programFees[entry.id];
+          const priceCents =
+            entry.id === STANDARD_PACKAGE_ID
+              ? standardPrice
+              : typeof configured === "number" &&
+                  Number.isInteger(configured) &&
+                  configured >= 0
+                ? configured
+                : entry.priceCents;
+          const owned = productIsOwned(
+            entry.id,
+            enrollment?.reportAccess,
+            enrollment?.stage,
+          );
+          availableProducts.push({
+            ...entry,
+            priceCents,
+            priceAvailable: priceCents !== null && priceCents > 0,
+            owned,
+            standardPackageOwned: standardOwned,
+            purchasable:
+              entry.purchaseMode === "checkout" &&
+              !owned &&
+              (entry.id === STANDARD_PACKAGE_ID || standardOwned),
+            deliveryMessage:
+              entry.fulfillment === "manual"
+                ? "Available in 7–10 business days"
+                : "Instant access after successful credit card payment",
+            ...(entry.id === "report-verbatims-sorted" &&
+            typeof jsonObject(enrollment?.metrics).SEV_Filter === "string"
+              ? { selection: jsonObject(enrollment?.metrics).SEV_Filter }
+              : {}),
+          });
+        }
+        return availableProducts;
+      }),
+    );
     return products.flat();
   }
 }

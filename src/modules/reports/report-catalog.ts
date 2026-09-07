@@ -1,5 +1,4 @@
 import { BadRequestException } from "@nestjs/common";
-import { employeeSizeRange } from "../programs/program-zoho-category.js";
 
 export type ReportPurchaseMode = "checkout" | "contact";
 export type ReportFulfillment = "instant" | "manual";
@@ -98,7 +97,7 @@ const templateById = new Map(
 
 export function effectiveReportCatalog(value: unknown): ReportCatalogProduct[] {
   const configured = new Map<string, unknown>();
-  const entries: unknown[] = Array.isArray(value) ? value as unknown[] : [];
+  const entries: unknown[] = Array.isArray(value) ? (value as unknown[]) : [];
   for (const entry of entries) {
     if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
     const id = (entry as Record<string, unknown>).id;
@@ -116,10 +115,13 @@ export function effectiveReportCatalog(value: unknown): ReportCatalogProduct[] {
       ...(typeof candidate.name === "string" && candidate.name.trim()
         ? { name: candidate.name }
         : {}),
-      ...(typeof candidate.description === "string" && candidate.description.trim()
+      ...(typeof candidate.description === "string" &&
+      candidate.description.trim()
         ? { description: candidate.description }
         : {}),
-      ...(typeof candidate.priceCents === "number" && Number.isInteger(candidate.priceCents) && candidate.priceCents >= 0
+      ...(typeof candidate.priceCents === "number" &&
+      Number.isInteger(candidate.priceCents) &&
+      candidate.priceCents >= 0
         ? { priceCents: candidate.priceCents }
         : {}),
       ...(typeof candidate.available === "boolean"
@@ -142,18 +144,31 @@ export function parseReportCatalog(value: unknown): ReportCatalogProduct[] {
     const product = entry as Record<string, unknown>;
     const id = typeof product.id === "string" ? product.id.trim() : "";
     const name = typeof product.name === "string" ? product.name.trim() : "";
-    const description = typeof product.description === "string" ? product.description.trim() : "";
+    const description =
+      typeof product.description === "string" ? product.description.trim() : "";
     const priceCents = product.priceCents;
-    if (!allowed.has(id)) throw new BadRequestException(`Unsupported report product: ${id || index}`);
-    if (seen.has(id)) throw new BadRequestException(`Duplicate report product: ${id}`);
-    if (!name || name.length > 120) throw new BadRequestException(`Invalid product name: ${id}`);
-    if (!description || description.length > 500) throw new BadRequestException(`Invalid product description: ${id}`);
-    if (typeof priceCents !== "number" || !Number.isInteger(priceCents) || priceCents < 0) {
+    if (!allowed.has(id))
+      throw new BadRequestException(
+        `Unsupported report product: ${id || index}`,
+      );
+    if (seen.has(id))
+      throw new BadRequestException(`Duplicate report product: ${id}`);
+    if (!name || name.length > 120)
+      throw new BadRequestException(`Invalid product name: ${id}`);
+    if (!description || description.length > 500)
+      throw new BadRequestException(`Invalid product description: ${id}`);
+    if (
+      typeof priceCents !== "number" ||
+      !Number.isInteger(priceCents) ||
+      priceCents < 0
+    ) {
       throw new BadRequestException(`Invalid product price: ${id}`);
     }
-    if (typeof product.available !== "boolean") throw new BadRequestException(`Invalid availability: ${id}`);
+    if (typeof product.available !== "boolean")
+      throw new BadRequestException(`Invalid availability: ${id}`);
     const template = templateById.get(id);
-    if (!template) throw new BadRequestException(`Unsupported report product: ${id}`);
+    if (!template)
+      throw new BadRequestException(`Unsupported report product: ${id}`);
     seen.add(id);
     return {
       ...template,
@@ -168,12 +183,14 @@ export function parseReportCatalog(value: unknown): ReportCatalogProduct[] {
 
 export function jsonObject(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown>
+    ? (value as Record<string, unknown>)
     : {};
 }
 
 function numeric(value: unknown): number | null {
-  const normalized = String(value ?? "").replace(/[^0-9.-]+/gu, "").trim();
+  const normalized = String(value ?? "")
+    .replace(/[^0-9.-]+/gu, "")
+    .trim();
   if (!normalized) return null;
   const result = Number(normalized);
   return Number.isFinite(result) ? result : null;
@@ -204,14 +221,12 @@ export function standardPackagePriceCents(
 ): number | null {
   const metadata = jsonObject(programMetadata);
   const metrics = jsonObject(enrollmentMetrics);
-  const category = String(
-    metrics.currentZohoCategory ??
-      metrics.Current_Zoho_Category ??
-      metrics.Current_Year_Category ??
-      "",
+  const reportCategory = String(
+    metrics.reportCategory ?? metrics.Report_Category ?? "",
   )
     .trim()
-    .toLowerCase();
+    .toLowerCase()
+    .replaceAll(",", "");
   const companySize = numeric(
     metrics.Company_Size ??
       metrics.Program_EE_Count ??
@@ -222,48 +237,27 @@ export function standardPackagePriceCents(
   const configuredTiers: unknown[] = Array.isArray(categoryPricing)
     ? (categoryPricing as unknown[])
     : [];
-  const configuredByName = category
-    ? configuredTiers.find((entry) => {
-        const value = jsonObject(entry);
-        return [value.zohoCategoryName, value.tier].some(
-          (candidate) =>
-            String(candidate ?? "")
-              .trim()
-              .toLowerCase() === category,
-        );
-      })
-    : undefined;
-  const configuredBySize = companySize === null
-    ? undefined
-    : configuredTiers.find((entry) => {
-        const range = employeeSizeRange(jsonObject(entry).employeeSize);
-        return (
-          range !== null &&
-          companySize >= range.minimum &&
-          companySize <= range.maximum
-        );
-      });
-  const matchedConfiguration = configuredByName ?? configuredBySize;
-  const tier = matchedConfiguration
-    ? String(jsonObject(matchedConfiguration).tier ?? "")
-        .trim()
-        .toLowerCase()
-    : pricingFieldByTier[category]
-      ? category
-      : companySize === null
-        ? null
-        : tierForCompanySize(companySize);
+  const tierByReportCategory: Record<string, string> = {
+    "15-24": "boutique",
+    "25-99": "small",
+    "100-199": "medium",
+    "200-499": "large",
+    "500-999": "mega",
+    "1000+": "major",
+  };
+  const tier = pricingFieldByTier[reportCategory]
+    ? reportCategory
+    : (tierByReportCategory[reportCategory] ??
+      (companySize === null ? null : tierForCompanySize(companySize)));
   if (!tier) return null;
-  const configured =
-    matchedConfiguration ??
-    configuredTiers.find((entry) => {
-      const value = jsonObject(entry);
-      return (
-        String(value.tier ?? "")
-          .trim()
-          .toLowerCase() === tier
-      );
-    });
+  const configured = configuredTiers.find((entry) => {
+    const value = jsonObject(entry);
+    return (
+      String(value.tier ?? "")
+        .trim()
+        .toLowerCase() === tier
+    );
+  });
   const cents = numeric(jsonObject(configured).priceCents);
   if (cents !== null && Number.isInteger(cents) && cents > 0) return cents;
   const legacyDollars = numeric(metadata[pricingFieldByTier[tier] ?? ""]);
@@ -272,17 +266,28 @@ export function standardPackagePriceCents(
     : null;
 }
 
-export function hasStandardPackage(reportAccess: unknown, stage?: string | null): boolean {
+export function hasStandardPackage(
+  reportAccess: unknown,
+  stage?: string | null,
+): boolean {
   if ((stage ?? "").trim().toLowerCase() === "full package") return true;
   const access = jsonObject(reportAccess);
   return standardReportAccessKeys.every(
-    (key) => String(access[key] ?? "").trim().toLowerCase() === "yes",
+    (key) =>
+      String(access[key] ?? "")
+        .trim()
+        .toLowerCase() === "yes",
   );
 }
 
-export function productIsOwned(productId: string, reportAccess: unknown, stage?: string | null): boolean {
+export function productIsOwned(
+  productId: string,
+  reportAccess: unknown,
+  stage?: string | null,
+): boolean {
   const access = jsonObject(reportAccess);
-  if (productId === STANDARD_PACKAGE_ID) return hasStandardPackage(access, stage);
+  if (productId === STANDARD_PACKAGE_ID)
+    return hasStandardPackage(access, stage);
   if (productId === SORTED_VERBATIMS_ID) return access.SEV_Access === "yes";
   if (productId === RESPONSE_DETAIL_ID) return access.RD_Access === "yes";
   if (productId === KEY_IMPACT_ID) return access.KIA_Access === "yes";

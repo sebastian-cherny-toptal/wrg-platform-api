@@ -189,6 +189,7 @@ describe("native management compatibility endpoints", () => {
                   Source_Organization_ID: "49",
                   Surveys_Sent: 80,
                   Company_Size: 30,
+                  Report_Category: "15-24",
                   Current_Year_Category: "Small",
                   SEV_Filter: "Department",
                 },
@@ -283,19 +284,19 @@ describe("native management compatibility endpoints", () => {
       "49",
       "Full Package",
       80,
-      "Small/Medium",
+      "15-24",
       "Given by default",
       "Paid via ACH",
       "Department",
       "Paid via ACH",
       "",
       "Winner",
-      "Small",
+      "Small/Medium",
       "2",
       "4",
     ]);
     assert.equal(worksheet.getRow(3).getCell(11).value, "Non-selected");
-    assert.equal(worksheet.getRow(3).getCell(5).value, "Medium");
+    assert.equal(worksheet.getRow(3).getCell(5).value, "100-199");
   });
 
   it("maps normalized roles to the legacy administration projection", async () => {

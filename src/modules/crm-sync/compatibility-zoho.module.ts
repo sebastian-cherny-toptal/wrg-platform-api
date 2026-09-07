@@ -35,16 +35,22 @@ const programFields = [
   "Project",
   "EFS_Launch_Date",
   "EFS_end_Date",
+  "Boutique_EE_Name",
   "Boutique_EE_Size",
   "Category_15_24_Fee",
+  "Small_EE_Name",
   "Small_EE_Size",
   "Category_25_99_Fee",
+  "Medium_EE_Name",
   "Medium_EE_Size",
   "Category_100_199_Fee",
+  "Large_EE_Name",
   "Large_EE_Size",
   "Category_200_499_Fee",
+  "Mega_EE_Name",
   "Mega_EE_Size",
   "Category_500_999_Fee",
+  "Major_EE_Name",
   "Major_EE_Size",
   "Category_1000_Fee",
 ];
@@ -59,6 +65,7 @@ interface ProgramOrganization {
   companySize: number | null;
   employeesCount: number | null;
   currentZohoCategory: string | null;
+  reportCategory: string | null;
   overallRank: string | null;
   categoryRank: string | null;
 }
@@ -242,6 +249,7 @@ export class CompatibilityZohoService {
               ? rawEmployeesCount
               : null,
           currentZohoCategory: text(deal, "Current_Year_Category"),
+          reportCategory: text(deal, "Report_Category"),
           overallRank: text(deal, "Current_Year_Overall_Rank"),
           categoryRank: text(deal, "Current_Year_Category_Rank"),
         });
@@ -269,14 +277,20 @@ export class CompatibilityZohoService {
     };
     const categoryPricing = (record: ZohoRecord) => {
       const definitions = [
-        ["Boutique", "Boutique_EE_Size", "Category_15_24_Fee"],
-        ["Small", "Small_EE_Size", "Category_25_99_Fee"],
-        ["Medium", "Medium_EE_Size", "Category_100_199_Fee"],
-        ["Large", "Large_EE_Size", "Category_200_499_Fee"],
-        ["Mega", "Mega_EE_Size", "Category_500_999_Fee"],
-        ["Major", "Major_EE_Size", "Category_1000_Fee"],
+        [
+          "Boutique",
+          "Boutique_EE_Name",
+          "Boutique_EE_Size",
+          "Category_15_24_Fee",
+        ],
+        ["Small", "Small_EE_Name", "Small_EE_Size", "Category_25_99_Fee"],
+        ["Medium", "Medium_EE_Name", "Medium_EE_Size", "Category_100_199_Fee"],
+        ["Large", "Large_EE_Name", "Large_EE_Size", "Category_200_499_Fee"],
+        ["Mega", "Mega_EE_Name", "Mega_EE_Size", "Category_500_999_Fee"],
+        ["Major", "Major_EE_Name", "Major_EE_Size", "Category_1000_Fee"],
       ] as const;
-      const pricing = definitions.map(([tier, sizeKey, feeKey]) => {
+      const pricing = definitions.map(([tier, nameKey, sizeKey, feeKey]) => {
+        const zohoCategoryName = text(record, nameKey) ?? tier;
         const employeeSize = text(record, sizeKey);
         const rawFee = record[feeKey];
         const amount = Number(
@@ -287,7 +301,7 @@ export class CompatibilityZohoService {
         return employeeSize && Number.isFinite(amount)
           ? {
               tier,
-              zohoCategoryName: tier,
+              zohoCategoryName,
               employeeSize,
               priceCents: Math.max(0, Math.round(amount * 100)),
             }

@@ -29,7 +29,7 @@ import {
   RESPONSE_DETAIL_ID,
   SORTED_VERBATIMS_ID,
 } from "../reports/report-catalog.js";
-import { normalizeBenchmarkCategory } from "../programs/program-zoho-category.js";
+import { normalizeZohoCategory } from "../programs/program-zoho-category.js";
 
 const organizationsConnectionHeaders = [
   "Alias Name",
@@ -92,26 +92,14 @@ function numeric(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function categoryRange(
-  value: string,
-): { minimum: number; maximum: number } | null {
-  const normalized = value.replaceAll(",", "").trim();
-  const range = /^(\d+)\s*-\s*(\d+)$/u.exec(normalized);
-  if (range) {
-    return { minimum: Number(range[1]), maximum: Number(range[2]) };
-  }
-  const openEnded = /^(\d+)\s*\+$/u.exec(normalized);
-  return openEnded
-    ? { minimum: Number(openEnded[1]), maximum: Number.POSITIVE_INFINITY }
-    : null;
-}
-
-function reportCategory(
-  programMetadata: Prisma.JsonValue,
-  metricsValue: Prisma.JsonValue,
-): string {
-  const metadata = jsonObject(programMetadata);
+function reportCategory(metricsValue: Prisma.JsonValue): string {
   const metrics = jsonObject(metricsValue);
+  const configured = metadataString(
+    metricsValue,
+    "Report_Category",
+    "reportCategory",
+  );
+  if (configured) return configured;
   const size = numeric(
     metrics.Company_Size ??
       metrics.Program_EE_Count ??
@@ -119,18 +107,13 @@ function reportCategory(
       metrics.Surveys_Sent,
   );
   if (size === null) return "";
-  const pricing = Array.isArray(metadata.categoryPricing)
-    ? metadata.categoryPricing
-    : [];
-  for (const entry of pricing) {
-    const category = jsonObject(entry);
-    const employeeSize = String(category.employeeSize ?? "").trim();
-    const range = categoryRange(employeeSize);
-    if (range && size >= range.minimum && size <= range.maximum) {
-      return employeeSize;
-    }
-  }
-  return "";
+  if (size < 15) return "";
+  if (size <= 24) return "15-24";
+  if (size <= 99) return "25-99";
+  if (size <= 199) return "100-199";
+  if (size <= 499) return "200-499";
+  if (size <= 999) return "500-999";
+  return "1,000+";
 }
 
 function orderItems(value: Prisma.JsonValue): Prisma.JsonObject[] {
@@ -380,13 +363,11 @@ export class CompatibilityManagementService {
     const categoryCounts: Record<string, number> = {};
     for (const enrollment of program.organizations) {
       const winner = enrollment.isWinner ? "Yes" : "No";
-      const category = normalizeBenchmarkCategory(
-        enrollment.benchmarkCategory ??
-          metadataString(
-            enrollment.metrics,
-            "Benchmark_Category",
-            "Current_Year_Category",
-          ),
+      const category = normalizeZohoCategory(
+        enrollment.currentZohoCategory ??
+          metadataString(enrollment.metrics, "Current_Year_Category") ??
+          enrollment.benchmarkCategory ??
+          metadataString(enrollment.metrics, "Benchmark_Category"),
       );
       if (enrollment.isWinner) winnersCount += 1;
       else nonWinnersCount += 1;
@@ -507,9 +488,7 @@ export class CompatibilityManagementService {
         ),
         enrollment.stage ?? "",
         numeric(metrics.Surveys_Sent) ?? "",
-        enrollment.currentZohoCategory ??
-          metadataString(enrollment.metrics, "Current_Year_Category") ??
-          reportCategory(program.metadata, enrollment.metrics),
+        reportCategory(enrollment.metrics),
         "Given by default",
         sortedPayment,
         sortedPayment
@@ -532,7 +511,9 @@ export class CompatibilityManagementService {
           : enrollment.isWinner
             ? "Winner"
             : "Non-Winner",
-        enrollment.benchmarkCategory ??
+        enrollment.currentZohoCategory ??
+          metadataString(enrollment.metrics, "Current_Year_Category") ??
+          enrollment.benchmarkCategory ??
           metadataString(enrollment.metrics, "Benchmark_Category") ??
           "",
         enrollment.categoryRank ?? "",

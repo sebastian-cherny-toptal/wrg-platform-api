@@ -59,8 +59,8 @@ import {
   type ResponsePatternRanges,
 } from "./report-template-workbooks.js";
 import {
-  benchmarkCategories,
-  normalizeBenchmarkCategory,
+  defaultZohoCategoryOrder,
+  normalizeZohoCategory,
 } from "../programs/program-zoho-category.js";
 
 const privacyThreshold = 5;
@@ -273,7 +273,7 @@ const categoryOrder = [
   "Culture and Belonging",
   "Survey Questions",
 ];
-const sizeOrder = ["All", ...benchmarkCategories];
+const sizeOrder = ["All", ...defaultZohoCategoryOrder];
 
 class CategoryDto {
   @ApiProperty({ type: String })
@@ -3753,19 +3753,23 @@ export class CompatibilityReportsService {
 
   private groups(context: ReportContext): BenchmarkGroup[] {
     const categorized = context.organizationPrograms.flatMap((enrollment) => {
-      const category = normalizeBenchmarkCategory(
-        enrollment.benchmarkCategory ??
+      const category = normalizeZohoCategory(
+        enrollment.currentZohoCategory ??
+          metadataString(
+            enrollment.metrics,
+            "Current_Year_Category",
+            "currentZohoCategory",
+          ) ??
+          metadataString(
+            enrollment.organization.metadata,
+            "Current_Year_Category",
+            "currentZohoCategory",
+          ) ??
+          enrollment.benchmarkCategory ??
           metadataString(
             enrollment.metrics,
             "Benchmark_Category",
             "benchmarkCategory",
-            "Current_Year_Category",
-          ) ??
-          metadataString(
-            enrollment.organization.metadata,
-            "Benchmark_Category",
-            "benchmarkCategory",
-            "Current_Year_Category",
           ),
       );
       return [

@@ -446,16 +446,22 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
                     Program_Year: "2026",
                     EFS_Launch_Date: "2026-01-15",
                     EFS_end_Date: "2026-04-30",
+                    Boutique_EE_Name: "Boutique",
                     Boutique_EE_Size: "15-24",
                     Category_15_24_Fee: "$450",
-                    Small_EE_Size: "25-99",
+                    Small_EE_Name: "Small/Medium",
+                    Small_EE_Size: "25-49",
                     Category_25_99_Fee: "550",
+                    Medium_EE_Name: "Medium",
                     Medium_EE_Size: "100-199",
                     Category_100_199_Fee: "650",
+                    Large_EE_Name: "Large",
                     Large_EE_Size: "200-499",
                     Category_200_499_Fee: "750",
+                    Mega_EE_Name: "Mega",
                     Mega_EE_Size: "500-999",
                     Category_500_999_Fee: "850",
+                    Major_EE_Name: "Major",
                     Major_EE_Size: "1000+",
                     Category_1000_Fee: "950",
                   },
@@ -480,6 +486,7 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
                       Deal_Name: "Acme - Baton Rouge",
                       Current_Year_Winner: "Yes",
                       Current_Year_Category: "Large",
+                      Report_Category: "25-99",
                       Surveys_Sent: 125,
                     },
                     {
@@ -493,6 +500,7 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
                       Deal_Name: "Beta - Baton Rouge",
                       Current_Year_Winner: "No",
                       Current_Year_Category: "Small",
+                      Report_Category: "100-199",
                       Surveys_Sent: 80,
                     },
                   ],
@@ -529,8 +537,8 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
           },
           {
             tier: "Small",
-            zohoCategoryName: "Small",
-            employeeSize: "25-99",
+            zohoCategoryName: "Small/Medium",
+            employeeSize: "25-49",
             priceCents: 55_000,
           },
           {
@@ -561,6 +569,7 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
       },
     ]);
     assert.ok(requestedFields.get("Programs")?.includes("Program_Year"));
+    assert.ok(requestedFields.get("Programs")?.includes("Small_EE_Name"));
     assert.equal(requestedFields.has("Main_Projects"), false);
     assert.equal(requestedFields.has("Deals"), false);
   });
@@ -631,6 +640,7 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
                 "Acme-460737994-Best Places to Work in Baton Rouge 2026",
               Current_Year_Winner: "Yes",
               Current_Year_Category: "Large",
+              Report_Category: "25-99",
               Total_Number_of_Program_EEs: 200,
               Current_Year_Overall_Rank: "4",
               Current_Year_Category_Rank: "2",
@@ -667,6 +677,7 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
         Deal_Name: "Acme-460737994-Best Places to Work in Baton Rouge 2026",
         Current_Year_Winner: "Yes",
         Current_Year_Category: "Large",
+        Report_Category: "25-99",
         Total_Number_of_Program_EEs: 200,
         Current_Year_Overall_Rank: "4",
         Current_Year_Category_Rank: "2",
@@ -680,6 +691,7 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
         companySize: null,
         employeesCount: 200,
         currentZohoCategory: "Large",
+        reportCategory: "25-99",
         overallRank: "4",
         categoryRank: "2",
       },

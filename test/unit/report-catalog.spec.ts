@@ -61,26 +61,35 @@ describe("report catalog configuration", () => {
     );
   });
 
-  it("resolves a standard-package price from a program-specific Zoho category name", () => {
+  it("keeps the report-pricing category independent from the Zoho benchmark category", () => {
     const categoryPricing = [
       {
         tier: "Small",
         zohoCategoryName: "Small/Medium",
-        employeeSize: "25-99",
+        employeeSize: "25-49",
         priceCents: 111_000,
+      },
+      {
+        tier: "Medium",
+        zohoCategoryName: "Medium",
+        employeeSize: "50-149",
+        priceCents: 122_500,
       },
     ];
 
     assert.equal(
       standardPackagePriceCents(
         { categoryPricing },
-        { currentZohoCategory: " small/medium " },
+        {
+          currentZohoCategory: "Small/Medium",
+          Report_Category: "100-199",
+        },
       ),
-      111_000,
+      122_500,
     );
   });
 
-  it("uses program-specific employee ranges when the Zoho category is absent", () => {
+  it("uses the stable report-category ranges rather than program-specific benchmark ranges", () => {
     const categoryPricing = [
       {
         tier: "Small",
@@ -91,14 +100,14 @@ describe("report catalog configuration", () => {
       {
         tier: "Medium",
         zohoCategoryName: "Small/Medium",
-        employeeSize: "50-99",
+        employeeSize: "50-149",
         priceCents: 65_000,
       },
     ];
 
     assert.equal(
       standardPackagePriceCents({ categoryPricing }, { Company_Size: 70 }),
-      65_000,
+      55_000,
     );
   });
 

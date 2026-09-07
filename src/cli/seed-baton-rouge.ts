@@ -36,7 +36,7 @@ import {
   normalizeRankingOrganizationName,
   type BatonRougeRankingData,
 } from "./baton-rouge-rankings.js";
-import { normalizeBenchmarkCategory } from "../modules/programs/program-zoho-category.js";
+import { normalizeZohoCategory } from "../modules/programs/program-zoho-category.js";
 import { clearPreviousBatonRougeSeed } from "./baton-rouge-seed-cleanup.js";
 import {
   batonRougeSeedMetricsMatch,
@@ -1029,7 +1029,7 @@ async function seedSurvey(
         update: {
           categoryRank: ranking?.categoryRank ?? null,
           currentZohoCategory: categoryFromOrdinal(details.size, details.count),
-          benchmarkCategory: normalizeBenchmarkCategory(
+          benchmarkCategory: normalizeZohoCategory(
             ranking?.currentYearCategory,
           ),
           isWinner,
@@ -1070,7 +1070,7 @@ async function seedSurvey(
           stage: "Active",
           isWinner,
           currentZohoCategory: categoryFromOrdinal(details.size, details.count),
-          benchmarkCategory: normalizeBenchmarkCategory(
+          benchmarkCategory: normalizeZohoCategory(
             ranking?.currentYearCategory,
           ),
           overallRank: ranking?.overallRank ?? null,

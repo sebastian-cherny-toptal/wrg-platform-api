@@ -9,7 +9,7 @@ export const programZohoCategoryTiers = [
 
 export type ProgramZohoCategoryTier = (typeof programZohoCategoryTiers)[number];
 
-export const benchmarkCategories = [
+export const defaultZohoCategoryOrder = [
   "Small",
   "Medium",
   "Large",
@@ -17,16 +17,15 @@ export const benchmarkCategories = [
   "Super",
 ] as const;
 
-export type BenchmarkCategory = (typeof benchmarkCategories)[number];
-
-export function normalizeBenchmarkCategory(
-  value: unknown,
-): BenchmarkCategory | null {
+export function normalizeZohoCategory(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
   const normalized = normalizeZohoCategoryName(value);
   return (
-    benchmarkCategories.find(
+    defaultZohoCategoryOrder.find(
       (category) => normalizeZohoCategoryName(category) === normalized,
-    ) ?? null
+    ) ?? trimmed
   );
 }
 

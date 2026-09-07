@@ -4,14 +4,15 @@ The platform imports program participation data, grants report access, and compa
 
 ## Language
 
-**Current Zoho Category**:
-The program-specific commercial category assigned to an organization from Zoho and used to resolve the price already paid for Basic Workforce Feedback Results.
-_Avoid_: Current Year Category, report category, benchmark category
+**Zoho Category**:
+The program-specific list category assigned to an organization in the Zoho deal's Current Year Category field. It determines the organization's winner or non-winner benchmark cohort. Its allowed names and employee-size definitions vary by program.
+_Also called_: Current Year Category, list category
+_Avoid_: report category, pricing category
 
-**Benchmark Category**:
-The analytical organization-size band used for winner and non-winner benchmark comparisons. Its allowed values are Small, Medium, Large, Major, and Super.
-_Avoid_: Current Zoho Category, pricing category
+**Report Category**:
+The stable employee-count band used to price the standard feedback report package. The bands are the same across programs, while their prices may vary by program.
+_Avoid_: Zoho category, list category, benchmark category
 
-**Commercial Category Tier**:
-One of the six stable pricing positions—Boutique, Small, Medium, Large, Mega, or Major—that a program maps to its own Zoho-facing category name, employee-size range, and price.
-_Avoid_: Benchmark Category
+**Report Category Tier**:
+One of the six stable report-pricing positions—Boutique, Small, Medium, Large, Mega, or Major.
+_Avoid_: Zoho Category

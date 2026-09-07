@@ -744,11 +744,13 @@ describe("compatibility report categories", () => {
     assert.deepEqual(result.data.data[0]?.dataValues, [100, 0, 100, 0]);
     assert.equal(result.data.cohortOrganizationCount, 4);
     assert.ok(
-      result.data.tableHeaders.some(({ title }) => title === "Super Employers"),
+      result.data.tableHeaders.some(
+        ({ title }) => title === "Small/Medium Employers",
+      ),
     );
     assert.ok(
       result.data.tableHeaders.every(
-        ({ title }) => title !== "Small/Medium Employers",
+        ({ title }) => title !== "Super Employers",
       ),
     );
   });
