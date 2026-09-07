@@ -23,6 +23,7 @@ import {
 import {
   CompatibilityManagementController,
   CompatibilityManagementService,
+  ProgramZohoResyncService,
 } from "../../src/modules/management/compatibility-management.module.js";
 
 const testJwtSecret = "test-secret-that-is-at-least-32-characters";
@@ -44,6 +45,10 @@ const managementStub = {
   deleteProgram: () => mark("deleteProgram"),
   permissions: () => mark("permissions"),
 };
+const programZohoResyncStub = {
+  preview: () => mark("programZohoResyncPreview"),
+  apply: () => mark("programZohoResyncApply"),
+};
 
 @Injectable()
 class TestJwtStrategy extends PassportStrategy(Strategy) {
@@ -64,6 +69,7 @@ class TestJwtStrategy extends PassportStrategy(Strategy) {
   controllers: [CompatibilityManagementController],
   providers: [
     { provide: CompatibilityManagementService, useValue: managementStub },
+    { provide: ProgramZohoResyncService, useValue: programZohoResyncStub },
     TestJwtStrategy,
     JwtAuthGuard,
   ],
@@ -81,6 +87,7 @@ async function createTestApp(): Promise<NestFastifyApplication> {
       { path: "admin/:one", method: RequestMethod.ALL },
       { path: "admin/:one/:two", method: RequestMethod.ALL },
       { path: "admin/:one/:two/:three", method: RequestMethod.ALL },
+      { path: "admin/:one/:two/:three/:four", method: RequestMethod.ALL },
     ],
   });
   app.enableVersioning({
@@ -92,6 +99,237 @@ async function createTestApp(): Promise<NestFastifyApplication> {
 }
 
 describe("native management compatibility endpoints", () => {
+  it("previews program-scoped Zoho changes without changing local organizations", async () => {
+    let requestedZohoProgramId = "";
+    let writes = 0;
+    const prisma = {
+      program: {
+        findFirst: () =>
+          Promise.resolve({
+            id: "program-id",
+            externalId: "zoho-program-id",
+            organizations: [
+              {
+                id: "enrollment-id",
+                updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+                stage: "Invited",
+                isWinner: false,
+                employeesCount: 40,
+                overallRank: "8",
+                categoryRank: "3",
+                currentZohoCategory: "Small",
+                metrics: {
+                  Source_Organization_ID: "49",
+                  Source_Organization_Name: "Acme Health",
+                  Surveys_Sent: 50,
+                  Company_Size: 45,
+                  Report_Category: "25-99",
+                  Current_Year_Category: "Small",
+                },
+                organization: { name: "Acme Health LLC" },
+              },
+            ],
+          }),
+      },
+      organizationProgram: {
+        updateMany: () => {
+          writes += 1;
+          return Promise.resolve({ count: 1 });
+        },
+      },
+    } as unknown as PrismaService;
+    const zoho = {
+      listOrganizationsForProgram: (
+        _principal: Principal,
+        programId: string,
+      ) => {
+        requestedZohoProgramId = programId;
+        return Promise.resolve([
+          {
+            organizationId: "49",
+            organizationName: "Acme Health Group",
+            isWinner: true,
+            surveysSent: 60,
+            stage: "Closed",
+            companySize: 55,
+            employeesCount: 52,
+            currentZohoCategory: "Community",
+            reportCategory: "50-99",
+            overallRank: "4",
+            categoryRank: "1",
+          },
+          {
+            organizationId: "99",
+            organizationName: "New Zoho Company",
+            isWinner: false,
+            surveysSent: 10,
+            stage: "Invited",
+            companySize: 10,
+            employeesCount: 9,
+            currentZohoCategory: "Boutique",
+            reportCategory: "15-24",
+            overallRank: null,
+            categoryRank: null,
+          },
+        ]);
+      },
+    };
+    const service = new ProgramZohoResyncService(prisma, zoho as never);
+    const preview = await service.preview(
+      {
+        sub: "admin-id",
+        organizationId: null,
+        roles: ["admin"],
+        permissions: [],
+      },
+      "program-id",
+    );
+
+    assert.equal(requestedZohoProgramId, "zoho-program-id");
+    assert.equal(writes, 0);
+    assert.equal(preview.changedRows.length, 1);
+    assert.deepEqual(
+      preview.changedRows[0]?.changes.map(({ field, previous, next }) => ({
+        field,
+        previous,
+        next,
+      })),
+      [
+        {
+          field: "organizationName",
+          previous: "Acme Health",
+          next: "Acme Health Group",
+        },
+        { field: "stage", previous: "Invited", next: "Closed" },
+        { field: "isWinner", previous: false, next: true },
+        { field: "surveysSent", previous: 50, next: 60 },
+        { field: "companySize", previous: 45, next: 55 },
+        { field: "employeesCount", previous: 40, next: 52 },
+        { field: "overallRank", previous: "8", next: "4" },
+        { field: "categoryRank", previous: "3", next: "1" },
+        { field: "reportCategory", previous: "25-99", next: "50-99" },
+        { field: "currentZohoCategory", previous: "Small", next: "Community" },
+      ],
+    );
+    assert.deepEqual(preview.unmatchedZoho, [
+      { organizationId: "99", organizationName: "New Zoho Company" },
+    ]);
+    assert.deepEqual(preview.missingLocal, []);
+    assert.match(preview.revision, /^[a-f0-9]{64}$/u);
+  });
+
+  it("applies the reviewed Zoho snapshot atomically and rejects a stale revision", async () => {
+    const enrollment = {
+      id: "enrollment-id",
+      updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+      stage: "Invited",
+      isWinner: false,
+      employeesCount: 40,
+      overallRank: "8",
+      categoryRank: "3",
+      currentZohoCategory: "Small",
+      metrics: {
+        Source_Organization_ID: "49",
+        Source_Organization_Name: "Acme Health",
+        Surveys_Sent: 50,
+        Company_Size: 45,
+        Report_Category: "25-99",
+        Current_Year_Category: "Small",
+        Existing_Value: "preserved",
+      },
+      organization: { name: "Acme Health LLC" },
+    };
+    let update:
+      | { where: Record<string, unknown>; data: Record<string, unknown> }
+      | undefined;
+    const transactionClient = {
+      organizationProgram: {
+        updateMany: (args: typeof update) => {
+          update = args;
+          return Promise.resolve({ count: 1 });
+        },
+      },
+    };
+    const prisma = {
+      program: {
+        findFirst: () =>
+          Promise.resolve({
+            id: "program-id",
+            externalId: "zoho-program-id",
+            legacyId: null,
+            organizations: [enrollment],
+          }),
+      },
+      $transaction: (callback: (client: typeof transactionClient) => unknown) =>
+        callback(transactionClient),
+    } as unknown as PrismaService;
+    const zoho = {
+      listOrganizationsForProgram: () =>
+        Promise.resolve([
+          {
+            organizationId: "49",
+            organizationName: "Acme Health Group",
+            isWinner: true,
+            surveysSent: 60,
+            stage: null,
+            companySize: null,
+            employeesCount: null,
+            currentZohoCategory: "Community",
+            reportCategory: null,
+            overallRank: null,
+            categoryRank: null,
+          },
+        ]),
+    };
+    const service = new ProgramZohoResyncService(prisma, zoho as never);
+    const principal = {
+      sub: "admin-id",
+      organizationId: null,
+      roles: ["admin"],
+      permissions: [],
+    } satisfies Principal;
+    const preview = await service.preview(principal, "program-id");
+
+    await assert.rejects(
+      service.apply(principal, "program-id", "b".repeat(64)),
+      /Zoho preview changed/u,
+    );
+    const applied = await service.apply(
+      principal,
+      "program-id",
+      preview.revision,
+    );
+
+    assert.equal(applied.appliedCount, 1);
+    assert.ok(update);
+    assert.deepEqual(update.where, {
+      id: "enrollment-id",
+      programId: "program-id",
+      updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+    });
+    assert.deepEqual(
+      { ...update.data, updatedAt: "timestamp" },
+      {
+        stage: null,
+        isWinner: true,
+        employeesCount: null,
+        overallRank: null,
+        categoryRank: null,
+        currentZohoCategory: "Community",
+        metrics: {
+          Source_Organization_ID: "49",
+          Source_Organization_Name: "Acme Health Group",
+          Surveys_Sent: 60,
+          Company_Size: null,
+          Report_Category: null,
+          Current_Year_Category: "Community",
+          Existing_Value: "preserved",
+        },
+        updatedAt: "timestamp",
+      },
+    );
+  });
+
   it("serves the migrated administration routes", async () => {
     const app = await createTestApp();
     calls.clear();
@@ -145,6 +383,17 @@ describe("native management compatibility endpoints", () => {
           url: "/admin/getpermissions/role-1",
           headers,
         }),
+        app.inject({
+          method: "POST",
+          url: "/admin/programs/program-1/zoho-resync/preview",
+          headers,
+        }),
+        app.inject({
+          method: "POST",
+          url: "/admin/programs/program-1/zoho-resync/apply",
+          headers,
+          payload: { revision: "a".repeat(64) },
+        }),
       ]);
       for (const response of responses) {
         assert.equal(response.statusCode, 200, response.body);
@@ -158,6 +407,8 @@ describe("native management compatibility endpoints", () => {
         deleteProject: 1,
         deleteProgram: 1,
         permissions: 1,
+        programZohoResyncPreview: 1,
+        programZohoResyncApply: 1,
       });
     } finally {
       await app.close();

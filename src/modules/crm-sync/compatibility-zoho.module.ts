@@ -55,7 +55,7 @@ const programFields = [
   "Category_1000_Fee",
 ];
 
-interface ProgramOrganization {
+export interface ProgramOrganization {
   [key: string]: unknown;
   organizationId: string;
   organizationName: string | null;
@@ -453,5 +453,6 @@ export class CompatibilityZohoController {
   imports: [AuthModule, CrmSyncModule, IntegrationsModule],
   providers: [CompatibilityZohoService],
   controllers: [CompatibilityZohoController],
+  exports: [CompatibilityZohoService],
 })
 export class CompatibilityZohoModule {}

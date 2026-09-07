@@ -1,13 +1,18 @@
 import {
+  BadRequestException,
+  Body,
+  ConflictException,
   Controller,
   Delete,
   ForbiddenException,
   Get,
+  HttpCode,
   Inject,
   Injectable,
   Module,
   NotFoundException,
   Param,
+  Post,
   Query,
   Res,
   UseGuards,
@@ -17,6 +22,7 @@ import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
 import ExcelJS from "exceljs";
 import type { FastifyReply } from "fastify";
 import { Prisma } from "@prisma/client";
+import { createHash } from "node:crypto";
 import { PrismaService } from "../../database/prisma.service.js";
 import {
   AuthModule,
@@ -30,6 +36,11 @@ import {
   SORTED_VERBATIMS_ID,
 } from "../reports/report-catalog.js";
 import { normalizeZohoCategory } from "../programs/program-zoho-category.js";
+import {
+  CompatibilityZohoModule,
+  CompatibilityZohoService,
+  type ProgramOrganization,
+} from "../crm-sync/compatibility-zoho.module.js";
 
 const organizationsConnectionHeaders = [
   "Alias Name",
@@ -114,6 +125,370 @@ function reportCategory(metricsValue: Prisma.JsonValue): string {
   if (size <= 499) return "200-499";
   if (size <= 999) return "500-999";
   return "1,000+";
+}
+
+export type ProgramZohoResyncField =
+  | "organizationName"
+  | "stage"
+  | "isWinner"
+  | "surveysSent"
+  | "companySize"
+  | "employeesCount"
+  | "overallRank"
+  | "categoryRank"
+  | "reportCategory"
+  | "currentZohoCategory";
+
+export type ProgramZohoResyncValue = string | number | boolean | null;
+
+export interface ProgramZohoResyncChange {
+  field: ProgramZohoResyncField;
+  previous: ProgramZohoResyncValue;
+  next: ProgramZohoResyncValue;
+}
+
+export interface ProgramZohoResyncRow {
+  organizationProgramId: string;
+  organizationId: string;
+  organizationName: string;
+  changes: ProgramZohoResyncChange[];
+}
+
+export interface ProgramZohoResyncPreview {
+  programId: string;
+  revision: string;
+  changedRows: ProgramZohoResyncRow[];
+  unmatchedZoho: Array<{
+    organizationId: string;
+    organizationName: string | null;
+  }>;
+  missingLocal: Array<{
+    organizationProgramId: string;
+    organizationName: string;
+  }>;
+}
+
+interface ResyncEnrollment {
+  id: string;
+  updatedAt: Date;
+  stage: string | null;
+  isWinner: boolean;
+  employeesCount: number | null;
+  overallRank: string | null;
+  categoryRank: string | null;
+  currentZohoCategory: string | null;
+  metrics: Prisma.JsonValue;
+  organization: { name: string };
+}
+
+interface ResyncMatch {
+  enrollment: ResyncEnrollment;
+  zoho: ProgramOrganization;
+}
+
+const resyncFields: ProgramZohoResyncField[] = [
+  "organizationName",
+  "stage",
+  "isWinner",
+  "surveysSent",
+  "companySize",
+  "employeesCount",
+  "overallRank",
+  "categoryRank",
+  "reportCategory",
+  "currentZohoCategory",
+];
+
+function normalizedOrganizationIdentity(value: unknown): string {
+  return typeof value === "string"
+    ? value
+        .toLocaleLowerCase("en")
+        .replace(/[^a-z0-9]+/gu, " ")
+        .trim()
+    : "";
+}
+
+function resyncValues(
+  enrollment: ResyncEnrollment,
+  zoho?: ProgramOrganization,
+): Record<ProgramZohoResyncField, ProgramZohoResyncValue> {
+  const metrics = jsonObject(enrollment.metrics);
+  if (zoho) {
+    return {
+      organizationName: zoho.organizationName,
+      stage: zoho.stage,
+      isWinner: zoho.isWinner,
+      surveysSent: zoho.surveysSent,
+      companySize: zoho.companySize,
+      employeesCount: zoho.employeesCount,
+      overallRank: zoho.overallRank,
+      categoryRank: zoho.categoryRank,
+      reportCategory: zoho.reportCategory,
+      currentZohoCategory: zoho.currentZohoCategory,
+    };
+  }
+  return {
+    organizationName:
+      metadataString(enrollment.metrics, "Source_Organization_Name") ??
+      enrollment.organization.name,
+    stage: enrollment.stage,
+    isWinner: enrollment.isWinner,
+    surveysSent: numeric(metrics.Surveys_Sent),
+    companySize: numeric(metrics.Company_Size ?? metrics.Program_EE_Count),
+    employeesCount: enrollment.employeesCount,
+    overallRank: enrollment.overallRank,
+    categoryRank: enrollment.categoryRank,
+    reportCategory:
+      metadataString(enrollment.metrics, "Report_Category", "reportCategory") ??
+      null,
+    currentZohoCategory: enrollment.currentZohoCategory,
+  };
+}
+
+@Injectable()
+export class ProgramZohoResyncService {
+  constructor(
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(CompatibilityZohoService)
+    private readonly zoho: CompatibilityZohoService,
+  ) {}
+
+  async preview(
+    principal: Principal,
+    programReference: string,
+  ): Promise<ProgramZohoResyncPreview> {
+    const { preview } = await this.buildPreview(principal, programReference);
+    return preview;
+  }
+
+  async apply(
+    principal: Principal,
+    programReference: string,
+    revision: string,
+  ): Promise<ProgramZohoResyncPreview & { appliedCount: number }> {
+    const normalizedRevision = revision.trim();
+    if (!/^[a-f0-9]{64}$/u.test(normalizedRevision)) {
+      throw new BadRequestException(
+        "A valid Zoho preview revision is required",
+      );
+    }
+    const { preview, matches } = await this.buildPreview(
+      principal,
+      programReference,
+    );
+    if (preview.revision !== normalizedRevision) {
+      throw new ConflictException(
+        "Zoho preview changed; refresh the preview before applying",
+      );
+    }
+    const syncedAt = new Date();
+    await this.prisma.$transaction(async (transaction) => {
+      for (const { enrollment, zoho } of matches) {
+        const metrics = jsonObject(enrollment.metrics);
+        const result = await transaction.organizationProgram.updateMany({
+          where: {
+            id: enrollment.id,
+            programId: preview.programId,
+            updatedAt: enrollment.updatedAt,
+          },
+          data: {
+            stage: zoho.stage,
+            isWinner: zoho.isWinner,
+            employeesCount: zoho.employeesCount,
+            overallRank: zoho.overallRank,
+            categoryRank: zoho.categoryRank,
+            currentZohoCategory: zoho.currentZohoCategory,
+            metrics: {
+              ...metrics,
+              Source_Organization_Name: zoho.organizationName,
+              Surveys_Sent: zoho.surveysSent,
+              Company_Size: zoho.companySize,
+              Report_Category: zoho.reportCategory,
+              Current_Year_Category: zoho.currentZohoCategory,
+            } as Prisma.InputJsonValue,
+            updatedAt: syncedAt,
+          },
+        });
+        if (result.count !== 1) {
+          throw new ConflictException(
+            "Zoho preview changed; refresh the preview before applying",
+          );
+        }
+      }
+    });
+    return {
+      ...preview,
+      appliedCount: preview.changedRows.length,
+    };
+  }
+
+  private async buildPreview(
+    principal: Principal,
+    programReference: string,
+  ): Promise<{ preview: ProgramZohoResyncPreview; matches: ResyncMatch[] }> {
+    const allowedProjectIds = await this.allowedProjectIds(principal);
+    const program = await this.prisma.program.findFirst({
+      where: {
+        ...this.referenceWhere(programReference),
+        ...(allowedProjectIds ? { projectId: { in: allowedProjectIds } } : {}),
+      },
+      select: {
+        id: true,
+        legacyId: true,
+        externalId: true,
+        organizations: {
+          select: {
+            id: true,
+            updatedAt: true,
+            stage: true,
+            isWinner: true,
+            employeesCount: true,
+            overallRank: true,
+            categoryRank: true,
+            currentZohoCategory: true,
+            metrics: true,
+            organization: { select: { name: true } },
+          },
+        },
+      },
+    });
+    if (!program) throw new NotFoundException("Program not found");
+    const zohoProgramId = program.externalId ?? program.legacyId;
+    if (!zohoProgramId) {
+      throw new ConflictException("Program is not connected to a Zoho program");
+    }
+    const zohoOrganizations = await this.zoho.listOrganizationsForProgram(
+      principal,
+      zohoProgramId,
+    );
+    const remaining = new Set(program.organizations.map(({ id }) => id));
+    const matches: ResyncMatch[] = [];
+    const unmatchedZoho: ProgramZohoResyncPreview["unmatchedZoho"] = [];
+    for (const zohoOrganization of zohoOrganizations) {
+      const sourceId = zohoOrganization.organizationId.trim();
+      const normalizedName = normalizedOrganizationIdentity(
+        zohoOrganization.organizationName,
+      );
+      const enrollment = program.organizations.find((candidate) => {
+        if (!remaining.has(candidate.id)) return false;
+        const candidateSourceId =
+          metadataString(candidate.metrics, "Source_Organization_ID") ?? "";
+        if (sourceId && candidateSourceId.trim() === sourceId) return true;
+        const candidateName =
+          metadataString(candidate.metrics, "Source_Organization_Name") ??
+          candidate.organization.name;
+        return Boolean(
+          normalizedName &&
+          normalizedOrganizationIdentity(candidateName) === normalizedName,
+        );
+      });
+      if (!enrollment) {
+        unmatchedZoho.push({
+          organizationId: zohoOrganization.organizationId,
+          organizationName: zohoOrganization.organizationName,
+        });
+        continue;
+      }
+      remaining.delete(enrollment.id);
+      matches.push({ enrollment, zoho: zohoOrganization });
+    }
+    matches.sort((left, right) =>
+      left.enrollment.id.localeCompare(right.enrollment.id),
+    );
+    unmatchedZoho.sort((left, right) =>
+      left.organizationId.localeCompare(right.organizationId),
+    );
+    const changedRows = matches.flatMap(({ enrollment, zoho }) => {
+      const previousValues = resyncValues(enrollment);
+      const nextValues = resyncValues(enrollment, zoho);
+      const changes = resyncFields.flatMap((field) =>
+        previousValues[field] === nextValues[field]
+          ? []
+          : [
+              {
+                field,
+                previous: previousValues[field],
+                next: nextValues[field],
+              },
+            ],
+      );
+      return changes.length
+        ? [
+            {
+              organizationProgramId: enrollment.id,
+              organizationId: zoho.organizationId,
+              organizationName:
+                String(nextValues.organizationName ?? "").trim() ||
+                String(previousValues.organizationName ?? "Organization"),
+              changes,
+            },
+          ]
+        : [];
+    });
+    const missingLocal = program.organizations
+      .filter(({ id }) => remaining.has(id))
+      .map((enrollment) => ({
+        organizationProgramId: enrollment.id,
+        organizationName: String(resyncValues(enrollment).organizationName),
+      }))
+      .sort((left, right) =>
+        left.organizationProgramId.localeCompare(
+          right.organizationProgramId,
+        ),
+      );
+    const revisionSource = {
+      programId: program.id,
+      changedRows,
+      unmatchedZoho,
+      missingLocal,
+      matchedVersions: matches.map(({ enrollment }) => ({
+        id: enrollment.id,
+        updatedAt: enrollment.updatedAt.toISOString(),
+      })),
+    };
+    return {
+      preview: {
+        programId: program.id,
+        revision: createHash("sha256")
+          .update(JSON.stringify(revisionSource))
+          .digest("hex"),
+        changedRows,
+        unmatchedZoho,
+        missingLocal,
+      },
+      matches,
+    };
+  }
+
+  private async allowedProjectIds(
+    principal: Principal,
+  ): Promise<string[] | null> {
+    if (
+      principal.roles.includes("admin") ||
+      principal.roles.includes("super_admin") ||
+      principal.permissions.includes("ops.manage")
+    ) {
+      return null;
+    }
+    if (
+      !principal.permissions.includes("clientsProjectsProgramsAccess") &&
+      !principal.permissions.includes("syncCheckmartketAndZohoAccess")
+    ) {
+      throw new ForbiddenException("Project access denied");
+    }
+    const links = await this.prisma.userProject.findMany({
+      where: { userId: principal.sub },
+      select: { projectId: true },
+    });
+    if (!links.length) throw new ForbiddenException("Project access denied");
+    return links.map(({ projectId }) => projectId);
+  }
+
+  private referenceWhere(reference: string) {
+    return isUuid(reference)
+      ? { id: reference }
+      : { OR: [{ legacyId: reference }, { externalId: reference }] };
+  }
 }
 
 function orderItems(value: Prisma.JsonValue): Prisma.JsonObject[] {
@@ -693,6 +1068,8 @@ export class CompatibilityManagementController {
   constructor(
     @Inject(CompatibilityManagementService)
     private readonly management: CompatibilityManagementService,
+    @Inject(ProgramZohoResyncService)
+    private readonly programZohoResync: ProgramZohoResyncService,
   ) {}
 
   @Get("getroles")
@@ -769,6 +1146,30 @@ export class CompatibilityManagementController {
       .send(workbook);
   }
 
+  @Post("programs/:programId/zoho-resync/preview")
+  @HttpCode(200)
+  zohoResyncPreview(
+    @CurrentUser() principal: Principal,
+    @Param("programId") programId: string,
+  ) {
+    return this.programZohoResync.preview(principal, programId);
+  }
+
+  @Post("programs/:programId/zoho-resync/apply")
+  @HttpCode(200)
+  zohoResyncApply(
+    @CurrentUser() principal: Principal,
+    @Param("programId") programId: string,
+    @Body() body: { revision?: unknown },
+  ) {
+    if (typeof body.revision !== "string") {
+      throw new BadRequestException(
+        "A valid Zoho preview revision is required",
+      );
+    }
+    return this.programZohoResync.apply(principal, programId, body.revision);
+  }
+
   @Delete("projects/:id")
   deleteProject(@CurrentUser() principal: Principal, @Param("id") id: string) {
     return this.management.deleteProject(principal, id);
@@ -792,8 +1193,8 @@ export class CompatibilityManagementController {
 }
 
 @Module({
-  imports: [AuthModule],
-  providers: [CompatibilityManagementService],
+  imports: [AuthModule, CompatibilityZohoModule],
+  providers: [CompatibilityManagementService, ProgramZohoResyncService],
   controllers: [CompatibilityManagementController],
 })
 export class CompatibilityManagementModule {}
