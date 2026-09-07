@@ -315,4 +315,121 @@ describe("historical import service", () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  it("stores EA file metadata without importing EA as a survey", async () => {
+    const root = mkdtempSync(join(tmpdir(), "historical-import-ea-metadata-"));
+    const importId = "import-ea-metadata";
+    const eaPath = join(root, "ea.xlsx");
+    const efsPath = join(root, "efs.xlsx");
+    await writeWorkbook(eaPath, "Acme Corp", 1);
+    await writeWorkbook(efsPath, "Acme Corp", 1);
+    const eaSizeBytes = readFileSync(eaPath).length;
+    const importedSurveyKinds: string[] = [];
+    const reconciliationFileKinds: string[] = [];
+    let programMetadata: unknown;
+    const validation = {
+      issues: [],
+      workbooks: [],
+      organizations: [],
+      blockingErrorCount: 0,
+    };
+    const draft = {
+      importId,
+      stagingDir: root,
+      projectName: "Indiana",
+      programName: "Indiana 2026",
+      programYear: 2026,
+      efsLaunchDate: "2026-01-01",
+      efsDeadline: "2026-12-31",
+      status: "validated",
+      eaFile: {
+        kind: "EA",
+        fileName: "IN 2026 EA ORDS.xlsx",
+        filePath: eaPath,
+        sha256: "ea-sha256",
+        sizeBytes: eaSizeBytes,
+      },
+      efsFile: {
+        kind: "EFS",
+        fileName: "IN 26 EFS ORDS.xlsx",
+        filePath: efsPath,
+        sha256: "efs-sha256",
+        sizeBytes: readFileSync(efsPath).length,
+      },
+    };
+    const prisma = {
+      syncJob: { findFirst: () => ({ output: validation }) },
+      project: {
+        findUnique: () => null,
+        create: ({ data }: { data: unknown }) => data,
+      },
+      program: {
+        create: ({ data }: { data: { metadata: unknown } }) => {
+          programMetadata = data.metadata;
+          return data;
+        },
+      },
+      programZohoCategory: { deleteMany: () => ({ count: 0 }) },
+      auditLog: { create: () => ({}) },
+    };
+
+    try {
+      const service = new HistoricalImportService(prisma as never);
+      const internals = service as unknown as {
+        loadDraft: () => Promise<unknown>;
+        saveDraft: (...args: unknown[]) => Promise<void>;
+        collectOrganizationRows: (
+          ...args: unknown[]
+        ) => Promise<Map<string, never>>;
+        createOrganizationsAndEnrollments: (
+          ...args: unknown[]
+        ) => Promise<Map<string, string>>;
+        importSurvey: (...args: unknown[]) => Promise<void>;
+        updateOrganizationPrograms: (...args: unknown[]) => Promise<void>;
+        getStatus: (...args: unknown[]) => Promise<unknown>;
+      };
+      internals.loadDraft = () => Promise.resolve(draft);
+      internals.saveDraft = () => Promise.resolve();
+      internals.collectOrganizationRows = (...args) => {
+        reconciliationFileKinds.push(
+          ...args.slice(0, 2).map((file) =>
+            String((file as { kind?: unknown }).kind),
+          ),
+        );
+        return Promise.resolve(new Map<string, never>());
+      };
+      internals.createOrganizationsAndEnrollments = () =>
+        Promise.resolve(new Map<string, string>());
+      internals.importSurvey = (...args) => {
+        importedSurveyKinds.push(String(args[2]));
+        return Promise.resolve();
+      };
+      internals.updateOrganizationPrograms = () => Promise.resolve();
+      internals.getStatus = () => Promise.resolve({ status: "succeeded" });
+
+      await service.commit(
+        {
+          sub: "bypass-login-auth",
+          roles: ["admin"],
+          permissions: [],
+          organizationId: null,
+        },
+        importId,
+      );
+
+      assert.deepEqual(reconciliationFileKinds, ["EA", "EFS"]);
+      assert.deepEqual(importedSurveyKinds, ["EFS"]);
+      assert.deepEqual(
+        (programMetadata as { employerAssessmentFile?: unknown })
+          .employerAssessmentFile,
+        {
+          fileName: "IN 2026 EA ORDS.xlsx",
+          sha256: "ea-sha256",
+          sizeBytes: eaSizeBytes,
+        },
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });

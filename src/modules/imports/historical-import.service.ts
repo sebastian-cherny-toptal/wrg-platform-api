@@ -1713,6 +1713,15 @@ export class HistoricalImportService {
           historicalImportId: importId,
           efsLaunchDate: draft.efsLaunchDate,
           efsDeadline: draft.efsDeadline,
+          ...(eaFile
+            ? {
+                employerAssessmentFile: {
+                  fileName: eaFile.fileName,
+                  sha256: eaFile.sha256,
+                  sizeBytes: eaFile.sizeBytes,
+                },
+              }
+            : {}),
           ...categoryPricingMetadata(draft.categoryPricing),
           reportCatalog: JSON.parse(
             JSON.stringify(draft.reportCatalog ?? []),
@@ -1791,14 +1800,6 @@ export class HistoricalImportService {
           projectId,
           programId,
           projectSlug,
-        );
-        await this.importSurvey(
-          this.prisma,
-          draft,
-          "EA",
-          eaFile,
-          programId,
-          organizationIds,
         );
         await this.importSurvey(
           this.prisma,
