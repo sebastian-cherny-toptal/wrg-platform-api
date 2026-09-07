@@ -44,7 +44,7 @@ INVENTORY_FIELDS = {
         "Ranking_Analysis_Completed",
     ),
     "Deals": (
-        "Deal_Name",
+        "Alias_Name",
         "Deal_Organization_ID",
         "Account_Name",
         "Program",
@@ -224,7 +224,7 @@ def find_winner_program_example(
     timeout: float,
 ) -> None:
     fields = (
-        "Deal_Name,Deal_Organization_ID,Account_Name,Program,Stage,"
+        "Alias_Name,Deal_Organization_ID,Account_Name,Program,Stage,"
         "Current_Year_Winner,Current_Year_Category,Current_Year_Overall_Rank,"
         "Current_Year_Category_Rank,Surveys_Sent,Total_Number_of_Program_EEs"
     )

@@ -71,14 +71,14 @@ export interface ProgramOrganization {
 }
 
 export function zohoOrganizationName(
-  rawDealName: string | null,
+  rawAliasName: string | null,
   organizationId: string,
   accountName: string | null = null,
 ): string | null {
-  if (!rawDealName) return accountName;
-  const markerIndex = rawDealName.lastIndexOf(`-${organizationId}-`);
-  if (markerIndex > 0) return rawDealName.slice(0, markerIndex).trim();
-  const withoutCompositeSuffix = rawDealName.replace(/-\d{6,}-.+$/u, "").trim();
+  if (!rawAliasName) return accountName;
+  const markerIndex = rawAliasName.lastIndexOf(`-${organizationId}-`);
+  if (markerIndex > 0) return rawAliasName.slice(0, markerIndex).trim();
+  const withoutCompositeSuffix = rawAliasName.replace(/-\d{6,}-.+$/u, "").trim();
   const parsed = withoutCompositeSuffix.split(" - ")[0]?.trim() ?? "";
   return parsed.length > 0 ? parsed : accountName;
 }
@@ -220,7 +220,7 @@ export class CompatibilityZohoService {
         text(deal, "Deal_Organization_ID") ?? account?.id ?? "";
       if (!organizationId) continue;
       const organizationName = zohoOrganizationName(
-        text(deal, "Deal_Name"),
+        text(deal, "Alias_Name"),
         organizationId,
         account?.name ?? null,
       );
