@@ -49,6 +49,72 @@ async function writeWorkbook(
 }
 
 describe("historical import service", () => {
+  it("links the wizard's Zoho project selection to an existing local project", async () => {
+    const root = mkdtempSync(
+      join(tmpdir(), "historical-import-existing-project-"),
+    );
+    const previousCwd = process.cwd();
+    process.chdir(root);
+    let storedInput: unknown;
+    const prisma = {
+      project: {
+        findFirst: ({ where }: { where: Record<string, unknown> }) => {
+          const references = Array.isArray(where.OR) ? where.OR : [where];
+          return references.some(
+            (reference) =>
+              (reference as { legacyId?: string }).legacyId ===
+              "zoho-project-1",
+          )
+            ? {
+                id: "11111111-1111-4111-8111-111111111111",
+                name: "Baton Rouge",
+              }
+            : null;
+        },
+      },
+      syncJob: {
+        create: ({ data }: { data: { input: unknown } }) => {
+          storedInput = data.input;
+          return data;
+        },
+      },
+    };
+
+    try {
+      const service = new HistoricalImportService(prisma as never);
+      const result = await service.createDraft(
+        {
+          sub: "user-1",
+          roles: ["admin"],
+          permissions: [],
+          organizationId: null,
+        },
+        {
+          projectId: null,
+          zohoProjectId: "zoho-project-1",
+          projectName: "Baton Rouge",
+          programName: "Baton Rouge 2026",
+          programYear: 2026,
+          efsLaunchDate: "2026-01-01",
+          efsDeadline: "2026-12-31",
+        },
+      );
+
+      assert.equal(
+        result.metadata.projectId,
+        "11111111-1111-4111-8111-111111111111",
+      );
+      assert.equal(result.metadata.zohoProjectId, "zoho-project-1");
+      assert.equal(
+        (storedInput as { projectId?: string }).projectId,
+        "11111111-1111-4111-8111-111111111111",
+      );
+    } finally {
+      process.chdir(previousCwd);
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("accepts a Zoho project that has not been created locally yet", async () => {
     const root = mkdtempSync(join(tmpdir(), "historical-import-zoho-project-"));
     const previousCwd = process.cwd();

@@ -1248,7 +1248,12 @@ export class HistoricalImportService {
       metadata = { ...metadata, projectId, projectName: project.name };
     } else if (metadata.zohoProjectId) {
       const project = await this.prisma.project.findFirst({
-        where: { externalId: metadata.zohoProjectId },
+        where: {
+          OR: [
+            { externalId: metadata.zohoProjectId },
+            { legacyId: metadata.zohoProjectId },
+          ],
+        },
         select: { id: true, name: true },
       });
       if (project) {
