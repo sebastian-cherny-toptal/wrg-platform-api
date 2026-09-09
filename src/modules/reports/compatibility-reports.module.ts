@@ -3666,6 +3666,7 @@ export class CompatibilityReportsService {
             clientDemoAccess.has(accessKey))))
     )
       return false;
+    if (accessKey === "EV_Access") return false;
     const access = jsonObject(context.reportAccess);
     const kiaPurchased =
       accessKey === "KIA_Access" &&

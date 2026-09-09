@@ -467,6 +467,15 @@ describe("compatibility report categories", () => {
     const benefits = await service.employerBenchmark(promotional, dummyQuery);
     assert.ok(questions.data.length > 0);
     assert.ok(answers.data.respondentData.length > 0);
+    const dummyAnswerValues = answers.data.respondentData.map(
+      ({ responses }) => responses.Value,
+    );
+    assert.deepEqual(
+      dummyAnswerValues,
+      [...dummyAnswerValues].sort((left, right) =>
+        left.localeCompare(right, "en", { numeric: true, sensitivity: "base" }),
+      ),
+    );
     assert.ok(filters.data.length > 0);
     assert.ok(benchmark.data.data.length > 0);
     assert.ok(benefits.data.tableData.length > 0);
@@ -519,6 +528,103 @@ describe("compatibility report categories", () => {
       service.sectionComparison(client, query),
       /This program does not include access to the requested report/u,
     );
+  });
+
+  it("lets any client read employee verbatims sorted alphabetically without EV_Access", async () => {
+    const openQuestion = {
+      id: "open-question-1",
+      legacyId: null,
+      externalId: null,
+      dataLabel: "q_OpenEnded_1",
+      caption: "What should we improve?",
+      type: "open-text",
+      position: 1,
+      metadata: { QuestionTypeId: 9 },
+    };
+    const answers = [
+      "Zebra-level process noise",
+      "A clear weekly plan",
+      "More coaching from managers",
+      "Better tools for the job",
+      "Shared project priorities",
+    ];
+    const prisma = {
+      program: {
+        findFirst: () => ({
+          id: "program-1",
+          projectId: "project-1",
+          name: "Test program",
+          year: 2026,
+          startsAt: null,
+          metadata: {},
+          project: { id: "project-1", name: "Test project" },
+        }),
+      },
+      organizationProgram: {
+        findFirst: () => ({
+          id: "enrollment-1",
+          reportAccess: { EV_Access: "no" },
+          metrics: {},
+          metadata: {},
+          organization: { name: "Actual Organization Name" },
+        }),
+        findMany: () => [],
+      },
+      survey: {
+        findFirst: () => ({
+          id: "survey-1",
+          title: "Test survey",
+          startsAt: null,
+          endsAt: null,
+        }),
+      },
+      question: { findMany: () => [openQuestion] },
+      respondent: {
+        findMany: () =>
+          answers.map((value, index) => ({
+            id: `respondent-${index + 1}`,
+            legacyId: null,
+            externalId: null,
+            metadata: {},
+            responses: [
+              {
+                questionId: openQuestion.id,
+                value,
+                score: null,
+                question: openQuestion,
+              },
+            ],
+          })),
+      },
+    } as unknown as PrismaService;
+    const service = new CompatibilityReportsService(prisma);
+    const client = {
+      sub: "client-1",
+      organizationId: "organization-1",
+      roles: ["client"],
+      permissions: [],
+    };
+    const query = { selectedProgramId: "program-1", isDummy: false };
+
+    const questions = await service.openResponseQuestions(client, query);
+    const result = await service.openResponseAnswers(
+      client,
+      query,
+      openQuestion.id,
+    );
+
+    assert.equal(questions.data.length, 1);
+    assert.deepEqual(
+      result.data.respondentData.map(({ responses }) => responses.Value),
+      [
+        "A clear weekly plan",
+        "Better tools for the job",
+        "More coaching from managers",
+        "Shared project priorities",
+        "Zebra-level process noise",
+      ],
+    );
+    assert.equal(result.data.sortingFilter, undefined);
   });
 
   it("sorts each open-ended question by the purchased demographic and returns its label", async () => {

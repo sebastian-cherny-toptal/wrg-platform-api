@@ -407,7 +407,7 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
   if (
     !Number.isInteger(programYear) ||
     programYear < 1900 ||
-    programYear > currentYear
+    programYear > currentYear + 3
   ) {
     throw new BadRequestException(
       `programYear must be an integer between 1900 and ${currentYear}`,
