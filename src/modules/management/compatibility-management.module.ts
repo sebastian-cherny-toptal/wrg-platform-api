@@ -23,11 +23,7 @@ import ExcelJS from "exceljs";
 import type { FastifyReply } from "fastify";
 import { Prisma } from "@prisma/client";
 import { createHash } from "node:crypto";
-import {
-  winnerBooleanFromStatus,
-  winnerStatusFromBoolean,
-  type WinnerStatus,
-} from "../../common/winner-status.js";
+import type { WinnerStatus } from "../../common/winner-status.js";
 import { PrismaService } from "../../database/prisma.service.js";
 import {
   AuthModule,
@@ -143,7 +139,7 @@ export type ProgramZohoResyncField =
   | "reportCategory"
   | "currentZohoCategory";
 
-export type ProgramZohoResyncValue = string | number | boolean | null;
+export type ProgramZohoResyncValue = string | number | null;
 
 export interface ProgramZohoResyncChange {
   field: ProgramZohoResyncField;
@@ -234,7 +230,7 @@ function resyncValues(
       metadataString(enrollment.metrics, "Source_Organization_Name") ??
       enrollment.organization.name,
     stage: enrollment.stage,
-    isWinner: winnerBooleanFromStatus(enrollment.isWinner),
+    isWinner: enrollment.isWinner,
     surveysSent: numeric(metrics.Surveys_Sent),
     employeesCount: enrollment.employeesCount,
     overallRank: enrollment.overallRank,
@@ -294,7 +290,7 @@ export class ProgramZohoResyncService {
           },
           data: {
             stage: zoho.stage,
-            isWinner: winnerStatusFromBoolean(zoho.isWinner),
+            isWinner: zoho.isWinner,
             employeesCount: zoho.employeesCount,
             overallRank: zoho.overallRank,
             categoryRank: zoho.categoryRank,

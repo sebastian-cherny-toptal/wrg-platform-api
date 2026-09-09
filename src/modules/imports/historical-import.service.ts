@@ -20,9 +20,8 @@ import {
 import { basename, extname, join } from "node:path";
 import ExcelJS from "exceljs";
 import {
-  winnerBooleanFromExternalValue,
-  winnerBooleanFromStatus,
-  winnerStatusFromBoolean,
+  winnerStatusFromExternalValue,
+  type WinnerStatus,
 } from "../../common/winner-status.js";
 import { PrismaService } from "../../database/prisma.service.js";
 import type { Principal } from "../auth/auth.module.js";
@@ -113,7 +112,7 @@ export interface HistoricalImportMetadata {
   zohoOrganizations?: Array<{
     organizationId: string;
     organizationName?: string;
-    isWinner: boolean | null;
+    isWinner: WinnerStatus | null;
     surveysSent: number;
     stage?: string;
     companySize?: number;
@@ -129,7 +128,7 @@ export interface HistoricalImportMetadata {
     sourceOrganizationId?: string;
     organizationName?: string;
     surveysSent: number;
-    isWinner: boolean | null;
+    isWinner: WinnerStatus | null;
     isIncluded: boolean;
     stage?: string;
     companySize?: number;
@@ -510,7 +509,7 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
           return {
             organizationId,
             ...(organizationName ? { organizationName } : {}),
-            isWinner: winnerBooleanFromExternalValue(entry.isWinner),
+            isWinner: winnerStatusFromExternalValue(entry.isWinner),
             surveysSent,
             ...(stage ? { stage } : {}),
             ...(companySize !== undefined ? { companySize } : {}),
@@ -564,7 +563,7 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
           }
           const overallRank = optionalString(entry, "overallRank");
           const categoryRank = optionalString(entry, "categoryRank");
-          const isWinner = winnerBooleanFromExternalValue(entry.isWinner);
+          const isWinner = winnerStatusFromExternalValue(entry.isWinner);
           const isIncluded = entry.isIncluded !== false;
           const rawCompanySize = entry.companySize;
           const companySize =
@@ -1335,6 +1334,36 @@ export class HistoricalImportService {
     };
   }
 
+  async uploadWorkbook(
+    principal: Principal,
+    importId: string,
+    kind: HistoricalSurveyKind,
+    file: UploadedWorkbookFile,
+  ): Promise<{
+    importId: string;
+    workbook: HistoricalImportWorkbookSummary;
+  }> {
+    this.assertAccess(principal);
+    const draft = await this.loadDraft(importId);
+    if (draft.status === "committing" || draft.status === "succeeded") {
+      throw new ConflictException(
+        "This historical import can no longer be edited",
+      );
+    }
+    const storedWorkbook = this.storeWorkbook(draft, kind, file);
+    const nextDraft: HistoricalImportDraft = {
+      ...draft,
+      stagingDir: ensureStagingDirectory(importId),
+      ...(kind === "EA"
+        ? { eaFile: storedWorkbook }
+        : { efsFile: storedWorkbook }),
+      status: "draft",
+    };
+    const analysis = await this.analyzeWorkbook(nextDraft, storedWorkbook);
+    await this.saveDraft(nextDraft);
+    return { importId, workbook: analysis.summary };
+  }
+
   async matchRankingWorkbook(
     principal: Principal,
     importId: string,
@@ -1373,7 +1402,7 @@ export class HistoricalImportService {
     }
 
     interface RankingEntry {
-      isWinner: boolean;
+      isWinner: WinnerStatus;
       category?: string;
     }
     const byId = new Map<string, RankingEntry>();
@@ -1391,7 +1420,7 @@ export class HistoricalImportService {
         : "";
       const zohoCategory = normalizeZohoCategory(rawCategory);
       const entry: RankingEntry = {
-        isWinner: rawWinner === "yes",
+        isWinner: rawWinner === "yes" ? "Y" : "N",
         ...(zohoCategory ? { category: zohoCategory } : {}),
       };
       const organizationId = organizationIdColumn
@@ -2094,7 +2123,7 @@ export class HistoricalImportService {
     });
     for (const [key, details] of organizationRows) {
       const surveysSent = configuredSent.get(key) ?? details.efsRespondents;
-      const isWinner = configuredWinners.get(key);
+      const isWinner = configuredWinners.get(key) ?? null;
       const isIncluded = configuredIncluded.get(key) ?? true;
       const stage = configuredStages.get(key) ?? "Closed";
       const companySize =
@@ -2158,7 +2187,7 @@ export class HistoricalImportService {
           where: { id: matched.id },
           data: {
             isIncluded,
-            isWinner: winnerStatusFromBoolean(isWinner),
+            isWinner,
             stage,
             employeesCount: employeesCount ?? null,
             overallRank: overallRank ?? null,
@@ -2207,7 +2236,7 @@ export class HistoricalImportService {
         update: {
           stage,
           isIncluded,
-          isWinner: winnerStatusFromBoolean(isWinner),
+          isWinner,
           employeesCount: employeesCount ?? null,
           overallRank: overallRank ?? null,
           categoryRank: categoryRank ?? null,
@@ -2250,7 +2279,7 @@ export class HistoricalImportService {
           externalId: `${importPrefix}:enrollment:${token}`,
           stage,
           isIncluded,
-          isWinner: winnerStatusFromBoolean(isWinner),
+          isWinner,
           employeesCount: employeesCount ?? null,
           overallRank: overallRank ?? null,
           categoryRank: categoryRank ?? null,
@@ -2369,7 +2398,7 @@ export class HistoricalImportService {
           if (
             Number(metrics.Surveys_Sent ?? 0) === surveysSent &&
             enrollment.isIncluded === isIncluded &&
-            winnerBooleanFromStatus(enrollment.isWinner) === isWinner &&
+            enrollment.isWinner === isWinner &&
             (!stage || enrollment.stage === stage) &&
             (companySize === undefined ||
               metrics.Company_Size === companySize) &&
@@ -2388,7 +2417,7 @@ export class HistoricalImportService {
             where: { id: organizationProgramId },
             data: {
               isIncluded,
-              isWinner: winnerStatusFromBoolean(isWinner),
+              isWinner,
               ...(stage ? { stage } : {}),
               ...(employeesCount !== undefined ? { employeesCount } : {}),
               ...(overallRank ? { overallRank } : {}),

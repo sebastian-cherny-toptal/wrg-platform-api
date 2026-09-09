@@ -27,9 +27,7 @@ interface UploadedPart {
   buffer: Buffer;
 }
 
-async function multipartPayload(
-  request: FastifyRequest,
-): Promise<{
+async function multipartPayload(request: FastifyRequest): Promise<{
   fields: Record<string, string>;
   files: Record<string, UploadedPart>;
 }> {
@@ -116,6 +114,35 @@ export class HistoricalImportController {
     return {
       success: true,
       message: "Historical import workbooks uploaded",
+      data,
+    };
+  }
+
+  @Post(":importId/workbooks/:kind")
+  @HttpCode(200)
+  @ApiConsumes("multipart/form-data")
+  async uploadWorkbook(
+    @CurrentUser() principal: Principal,
+    @Param("importId") importId: string,
+    @Param("kind") kind: string,
+    @Req() request: FastifyRequest,
+  ) {
+    const normalizedKind = kind.toUpperCase();
+    if (normalizedKind !== "EA" && normalizedKind !== "EFS") {
+      throw new BadRequestException("Workbook kind must be EA or EFS");
+    }
+    const { files } = await multipartPayload(request);
+    const workbook = files.workbook;
+    if (!workbook) throw new BadRequestException("Upload a workbook");
+    const data = await this.imports.uploadWorkbook(
+      principal,
+      importId,
+      normalizedKind,
+      workbook,
+    );
+    return {
+      success: true,
+      message: "Historical import workbook uploaded",
       data,
     };
   }

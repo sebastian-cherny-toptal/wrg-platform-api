@@ -21,7 +21,7 @@ describe("Baton Rouge ranking extract", () => {
       {
         categoryRank: "24",
         currentYearCategory: "Small",
-        isWinner: true,
+        isWinner: "Y",
         overallRank: "61",
       },
     );
@@ -36,12 +36,9 @@ describe("Baton Rouge ranking extract", () => {
       statuses.get(
         normalizeRankingOrganizationName("Commerce Title & Abstract Company"),
       ),
-      true,
+      "Y",
     );
-    assert.equal(
-      statuses.get(normalizeRankingOrganizationName("b1BANK")),
-      false,
-    );
+    assert.equal(statuses.get(normalizeRankingOrganizationName("b1BANK")), "N");
     assert.equal(
       statuses.has(normalizeRankingOrganizationName("Bear Process Safety")),
       false,
@@ -49,12 +46,12 @@ describe("Baton Rouge ranking extract", () => {
     );
     assert.equal(
       rankingWinnerStatus(2026, "Commerce Title & Abstract Company", statuses),
-      true,
+      "Y",
     );
-    assert.equal(rankingWinnerStatus(2026, "b1BANK", statuses), false);
+    assert.equal(rankingWinnerStatus(2026, "b1BANK", statuses), "N");
     assert.equal(
       rankingWinnerStatus(2025, "Commerce Title & Abstract Company", statuses),
-      false,
+      "N",
       "the 2026 extract must not alter prior-year programs",
     );
   });

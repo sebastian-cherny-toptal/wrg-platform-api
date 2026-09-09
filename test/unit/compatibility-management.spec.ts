@@ -148,7 +148,7 @@ describe("native management compatibility endpoints", () => {
           {
             organizationId: "49",
             organizationName: "Acme Health Group",
-            isWinner: true,
+            isWinner: "Y",
             surveysSent: 60,
             stage: "Closed",
             companySize: 55,
@@ -161,7 +161,7 @@ describe("native management compatibility endpoints", () => {
           {
             organizationId: "99",
             organizationName: "New Zoho Company",
-            isWinner: false,
+            isWinner: "N",
             surveysSent: 10,
             stage: "Invited",
             companySize: 10,
@@ -201,7 +201,7 @@ describe("native management compatibility endpoints", () => {
           next: "Acme Health Group",
         },
         { field: "stage", previous: "Invited", next: "Closed" },
-        { field: "isWinner", previous: false, next: true },
+        { field: "isWinner", previous: "N", next: "Y" },
         { field: "surveysSent", previous: 50, next: 60 },
         { field: "employeesCount", previous: 40, next: 52 },
         { field: "overallRank", previous: "8", next: "4" },
@@ -275,7 +275,7 @@ describe("native management compatibility endpoints", () => {
           {
             organizationId: "49",
             organizationName: "Acme Health Group",
-            isWinner: true,
+            isWinner: "Y",
             surveysSent: 60,
             stage: null,
             companySize: null,

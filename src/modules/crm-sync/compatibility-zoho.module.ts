@@ -13,7 +13,10 @@ import {
 } from "@nestjs/common";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
 import { randomUUID } from "node:crypto";
-import { winnerBooleanFromExternalValue } from "../../common/winner-status.js";
+import {
+  winnerStatusFromExternalValue,
+  type WinnerStatus,
+} from "../../common/winner-status.js";
 import {
   AuthModule,
   CurrentUser,
@@ -28,6 +31,18 @@ import {
 import { CrmSyncModule, SyncQueue } from "./crm-sync.module.js";
 
 type ZohoSyncKind = "Projects" | "Programs" | "Accounts" | "Contacts";
+
+export function normalizeZohoReportCategory(value: unknown): string | null {
+  if (typeof value !== "string" || !value.trim()) return null;
+  const normalized = value
+    .trim()
+    .replace(/^Category\s+/iu, "")
+    .replace(/\s*[-\u2010-\u2015\u2212]\s*/gu, "-")
+    .replace(/\s*,\s*/gu, ",")
+    .replace(/\s*\+\s*$/u, "+")
+    .trim();
+  return normalized || null;
+}
 
 const programFields = [
   "id",
@@ -60,7 +75,7 @@ export interface ProgramOrganization {
   [key: string]: unknown;
   organizationId: string;
   organizationName: string | null;
-  isWinner: boolean | null;
+  isWinner: WinnerStatus | null;
   surveysSent: number;
   stage: string | null;
   companySize: number | null;
@@ -242,7 +257,7 @@ export class CompatibilityZohoService {
           ...deal,
           organizationId,
           organizationName,
-          isWinner: winnerBooleanFromExternalValue(deal.Current_Year_Winner),
+          isWinner: winnerStatusFromExternalValue(deal.Current_Year_Winner),
           surveysSent:
             Number.isInteger(rawSurveysSent) && rawSurveysSent >= 0
               ? rawSurveysSent
@@ -257,7 +272,7 @@ export class CompatibilityZohoService {
               ? rawEmployeesCount
               : null,
           currentZohoCategory: text(deal, "Current_Year_Category"),
-          reportCategory: text(deal, "Report_Category"),
+          reportCategory: normalizeZohoReportCategory(deal.Category_Online),
           overallRank: text(deal, "Current_Year_Overall_Rank"),
           categoryRank: text(deal, "Current_Year_Category_Rank"),
         });
@@ -348,7 +363,7 @@ export class CompatibilityZohoService {
           efsDeadline: text(record, "EFS_end_Date"),
           organizations: organizationsByProgram.get(record.id) ?? [],
           winnerOrganizations: (organizationsByProgram.get(record.id) ?? [])
-            .filter(({ isWinner }) => isWinner === true)
+            .filter(({ isWinner }) => isWinner === "Y")
             .map(
               ({ organizationId, organizationName, currentZohoCategory }) => ({
                 organizationId,

@@ -49,6 +49,79 @@ async function writeWorkbook(
 }
 
 describe("historical import service", () => {
+  it("stores and summarizes one workbook immediately after upload", async () => {
+    const root = mkdtempSync(join(tmpdir(), "historical-import-upload-"));
+    const previousCwd = process.cwd();
+    process.chdir(root);
+    const importId = "import-upload-id";
+    let storedInput: unknown;
+    const prisma = {
+      syncJob: {
+        findFirst: () => ({
+          input: {
+            importId,
+            stagingDir: join(root, "var", "historical-imports", importId),
+            projectName: "Test Project",
+            programName: "Test Program",
+            programYear: 2026,
+            efsLaunchDate: "2026-01-01",
+            efsDeadline: "2026-12-31",
+            status: "draft",
+          },
+        }),
+        updateMany: ({ data }: { data: { input: unknown } }) => {
+          storedInput = data.input;
+          return { count: 1 };
+        },
+      },
+    };
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet("Survey");
+    worksheet.addRow([
+      "Score %",
+      "organization name",
+      "Respondent",
+      "Language",
+      "Date responded",
+      "Reached end",
+      "q_CoreEmployeeExperience_Test",
+    ]);
+    worksheet.addRow([null, "Acme Corp", 1, "en", "2026-01-01", "Yes", 4]);
+    const buffer = Buffer.from(await workbook.xlsx.writeBuffer());
+
+    try {
+      const service = new HistoricalImportService(prisma as never);
+      const result = await service.uploadWorkbook(
+        {
+          sub: "user-1",
+          roles: ["admin"],
+          permissions: [],
+          organizationId: null,
+        },
+        importId,
+        "EA",
+        { filename: "ea.xlsx", buffer },
+      );
+
+      assert.deepEqual(result.workbook, {
+        kind: "EA",
+        fileName: "ea.xlsx",
+        sha256: result.workbook.sha256,
+        questions: 6,
+        organizations: 1,
+        respondents: 1,
+        responses: 6,
+      });
+      assert.equal(
+        (storedInput as { eaFile?: { fileName?: string } }).eaFile?.fileName,
+        "ea.xlsx",
+      );
+    } finally {
+      process.chdir(previousCwd);
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("links the wizard's Zoho project selection to an existing local project", async () => {
     const root = mkdtempSync(
       join(tmpdir(), "historical-import-existing-project-"),
@@ -164,7 +237,7 @@ describe("historical import service", () => {
               organizationKey: "organization-1",
               organizationName: "Acme",
               surveysSent: 20,
-              isWinner: true,
+              isWinner: "Y",
               isIncluded: true,
               currentZohoCategory: "Small/Medium",
               reportCategory: "25-99",
@@ -370,7 +443,7 @@ describe("historical import service", () => {
           organizationKey: "name:acme corp",
           organizationName: "Acme Corp",
           surveysSent: 1,
-          isWinner: true,
+          isWinner: "Y",
           isIncluded: true,
           currentZohoCategory: "Small/Medium",
         },

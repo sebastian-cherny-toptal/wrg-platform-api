@@ -1,11 +1,12 @@
 import ExcelJS from "exceljs";
+import type { WinnerStatus } from "../common/winner-status.js";
 
 export const batonRougeRankingYear = 2026;
 
 export interface BatonRougeRankingData {
   categoryRank: string;
   currentYearCategory: string;
-  isWinner: boolean;
+  isWinner: WinnerStatus;
   overallRank: string;
 }
 
@@ -20,17 +21,17 @@ export function normalizeRankingOrganizationName(value: string): string {
 export function rankingWinnerStatus(
   year: number,
   organizationName: string,
-  statuses: Map<string, boolean>,
-): boolean {
-  if (year !== batonRougeRankingYear) return false;
+  statuses: Map<string, WinnerStatus>,
+): WinnerStatus {
+  if (year !== batonRougeRankingYear) return "N";
   return (
-    statuses.get(normalizeRankingOrganizationName(organizationName)) ?? false
+    statuses.get(normalizeRankingOrganizationName(organizationName)) ?? "N"
   );
 }
 
 export async function loadBatonRougeWinnerStatuses(
   filePath: string,
-): Promise<Map<string, boolean>> {
+): Promise<Map<string, WinnerStatus>> {
   const rankings = await loadBatonRougeRankingData(filePath);
   return new Map(
     [...rankings].map(([organizationName, ranking]) => [
@@ -82,10 +83,10 @@ export async function loadBatonRougeRankingData(
     if (!organizationName || (rawWinner !== "yes" && rawWinner !== "no")) {
       continue;
     }
-    const ranking = {
+    const ranking: BatonRougeRankingData = {
       categoryRank: row.getCell(categoryRankColumn).text.trim(),
       currentYearCategory: row.getCell(categoryColumn).text.trim(),
-      isWinner: rawWinner === "yes",
+      isWinner: rawWinner === "yes" ? "Y" : "N",
       overallRank: row.getCell(overallRankColumn).text.trim(),
     };
     const existing = rankings.get(organizationName);
