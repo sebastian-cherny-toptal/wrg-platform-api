@@ -63,7 +63,6 @@ const adminStub = {
   deleteRole: () => mark("deleteRole"),
   uploadCustomReport: () => mark("uploadCustomReport"),
   uploadKeyImpactAnalysis: () => mark("uploadKeyImpactAnalysis"),
-  uploadBenefitsBestPractices: () => mark("uploadBenefitsBestPractices"),
   deleteAsset: (
     _principal: Principal,
     _id: string,
@@ -817,11 +816,6 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
           headers,
         }),
         app.inject({
-          method: "POST",
-          url: "/admin/organization-programs/enrollment-1/benefits-best-practices",
-          headers,
-        }),
-        app.inject({
           method: "DELETE",
           url: "/admin/keyImpactAnalysis/asset-1",
           headers,
@@ -898,6 +892,12 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
       for (const response of responses) {
         assert.equal(response.statusCode, 200, response.body);
       }
+      const removedBenefitsUpload = await app.inject({
+        method: "POST",
+        url: "/admin/organization-programs/enrollment-1/benefits-best-practices",
+        headers,
+      });
+      assert.equal(removedBenefitsUpload.statusCode, 404);
       assert.deepEqual(Object.fromEntries(calls), {
         createRole: 1,
         updateRole: 1,
@@ -906,7 +906,6 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
         deleteRole: 1,
         uploadCustomReport: 1,
         uploadKeyImpactAnalysis: 1,
-        uploadBenefitsBestPractices: 1,
         "deleteAsset:keyImpactAnalysis": 1,
         "deleteAsset:customReport": 1,
         organizations: 1,

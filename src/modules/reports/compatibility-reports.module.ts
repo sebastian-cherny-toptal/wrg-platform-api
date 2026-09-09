@@ -41,6 +41,10 @@ import {
   type Principal,
 } from "../auth/auth.module.js";
 import {
+  generateBenefitsBestPracticesFromEa,
+  loadBenefitsBestPracticesTemplate,
+} from "./benefits-best-practices-from-ea.js";
+import {
   publishedBenefitsBestPracticesSnapshot,
   type BenefitsBestPracticesSnapshot,
   type PublishedReportHeader,
@@ -2061,13 +2065,26 @@ export class CompatibilityReportsService {
       questions.map(({ id }) => id),
       [context.organizationId],
     );
-    const negative = scoped.filter((response) => {
+    let negative = 0;
+    let negativeDenominator = 0;
+    for (const response of scoped) {
       const caption = responseCaption(response.value)?.toLowerCase();
-      return caption === "disagree" || caption === "strongly disagree";
-    }).length;
-    const denominator = scoped.filter(
-      (response) => responseCaption(response.value)?.toLowerCase() !== "n/a",
-    ).length;
+      if (caption === "n/a" || caption === "not applicable") continue;
+      const score =
+        response.score === null
+          ? caption && /^-?\d+(?:\.\d+)?$/u.test(caption)
+            ? Number(caption)
+            : null
+          : Number(response.score);
+      negativeDenominator += 1;
+      if (
+        caption === "disagree" ||
+        caption === "strongly disagree" ||
+        (score !== null && score >= 1 && score <= 2)
+      ) {
+        negative += 1;
+      }
+    }
     const totalRespondents = await this.prisma.respondent.count({
       where: {
         surveyId: context.survey.id,
@@ -2081,7 +2098,9 @@ export class CompatibilityReportsService {
       data: {
         percentage: String(percentage),
         negativePercentage: String(
-          denominator === 0 ? 0 : (negative * 100) / denominator,
+          negativeDenominator === 0
+            ? 0
+            : (negative * 100) / negativeDenominator,
         ),
         totalRespondents,
         StartDate: context.survey.startsAt,
@@ -2911,7 +2930,9 @@ export class CompatibilityReportsService {
         },
       };
     }
-    const published = this.publishedBenefits(context);
+    const published =
+      (await this.generatedBenefitsFromEa(context)) ??
+      this.publishedBenefits(context);
     if (!published) {
       throw new NotFoundException(
         "Benefits & Best Practices is not available for this program",
@@ -4406,6 +4427,72 @@ export class CompatibilityReportsService {
     context: ReportContext,
   ): BenefitsBestPracticesSnapshot | null {
     return publishedBenefitsBestPracticesSnapshot(context.enrollmentMetadata);
+  }
+
+  private async generatedBenefitsFromEa(
+    context: ReportContext,
+  ): Promise<BenefitsBestPracticesSnapshot | null> {
+    const survey = await this.prisma.survey.findFirst({
+      where: {
+        programId: context.program.id,
+        OR: [
+          { metadata: { path: ["kind"], equals: "employer" } },
+          {
+            title: {
+              contains: "Employer Assessment",
+              mode: "insensitive",
+            },
+          },
+          { externalId: { endsWith: "-ea", mode: "insensitive" } },
+          { externalId: { endsWith: ":ea", mode: "insensitive" } },
+        ],
+      },
+      orderBy: [{ endsAt: "desc" }, { createdAt: "desc" }],
+      select: { id: true },
+    });
+    if (!survey) return null;
+    const respondents = await this.prisma.respondent.findMany({
+      where: {
+        surveyId: survey.id,
+        organizationId: { not: null },
+      },
+      select: {
+        organizationId: true,
+        responses: {
+          select: {
+            value: true,
+            question: { select: { dataLabel: true } },
+          },
+        },
+      },
+    });
+    const answers = respondents.flatMap((respondent) => {
+      if (!respondent.organizationId || respondent.responses.length === 0) {
+        return [];
+      }
+      const values: Record<string, unknown> = {};
+      for (const response of respondent.responses) {
+        values[response.question.dataLabel] = response.value;
+      }
+      return [{ organizationId: respondent.organizationId, values }];
+    });
+    if (answers.length === 0) return null;
+    const groups = this.groups(context).filter(
+      (group) => group.organizationIds.length > 0,
+    );
+    if (groups.length === 0) return null;
+    return generateBenefitsBestPracticesFromEa({
+      template: await loadBenefitsBestPracticesTemplate(),
+      answers,
+      cohorts: groups.map((group) => ({
+        title:
+          group.size === "All"
+            ? "All Size Categories"
+            : `${group.size} Employers`,
+        type: `${group.size.replace(/\s+/gu, "")}_${group.winner}`,
+        organizationIds: group.organizationIds,
+      })),
+    });
   }
 
   private publishedHeaders(headers: PublishedReportHeader[]) {

@@ -137,7 +137,7 @@ async function main(): Promise<void> {
     );
     return (
       containsYear &&
-      /(?:workforce\s+benchmark|benchmark\s+comparisons|benefits\s*&\s*best\s*practices).*\.xlsx$/iu.test(
+      /(?:workforce\s+benchmark|benchmark\s+comparisons).*\.xlsx$/iu.test(
         fileName,
       )
     );

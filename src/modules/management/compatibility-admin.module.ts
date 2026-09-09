@@ -35,10 +35,8 @@ import {
   type Principal,
 } from "../auth/auth.module.js";
 import { CrmSyncModule, SyncQueue } from "../crm-sync/crm-sync.module.js";
-import { parseBenefitsBestPracticesWorkbook } from "../reports/benefits-best-practices-workbook.js";
 
 type JsonRecord = Record<string, unknown>;
-const benefitsWorkbookMaxBytes = 25 * 1024 * 1024;
 
 interface UploadedPart {
   filename: string;
@@ -568,81 +566,6 @@ export class CompatibilityAdminService {
       },
     });
     return { success: true, message: "uploaded successfully" };
-  }
-
-  async uploadBenefitsBestPractices(
-    principal: Principal,
-    enrollmentReference: string,
-    request: FastifyRequest,
-  ) {
-    this.assertAdmin(principal);
-    const { files } = await multipartPayload(request);
-    if (files.length !== 1) {
-      throw new BadRequestException("exactly one workbook is required");
-    }
-    const file = files[0];
-    if (!file || !/\.xlsx$/iu.test(file.filename)) {
-      throw new BadRequestException("an .xlsx workbook is required");
-    }
-    if (file.buffer.length === 0) {
-      throw new BadRequestException("the workbook is empty");
-    }
-    if (file.buffer.length > benefitsWorkbookMaxBytes) {
-      throw new BadRequestException("the workbook must be 25 MB or smaller");
-    }
-    const enrollment = await this.prisma.organizationProgram.findFirst({
-      where: referenceWhere(enrollmentReference),
-      include: { organization: true, program: true },
-    });
-    if (!enrollment) {
-      throw new NotFoundException("Organization program not found");
-    }
-    const sourceFile = file.filename.replace(/[/\\]/gu, "_").slice(-255);
-    let parsed;
-    try {
-      parsed = await parseBenefitsBestPracticesWorkbook(
-        file.buffer,
-        sourceFile,
-      );
-    } catch (error) {
-      throw new BadRequestException(
-        error instanceof Error
-          ? error.message
-          : "the workbook could not be parsed",
-      );
-    }
-    const metadata = jsonObject(enrollment.metadata);
-    const publishedReports = jsonObject(metadata.publishedReports);
-    const snapshot = {
-      ...parsed,
-      uploadedAt: new Date().toISOString(),
-    };
-    await this.prisma.organizationProgram.update({
-      where: { id: enrollment.id },
-      data: {
-        metadata: inputJson({
-          ...metadata,
-          publishedReports: {
-            ...publishedReports,
-            benefitsBestPractices: snapshot,
-          },
-        }),
-      },
-    });
-    return {
-      success: true,
-      message: "Benefits & Best Practices workbook uploaded",
-      data: {
-        organizationId:
-          enrollment.organization.legacyId ?? enrollment.organization.id,
-        programId: enrollment.program.legacyId ?? enrollment.program.id,
-        organizationProgramId: enrollment.legacyId ?? enrollment.id,
-        sourceFile: snapshot.sourceFile,
-        headerCount: snapshot.headers.length,
-        sectionCount: snapshot.sections.length,
-        uploadedAt: snapshot.uploadedAt,
-      },
-    };
   }
 
   async deleteAsset(
@@ -1395,21 +1318,6 @@ export class CompatibilityAdminController {
     @Query() query: Record<string, unknown>,
   ) {
     return this.admin.uploadKeyImpactAnalysis(principal, request, query);
-  }
-
-  @Post("organization-programs/:organizationProgramId/benefits-best-practices")
-  @HttpCode(200)
-  @ApiConsumes("multipart/form-data")
-  uploadBenefitsBestPractices(
-    @CurrentUser() principal: Principal,
-    @Param("organizationProgramId") organizationProgramId: string,
-    @Req() request: FastifyRequest,
-  ) {
-    return this.admin.uploadBenefitsBestPractices(
-      principal,
-      organizationProgramId,
-      request,
-    );
   }
 
   @Delete("keyImpactAnalysis/:id")

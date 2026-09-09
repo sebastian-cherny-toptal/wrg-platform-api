@@ -222,7 +222,7 @@ describe("client login endpoint", () => {
     const enrollment = organizationPrograms[0];
     assert.ok(enrollment);
     assert.equal(enrollment.programId._id, "legacy-program-id");
-    assert.equal(enrollment.reportAccess.BBP_Access, "no");
+    assert.equal(enrollment.reportAccess.BBP_Access, "yes");
     assert.equal(enrollment.metrics.SEV_Filter, "department");
     assert.equal(organizationUpdates, 1);
     assert.equal(auditEntries, 1);

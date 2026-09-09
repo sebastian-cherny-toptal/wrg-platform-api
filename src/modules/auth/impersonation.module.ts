@@ -31,7 +31,6 @@ import {
   JwtAuthGuard,
   type Principal,
 } from "./auth.module.js";
-import { hasPublishedBenefitsBestPractices } from "../reports/benefits-best-practices-workbook.js";
 
 const previewLifetimeMs = 15 * 60 * 1000;
 const entitlementKeys = [
@@ -304,7 +303,7 @@ export class ImpersonationService {
           programId: grant.program.id,
         },
       },
-      select: { isIncluded: true, reportAccess: true, metadata: true },
+      select: { isIncluded: true, reportAccess: true },
     });
     if (enrollment?.isIncluded === false) {
       throw new ForbiddenException("Organization is not included in this program");
@@ -313,12 +312,7 @@ export class ImpersonationService {
     const entitlements = Object.fromEntries(
       entitlementKeys.map((key) => [
         key,
-        key === "BBP_Access" &&
-        !hasPublishedBenefitsBestPractices(enrollment?.metadata)
-          ? "no"
-          : reportAccess[key] === "no"
-            ? "no"
-            : "yes",
+        reportAccess[key] === "no" ? "no" : "yes",
       ]),
     );
     const expiresAt = new Date(Date.now() + previewLifetimeMs).toISOString();

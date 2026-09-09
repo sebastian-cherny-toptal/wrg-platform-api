@@ -335,6 +335,68 @@ describe("compatibility report categories", () => {
     );
   });
 
+  it("calculates dashboard disagreement from imported numeric Likert scores", async () => {
+    const question = benchmarkQuestion("core", "Core Employee Experience", 1);
+    const values = [1, 2, 3, 4, "Not Applicable"] as const;
+    const prisma = {
+      program: {
+        findFirst: () => ({
+          id: "program-1",
+          projectId: "project-1",
+          name: "Test program",
+          year: 2026,
+          startsAt: null,
+          metadata: {},
+          project: { id: "project-1", name: "Test project" },
+        }),
+      },
+      organizationProgram: {
+        findFirst: () => ({
+          id: "enrollment-1",
+          reportAccess: {},
+          metrics: {},
+          metadata: {},
+          organization: { name: "Test organization" },
+        }),
+        findMany: () => [],
+      },
+      survey: {
+        findFirst: () => ({
+          id: "survey-1",
+          title: "Test survey",
+          startsAt: null,
+          endsAt: null,
+        }),
+      },
+      question: { findMany: () => [question] },
+      response: {
+        findMany: () =>
+          values.map((value) => ({
+            questionId: question.id,
+            value,
+            score: typeof value === "number" ? value : null,
+            respondent: { organizationId: "organization-1" },
+          })),
+      },
+      respondent: { count: () => 1 },
+    } as unknown as PrismaService;
+
+    const result = await new CompatibilityReportsService(
+      prisma,
+    ).averageAgreement(
+      {
+        sub: "client-1",
+        organizationId: "organization-1",
+        roles: ["client"],
+        permissions: [],
+      },
+      { selectedProgramId: "program-1", isDummy: false },
+    );
+
+    assert.equal(Number(result.data.percentage), 25);
+    assert.equal(Number(result.data.negativePercentage), 50);
+  });
+
   it("returns dummy report data only for promotional users", async () => {
     const prisma = {
       program: {

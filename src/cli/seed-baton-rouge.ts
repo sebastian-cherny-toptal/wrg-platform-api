@@ -4,7 +4,6 @@ import { createHash } from "node:crypto";
 import {
   existsSync,
   mkdtempSync,
-  readFileSync,
   readdirSync,
   rmSync,
   writeFileSync,
@@ -24,10 +23,8 @@ import {
   type XlsxQuestionDefinition,
 } from "../modules/imports/xlsx-survey-importer.js";
 import {
-  parseBenefitsBestPracticesWorkbook,
   parsePublishedReportHeaders,
   parsePublishedReportValues,
-  type BenefitsBestPracticesSnapshot,
   type PublishedReportHeader,
 } from "../modules/reports/benefits-best-practices-workbook.js";
 import {
@@ -186,7 +183,6 @@ interface WorkforceSnapshot {
 }
 
 interface PublishedReports {
-  benefitsBestPractices: BenefitsBestPracticesSnapshot;
   workforceBenchmark: WorkforceSnapshot;
 }
 
@@ -345,21 +341,12 @@ async function loadPublishedReports(
         fileName.includes(String(year)) &&
         /(?:workforce\s+benchmark|benchmark\s+comparisons)/iu.test(fileName),
     );
-    const benefitsFile = fileNames.find(
-      (fileName) =>
-        fileName.includes(String(year)) &&
-        /benefits\s*&\s*best\s*practices/iu.test(fileName),
-    );
-    if (!workforceFile || !benefitsFile) {
+    if (!workforceFile) {
       throw new Error(
         `Published Baton Rouge report workbooks are missing for ${year} in ${reportSource}`,
       );
     }
     reports.set(year, {
-      benefitsBestPractices: await parseBenefitsBestPracticesWorkbook(
-        readFileSync(join(reportSource, benefitsFile)),
-        benefitsFile,
-      ),
       workforceBenchmark: await parseWorkforceSnapshot(
         join(reportSource, workforceFile),
       ),
@@ -720,35 +707,11 @@ async function verifyImportedData(
       select: {
         categoryRank: true,
         isWinner: true,
-        metadata: true,
         metrics: true,
         overallRank: true,
         organization: { select: { name: true } },
       },
     });
-    const expectedEnrollmentReports = {
-      benefitsBestPractices: expected.benefitsBestPractices,
-    };
-    if (
-      enrollments.length === 0 ||
-      enrollments.some((enrollment) => {
-        const enrollmentMetadata = enrollment.metadata;
-        const enrollmentReports =
-          enrollmentMetadata &&
-          typeof enrollmentMetadata === "object" &&
-          !Array.isArray(enrollmentMetadata)
-            ? enrollmentMetadata.publishedReports
-            : undefined;
-        return (
-          canonicalJson(enrollmentReports) !==
-          canonicalJson(expectedEnrollmentReports)
-        );
-      })
-    ) {
-      throw new Error(
-        `${program.year} organization benefits workbook snapshots did not round-trip through PostgreSQL`,
-      );
-    }
     if (
       program.year === batonRougeRankingYear &&
       enrollments.some((enrollment) => {
@@ -1034,13 +997,7 @@ async function seedSurvey(
           ),
           isWinner,
           overallRank: ranking?.overallRank ?? null,
-          metadata: {
-            publishedReports: JSON.parse(
-              JSON.stringify({
-                benefitsBestPractices: reports.benefitsBestPractices,
-              }),
-            ) as Prisma.InputJsonValue,
-          },
+          metadata: {},
           ...(source.kind === "EFS"
             ? {
                 reportAccess: {
@@ -1075,13 +1032,7 @@ async function seedSurvey(
           ),
           overallRank: ranking?.overallRank ?? null,
           categoryRank: ranking?.categoryRank ?? null,
-          metadata: {
-            publishedReports: JSON.parse(
-              JSON.stringify({
-                benefitsBestPractices: reports.benefitsBestPractices,
-              }),
-            ) as Prisma.InputJsonValue,
-          },
+          metadata: {},
           reportAccess: {
             BBP_Access: "yes",
             EV_Access: "no",

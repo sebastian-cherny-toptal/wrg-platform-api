@@ -54,7 +54,6 @@ import {
   JwtAuthGuard,
   type Principal,
 } from "../auth/auth.module.js";
-import { hasPublishedBenefitsBestPractices } from "../reports/benefits-best-practices-workbook.js";
 
 class ClientLoginDto {
   @ApiProperty({ type: String })
@@ -588,10 +587,7 @@ export class ClientLoginService {
           stage: item.stage,
           reportAccess: {
             ...reportAccess,
-            BBP_Access:
-              benefitsAccess && hasPublishedBenefitsBestPractices(item.metadata)
-                ? "yes"
-                : "no",
+            BBP_Access: benefitsAccess ? "yes" : "no",
           },
           paymentDetails: item.paymentDetails,
           metrics: {
