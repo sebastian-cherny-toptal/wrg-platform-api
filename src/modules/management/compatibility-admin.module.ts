@@ -26,6 +26,7 @@ import type { FastifyRequest } from "fastify";
 import AWS from "aws-sdk";
 import ExcelJS from "exceljs";
 import { createHash, randomUUID } from "node:crypto";
+import { winnerBooleanFromStatus } from "../../common/winner-status.js";
 import type { Env } from "../../config/env.js";
 import { PrismaService } from "../../database/prisma.service.js";
 import {
@@ -707,7 +708,7 @@ export class CompatibilityAdminService {
                 ...jsonObject(enrollment.paymentDetails),
                 ...jsonObject(enrollment.metadata),
                 Stage: enrollment.stage,
-                isWinner: enrollment.isWinner,
+                isWinner: winnerBooleanFromStatus(enrollment.isWinner),
                 isIncluded: enrollment.isIncluded,
                 employees_count: enrollment.employeesCount,
                 overall_rank: enrollment.overallRank,

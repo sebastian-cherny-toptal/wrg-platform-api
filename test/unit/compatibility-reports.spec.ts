@@ -910,7 +910,7 @@ describe("compatibility report categories", () => {
         findMany: () => [
           ...winners.map((organizationId) => ({
             organizationId,
-            isWinner: true,
+            isWinner: "Y",
             currentZohoCategory: "Small/Medium",
             benchmarkCategory: "Super",
             metrics: {
@@ -921,7 +921,7 @@ describe("compatibility report categories", () => {
           })),
           ...nonWinners.map((organizationId) => ({
             organizationId,
-            isWinner: false,
+            isWinner: "N",
             currentZohoCategory: "Small/Medium",
             benchmarkCategory: "Super",
             metrics: {

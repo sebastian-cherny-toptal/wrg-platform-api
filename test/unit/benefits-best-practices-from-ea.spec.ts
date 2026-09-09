@@ -367,7 +367,7 @@ describe("Benefits & Best Practices generation from EA", () => {
         findMany: () =>
           [...winners, ...nonWinners].map((organizationId, index) => ({
             organizationId,
-            isWinner: index < winners.length,
+            isWinner: index < winners.length ? "Y" : "N",
             currentZohoCategory: "Small",
             benchmarkCategory: "Small",
             metrics: {},

@@ -19,6 +19,11 @@ import {
 } from "node:fs";
 import { basename, extname, join } from "node:path";
 import ExcelJS from "exceljs";
+import {
+  winnerBooleanFromExternalValue,
+  winnerBooleanFromStatus,
+  winnerStatusFromBoolean,
+} from "../../common/winner-status.js";
 import { PrismaService } from "../../database/prisma.service.js";
 import type { Principal } from "../auth/auth.module.js";
 import {
@@ -108,7 +113,7 @@ export interface HistoricalImportMetadata {
   zohoOrganizations?: Array<{
     organizationId: string;
     organizationName?: string;
-    isWinner: boolean;
+    isWinner: boolean | null;
     surveysSent: number;
     stage?: string;
     companySize?: number;
@@ -124,7 +129,7 @@ export interface HistoricalImportMetadata {
     sourceOrganizationId?: string;
     organizationName?: string;
     surveysSent: number;
-    isWinner: boolean;
+    isWinner: boolean | null;
     isIncluded: boolean;
     stage?: string;
     companySize?: number;
@@ -505,7 +510,7 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
           return {
             organizationId,
             ...(organizationName ? { organizationName } : {}),
-            isWinner: entry.isWinner === true,
+            isWinner: winnerBooleanFromExternalValue(entry.isWinner),
             surveysSent,
             ...(stage ? { stage } : {}),
             ...(companySize !== undefined ? { companySize } : {}),
@@ -559,7 +564,7 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
           }
           const overallRank = optionalString(entry, "overallRank");
           const categoryRank = optionalString(entry, "categoryRank");
-          const isWinner = entry.isWinner === true;
+          const isWinner = winnerBooleanFromExternalValue(entry.isWinner);
           const isIncluded = entry.isIncluded !== false;
           const rawCompanySize = entry.companySize;
           const companySize =
@@ -1452,7 +1457,7 @@ export class HistoricalImportService {
             : {}),
         organizationName: details.displayName,
         surveysSent: existing?.surveysSent ?? details.efsRespondents,
-        isWinner: ranking?.isWinner ?? existing?.isWinner ?? false,
+        isWinner: ranking?.isWinner ?? existing?.isWinner ?? null,
         isIncluded: existing?.isIncluded !== false,
         ...(existing?.stage ? { stage: existing.stage } : {}),
         ...(existing?.companySize !== undefined
@@ -2089,7 +2094,7 @@ export class HistoricalImportService {
     });
     for (const [key, details] of organizationRows) {
       const surveysSent = configuredSent.get(key) ?? details.efsRespondents;
-      const isWinner = configuredWinners.get(key) ?? false;
+      const isWinner = configuredWinners.get(key);
       const isIncluded = configuredIncluded.get(key) ?? true;
       const stage = configuredStages.get(key) ?? "Closed";
       const companySize =
@@ -2153,7 +2158,7 @@ export class HistoricalImportService {
           where: { id: matched.id },
           data: {
             isIncluded,
-            isWinner,
+            isWinner: winnerStatusFromBoolean(isWinner),
             stage,
             employeesCount: employeesCount ?? null,
             overallRank: overallRank ?? null,
@@ -2202,7 +2207,7 @@ export class HistoricalImportService {
         update: {
           stage,
           isIncluded,
-          isWinner,
+          isWinner: winnerStatusFromBoolean(isWinner),
           employeesCount: employeesCount ?? null,
           overallRank: overallRank ?? null,
           categoryRank: categoryRank ?? null,
@@ -2245,7 +2250,7 @@ export class HistoricalImportService {
           externalId: `${importPrefix}:enrollment:${token}`,
           stage,
           isIncluded,
-          isWinner,
+          isWinner: winnerStatusFromBoolean(isWinner),
           employeesCount: employeesCount ?? null,
           overallRank: overallRank ?? null,
           categoryRank: categoryRank ?? null,
@@ -2364,7 +2369,7 @@ export class HistoricalImportService {
           if (
             Number(metrics.Surveys_Sent ?? 0) === surveysSent &&
             enrollment.isIncluded === isIncluded &&
-            enrollment.isWinner === isWinner &&
+            winnerBooleanFromStatus(enrollment.isWinner) === isWinner &&
             (!stage || enrollment.stage === stage) &&
             (companySize === undefined ||
               metrics.Company_Size === companySize) &&
@@ -2383,7 +2388,7 @@ export class HistoricalImportService {
             where: { id: organizationProgramId },
             data: {
               isIncluded,
-              isWinner,
+              isWinner: winnerStatusFromBoolean(isWinner),
               ...(stage ? { stage } : {}),
               ...(employeesCount !== undefined ? { employeesCount } : {}),
               ...(overallRank ? { overallRank } : {}),

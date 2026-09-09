@@ -23,6 +23,11 @@ import ExcelJS from "exceljs";
 import type { FastifyReply } from "fastify";
 import { Prisma } from "@prisma/client";
 import { createHash } from "node:crypto";
+import {
+  winnerBooleanFromStatus,
+  winnerStatusFromBoolean,
+  type WinnerStatus,
+} from "../../common/winner-status.js";
 import { PrismaService } from "../../database/prisma.service.js";
 import {
   AuthModule,
@@ -171,7 +176,7 @@ interface ResyncEnrollment {
   id: string;
   updatedAt: Date;
   stage: string | null;
-  isWinner: boolean;
+  isWinner: WinnerStatus | null;
   employeesCount: number | null;
   overallRank: string | null;
   categoryRank: string | null;
@@ -229,7 +234,7 @@ function resyncValues(
       metadataString(enrollment.metrics, "Source_Organization_Name") ??
       enrollment.organization.name,
     stage: enrollment.stage,
-    isWinner: enrollment.isWinner,
+    isWinner: winnerBooleanFromStatus(enrollment.isWinner),
     surveysSent: numeric(metrics.Surveys_Sent),
     employeesCount: enrollment.employeesCount,
     overallRank: enrollment.overallRank,
@@ -289,7 +294,7 @@ export class ProgramZohoResyncService {
           },
           data: {
             stage: zoho.stage,
-            isWinner: zoho.isWinner,
+            isWinner: winnerStatusFromBoolean(zoho.isWinner),
             employeesCount: zoho.employeesCount,
             overallRank: zoho.overallRank,
             categoryRank: zoho.categoryRank,
@@ -734,20 +739,23 @@ export class CompatibilityManagementService {
     let nonWinnersCount = 0;
     const categoryCounts: Record<string, number> = {};
     for (const enrollment of program.organizations) {
-      const winner = enrollment.isWinner ? "Yes" : "No";
       const category = normalizeZohoCategory(
         enrollment.currentZohoCategory ??
           metadataString(enrollment.metrics, "Current_Year_Category") ??
           enrollment.benchmarkCategory ??
           metadataString(enrollment.metrics, "Benchmark_Category"),
       );
-      if (enrollment.isWinner) winnersCount += 1;
-      else nonWinnersCount += 1;
+      if (enrollment.isWinner === "Y") winnersCount += 1;
+      if (enrollment.isWinner === "N") nonWinnersCount += 1;
       if (category) {
-        const key = `${category} ${
-          winner === "Yes" ? "Winners" : "Non-Winners"
-        }`;
-        categoryCounts[key] = (categoryCounts[key] ?? 0) + 1;
+        const totalKey = `${category} Total`;
+        categoryCounts[totalKey] = (categoryCounts[totalKey] ?? 0) + 1;
+        if (enrollment.isWinner !== null) {
+          const statusKey = `${category} ${
+            enrollment.isWinner === "Y" ? "Winners" : "Non-Winners"
+          }`;
+          categoryCounts[statusKey] = (categoryCounts[statusKey] ?? 0) + 1;
+        }
       }
     }
     const employerSurveys = program.surveys.filter((survey) => {
@@ -880,9 +888,11 @@ export class CompatibilityManagementService {
         ),
         !enrollment.isIncluded
           ? "Non-selected"
-          : enrollment.isWinner
+          : enrollment.isWinner === "Y"
             ? "Winner"
-            : "Non-Winner",
+            : enrollment.isWinner === "N"
+              ? "Non-Winner"
+              : "Not provided",
         enrollment.currentZohoCategory ??
           metadataString(enrollment.metrics, "Current_Year_Category") ??
           enrollment.benchmarkCategory ??

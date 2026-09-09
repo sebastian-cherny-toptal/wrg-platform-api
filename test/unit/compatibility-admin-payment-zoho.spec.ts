@@ -401,7 +401,7 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
       externalId: `external-${id}`,
       dealExternalId: null,
       stage: "Closed",
-      isWinner: false,
+      isWinner: "N",
       reportAccess: {},
       paymentDetails: {},
       metadata: {},

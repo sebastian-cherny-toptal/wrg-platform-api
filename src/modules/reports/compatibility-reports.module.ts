@@ -33,6 +33,7 @@ import {
 import ExcelJS from "exceljs";
 import type { FastifyReply } from "fastify";
 import { BodyDto } from "../../common/http/body-dto.js";
+import type { WinnerStatus } from "../../common/winner-status.js";
 import { PrismaService } from "../../database/prisma.service.js";
 import {
   AuthModule,
@@ -403,7 +404,7 @@ interface ReportContext {
   };
   organizationPrograms: Array<{
     organizationId: string;
-    isWinner: boolean;
+    isWinner: WinnerStatus | null;
     currentZohoCategory: string | null;
     benchmarkCategory: string | null;
     metrics: Prisma.JsonValue;
@@ -3790,6 +3791,13 @@ export class CompatibilityReportsService {
 
   private groups(context: ReportContext): BenchmarkGroup[] {
     const categorized = context.organizationPrograms.flatMap((enrollment) => {
+      const winner =
+        enrollment.isWinner === "Y"
+          ? ("Yes" as const)
+          : enrollment.isWinner === "N"
+            ? ("No" as const)
+            : null;
+      if (winner === null) return [];
       const category = normalizeZohoCategory(
         enrollment.currentZohoCategory ??
           metadataString(
@@ -3813,7 +3821,7 @@ export class CompatibilityReportsService {
         {
           organizationId: enrollment.organizationId,
           category,
-          winner: enrollment.isWinner ? ("Yes" as const) : ("No" as const),
+          winner,
         },
       ];
     });

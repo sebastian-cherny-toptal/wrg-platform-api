@@ -13,6 +13,7 @@ import {
 } from "@nestjs/common";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
 import { randomUUID } from "node:crypto";
+import { winnerBooleanFromExternalValue } from "../../common/winner-status.js";
 import {
   AuthModule,
   CurrentUser,
@@ -59,7 +60,7 @@ export interface ProgramOrganization {
   [key: string]: unknown;
   organizationId: string;
   organizationName: string | null;
-  isWinner: boolean;
+  isWinner: boolean | null;
   surveysSent: number;
   stage: string | null;
   companySize: number | null;
@@ -241,7 +242,7 @@ export class CompatibilityZohoService {
           ...deal,
           organizationId,
           organizationName,
-          isWinner: text(deal, "Current_Year_Winner")?.toLowerCase() === "yes",
+          isWinner: winnerBooleanFromExternalValue(deal.Current_Year_Winner),
           surveysSent:
             Number.isInteger(rawSurveysSent) && rawSurveysSent >= 0
               ? rawSurveysSent
@@ -347,7 +348,7 @@ export class CompatibilityZohoService {
           efsDeadline: text(record, "EFS_end_Date"),
           organizations: organizationsByProgram.get(record.id) ?? [],
           winnerOrganizations: (organizationsByProgram.get(record.id) ?? [])
-            .filter(({ isWinner }) => isWinner)
+            .filter(({ isWinner }) => isWinner === true)
             .map(
               ({ organizationId, organizationName, currentZohoCategory }) => ({
                 organizationId,

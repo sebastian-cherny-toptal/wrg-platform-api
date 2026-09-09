@@ -113,7 +113,7 @@ describe("native management compatibility endpoints", () => {
                 id: "enrollment-id",
                 updatedAt: new Date("2026-01-01T00:00:00.000Z"),
                 stage: "Invited",
-                isWinner: false,
+                isWinner: "N",
                 employeesCount: 40,
                 overallRank: "8",
                 categoryRank: "3",
@@ -222,7 +222,7 @@ describe("native management compatibility endpoints", () => {
       id: "enrollment-id",
       updatedAt: new Date("2026-01-01T00:00:00.000Z"),
       stage: "Invited",
-      isWinner: false,
+      isWinner: "N",
       employeesCount: 40,
       overallRank: "8",
       categoryRank: "3",
@@ -318,7 +318,7 @@ describe("native management compatibility endpoints", () => {
       { ...update.data, updatedAt: "timestamp" },
       {
         stage: null,
-        isWinner: true,
+        isWinner: "Y",
         employeesCount: null,
         overallRank: null,
         categoryRank: null,
@@ -426,6 +426,55 @@ describe("native management compatibility endpoints", () => {
     }
   });
 
+  it("keeps unknown winner statuses in category totals but not winner subtotals", async () => {
+    const program = {
+      id: "program-id",
+      legacyId: null,
+      externalId: "zoho-program-id",
+      name: "Feedback 2026",
+      year: 2026,
+      currency: "USD",
+      fees: {},
+      metadata: {},
+      startsAt: null,
+      endsAt: null,
+      latestZohoSync: new Date("2026-09-09T00:00:00.000Z"),
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      project: { id: "project-id", legacyId: null, name: "Project" },
+      zohoCategories: [],
+      organizations: ["Y", "N", null].map((isWinner) => ({
+        isWinner,
+        currentZohoCategory: "Small",
+        benchmarkCategory: null,
+        metrics: {},
+      })),
+      surveys: [],
+    };
+    const prisma = {
+      program: { findFirst: () => Promise.resolve(program) },
+    } as unknown as PrismaService;
+    const service = new CompatibilityManagementService(prisma);
+    const result = await service.program(
+      {
+        sub: "admin-id",
+        organizationId: null,
+        roles: ["admin"],
+        permissions: [],
+      },
+      "program-id",
+    );
+
+    assert.deepEqual(result.data.categoriesInfo, {
+      winnersCount: 1,
+      nonWinnersCount: 1,
+      categoryCounts: {
+        "Small Winners": 1,
+        "Small Non-Winners": 1,
+        "Small Total": 3,
+      },
+    });
+  });
+
   it("exports organization connection fields with categories and payments", async () => {
     const prisma = {
       program: {
@@ -441,7 +490,7 @@ describe("native management compatibility endpoints", () => {
             organizations: [
               {
                 stage: "Full Package",
-                isWinner: true,
+                isWinner: "Y",
                 isIncluded: true,
                 currentZohoCategory: "Small/Medium",
                 benchmarkCategory: "Small",
@@ -483,7 +532,7 @@ describe("native management compatibility endpoints", () => {
               },
               {
                 stage: "Closed",
-                isWinner: false,
+                isWinner: "N",
                 isIncluded: false,
                 currentZohoCategory: "Medium",
                 benchmarkCategory: "Medium",

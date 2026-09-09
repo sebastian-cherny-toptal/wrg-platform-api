@@ -17,6 +17,10 @@ import { hash } from "argon2";
 import AdmZip from "adm-zip";
 import ExcelJS from "exceljs";
 import {
+  winnerBooleanFromStatus,
+  winnerStatusFromBoolean,
+} from "../common/winner-status.js";
+import {
   cellScalar,
   forEachXlsxSurveyRow,
   readXlsxSurveyDefinition,
@@ -726,7 +730,8 @@ async function verifyImportedData(
             : {};
         return (
           expectedRanking !== undefined &&
-          (enrollment.isWinner !== expectedRanking.isWinner ||
+          (winnerBooleanFromStatus(enrollment.isWinner) !==
+            expectedRanking.isWinner ||
             enrollment.overallRank !== expectedRanking.overallRank ||
             enrollment.categoryRank !== expectedRanking.categoryRank ||
             metrics.Current_Year_Category !==
@@ -981,7 +986,7 @@ async function seedSurvey(
               ),
             )
           : undefined;
-      const isWinner = ranking?.isWinner ?? false;
+      const isWinner = winnerStatusFromBoolean(ranking?.isWinner ?? false);
       await prisma.organizationProgram.upsert({
         where: {
           organizationId_programId: {
