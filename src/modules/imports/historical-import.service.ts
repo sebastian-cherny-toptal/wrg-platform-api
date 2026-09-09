@@ -631,7 +631,10 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
             const employeeSize = requiredString(entry, "employeeSize");
             const zohoCategoryName =
               optionalString(entry, "zohoCategoryName") ?? tier;
-            const priceCents = Number(entry.priceCents);
+            const priceCents =
+              entry.priceCents === null || entry.priceCents === ""
+                ? Number.NaN
+                : Number(entry.priceCents);
             if (!Number.isInteger(priceCents) || priceCents < 0) {
               throw new BadRequestException(
                 `${tier} category price must be a non-negative amount`,
@@ -647,12 +650,12 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
         );
   if (
     categoryPricing &&
-    (categoryPricing.length !== categoryPricingTiers.length ||
+    (categoryPricing.length === 0 ||
       new Set(categoryPricing.map(({ tier }) => tier)).size !==
-        categoryPricingTiers.length)
+        categoryPricing.length)
   ) {
     throw new BadRequestException(
-      "Category pricing must include Boutique, Small, Medium, Large, Mega, and Major once each",
+      "Category pricing must include at least one uniquely configured Zoho category",
     );
   }
   if (

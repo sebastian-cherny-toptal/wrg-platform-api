@@ -297,27 +297,29 @@ export class CompatibilityZohoService {
         ["Major", "Major_EE_Name", "Major_EE_Size", "Category_1000_Fee"],
       ] as const;
       const pricing = definitions.map(([tier, nameKey, sizeKey, feeKey]) => {
-        const zohoCategoryName = text(record, nameKey) ?? tier;
+        const zohoCategoryName = text(record, nameKey);
         const employeeSize = text(record, sizeKey);
         const rawFee = record[feeKey];
-        const amount = Number(
-          String(rawFee ?? "")
-            .replace(/[^0-9.-]+/gu, "")
-            .trim(),
-        );
-        return employeeSize && Number.isFinite(amount)
+        const normalizedFee = String(rawFee ?? "")
+          .replace(/[^0-9.-]+/gu, "")
+          .trim();
+        const amount = normalizedFee ? Number(normalizedFee) : null;
+        return zohoCategoryName && employeeSize
           ? {
               tier,
               zohoCategoryName,
               employeeSize,
-              priceCents: Math.max(0, Math.round(amount * 100)),
+              priceCents:
+                amount !== null && Number.isFinite(amount)
+                  ? Math.max(0, Math.round(amount * 100))
+                  : null,
             }
           : null;
       });
       const completed = pricing.filter(
         (entry): entry is NonNullable<typeof entry> => entry !== null,
       );
-      return completed.length === definitions.length ? completed : undefined;
+      return completed.length ? completed : undefined;
     };
     const lookup = (record: ZohoRecord, key: string) => {
       const value = record[key];

@@ -638,6 +638,78 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
     assert.equal(requestedFields.has("Deals"), false);
   });
 
+  it("returns only categories configured on a Zoho program and preserves missing prices", async () => {
+    const service = new CompatibilityZohoService(
+      {} as SyncQueue,
+      {
+        listAllRecords: () =>
+          Promise.resolve([
+            {
+              id: "indiana-2026",
+              Name: "Indiana 2026",
+              Program_Year: "2026",
+              Boutique_EE_Name: "Small",
+              Boutique_EE_Size: "15-34 US",
+              Category_15_24_Fee: null,
+              Small_EE_Name: "Small-Medium",
+              Small_EE_Size: "35-74 US",
+              Category_25_99_Fee: null,
+              Medium_EE_Name: "Medium",
+              Medium_EE_Size: "75-249 US",
+              Category_100_199_Fee: null,
+            },
+            {
+              id: "baton-rouge-2026",
+              Name: "Baton Rouge 2026",
+              Program_Year: "2026",
+              Boutique_EE_Name: null,
+              Boutique_EE_Size: null,
+              Category_15_24_Fee: 1080,
+              Small_EE_Name: "Small",
+              Small_EE_Size: "15-49 US",
+              Category_25_99_Fee: 1110,
+            },
+          ]),
+      } as unknown as ZohoAdapter,
+    );
+
+    const programs = await service.listPrograms({
+      sub: "admin-id",
+      organizationId: null,
+      roles: ["admin"],
+      permissions: [],
+    });
+
+    assert.deepEqual(programs[0]?.categoryPricing, [
+      {
+        tier: "Small",
+        zohoCategoryName: "Small",
+        employeeSize: "15-49 US",
+        priceCents: 111_000,
+      },
+    ]);
+    assert.deepEqual(programs[1]?.categoryPricing, [
+      {
+        tier: "Boutique",
+        zohoCategoryName: "Small",
+        employeeSize: "15-34 US",
+        priceCents: null,
+      },
+      {
+        tier: "Small",
+        zohoCategoryName: "Small-Medium",
+        employeeSize: "35-74 US",
+        priceCents: null,
+      },
+      {
+        tier: "Medium",
+        zohoCategoryName: "Medium",
+        employeeSize: "75-249 US",
+        priceCents: null,
+      },
+    ]);
+  });
+
   it("loads only the programs for the selected Zoho project", async () => {
     const requestedCriteria: Array<{ module: string; criteria: string }> = [];
     const service = new CompatibilityZohoService(
