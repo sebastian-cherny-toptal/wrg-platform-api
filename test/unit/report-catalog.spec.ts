@@ -119,6 +119,15 @@ describe("report catalog configuration", () => {
         WBC_Access: "yes",
         BBP_Access: "yes",
       }),
+      false,
+    );
+    assert.equal(
+      hasStandardPackage({
+        WFR_Access: "yes",
+        EV_Access: "yes",
+        WBC_Access: "yes",
+        BBP_Access: "yes",
+      }),
       true,
     );
     assert.equal(hasStandardPackage({}, "Full Package"), true);

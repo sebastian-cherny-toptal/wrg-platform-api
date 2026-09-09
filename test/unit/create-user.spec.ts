@@ -363,6 +363,7 @@ describe("create user endpoint", () => {
     });
     assert.deepEqual(updatedReportAccess, {
       WFR_Access: "yes",
+      EV_Access: "yes",
       WBC_Access: "yes",
       BBP_Access: "yes",
       RD_Access: "yes",

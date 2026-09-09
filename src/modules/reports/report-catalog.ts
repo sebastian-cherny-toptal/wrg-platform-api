@@ -21,6 +21,7 @@ export const RESPONSE_DETAIL_ID = "report-response-detail";
 
 export const standardReportAccessKeys = [
   "WFR_Access",
+  "EV_Access",
   "WBC_Access",
   "BBP_Access",
 ] as const;
