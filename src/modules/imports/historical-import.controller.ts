@@ -46,6 +46,16 @@ async function multipartPayload(request: FastifyRequest): Promise<{
   return { fields, files };
 }
 
+function parseMetadata(fields: Record<string, string>): unknown {
+  try {
+    return JSON.parse(fields.metadata ?? "");
+  } catch {
+    throw new BadRequestException(
+      "Valid historical import metadata is required",
+    );
+  }
+}
+
 @ApiTags("administration historical import")
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
@@ -56,6 +66,48 @@ export class HistoricalImportController {
     private readonly imports: HistoricalImportService,
   ) {}
 
+  @Post("prepare")
+  @HttpCode(200)
+  @ApiConsumes("multipart/form-data")
+  async prepare(
+    @CurrentUser() principal: Principal,
+    @Req() request: FastifyRequest,
+  ) {
+    const { fields, files } = await multipartPayload(request);
+    const data = await this.imports.prepare(principal, parseMetadata(fields), {
+      ...(files.eaFile ? { eaFile: files.eaFile } : {}),
+      ...(files.efsFile ? { efsFile: files.efsFile } : {}),
+    });
+    return {
+      success: true,
+      message: "Historical import prepared",
+      data,
+    };
+  }
+
+  @Post("match-ranking")
+  @HttpCode(200)
+  @ApiConsumes("multipart/form-data")
+  async matchRanking(
+    @CurrentUser() principal: Principal,
+    @Req() request: FastifyRequest,
+  ) {
+    const { fields, files } = await multipartPayload(request);
+    if (!files.rankingFile) {
+      throw new BadRequestException("Upload a ranking workbook");
+    }
+    const data = await this.imports.previewRanking(
+      principal,
+      parseMetadata(fields),
+      files.rankingFile,
+    );
+    return {
+      success: true,
+      message: "Ranking workbook matched",
+      data,
+    };
+  }
+
   @Post("commit")
   @HttpCode(200)
   @ApiConsumes("multipart/form-data")
@@ -64,15 +116,7 @@ export class HistoricalImportController {
     @Req() request: FastifyRequest,
   ) {
     const { fields, files } = await multipartPayload(request);
-    let metadata: unknown;
-    try {
-      metadata = JSON.parse(fields.metadata ?? "");
-    } catch {
-      throw new BadRequestException(
-        "Valid historical import metadata is required",
-      );
-    }
-    const data = await this.imports.submit(principal, metadata, {
+    const data = await this.imports.submit(principal, parseMetadata(fields), {
       ...(files.eaFile ? { eaFile: files.eaFile } : {}),
       ...(files.efsFile ? { efsFile: files.efsFile } : {}),
       ...(files.rankingFile ? { rankingFile: files.rankingFile } : {}),

@@ -1217,6 +1217,81 @@ export class HistoricalImportService {
     }
   }
 
+  async prepare(
+    principal: Principal,
+    input: unknown,
+    files: {
+      eaFile?: UploadedWorkbookFile;
+      efsFile?: UploadedWorkbookFile;
+    },
+  ): Promise<{
+    metadata: HistoricalImportMetadata;
+    validation: HistoricalImportValidationSummary;
+  }> {
+    this.assertAccess(principal);
+    const metadata = await this.resolveMetadataReferences(
+      validateMetadata(input),
+    );
+    const hasEaFile = Boolean(files.eaFile);
+    const hasEfsFile = Boolean(files.efsFile);
+    if (hasEaFile !== hasEfsFile) {
+      throw new BadRequestException(
+        "Upload both EA and EFS workbooks, or leave both empty",
+      );
+    }
+    if (!metadata.programId && (!files.eaFile || !files.efsFile)) {
+      throw new BadRequestException(
+        "Upload both EA and EFS workbooks before continuing",
+      );
+    }
+
+    const importId = randomUUID();
+    const stagingDir = ensureStagingDirectory(importId);
+    let draft: HistoricalImportDraft = {
+      ...metadata,
+      importId,
+      stagingDir,
+      createdByUserId: principal.sub,
+      status: "committing",
+    };
+    try {
+      if (files.eaFile && files.efsFile) {
+        draft = {
+          ...draft,
+          eaFile: this.storeWorkbook(draft, "EA", files.eaFile),
+          efsFile: this.storeWorkbook(draft, "EFS", files.efsFile),
+        };
+      }
+      return {
+        metadata,
+        validation: await this.validateDraft(draft),
+      };
+    } finally {
+      if (existsSync(stagingDir)) {
+        rmSync(stagingDir, { recursive: true, force: true });
+      }
+    }
+  }
+
+  async previewRanking(
+    principal: Principal,
+    input: unknown,
+    rankingFile: UploadedWorkbookFile,
+  ) {
+    this.assertAccess(principal);
+    const metadata = await this.resolveMetadataReferences(
+      validateMetadata(input),
+    );
+    const draft: HistoricalImportDraft = {
+      ...metadata,
+      importId: randomUUID(),
+      stagingDir: "",
+      createdByUserId: principal.sub,
+      status: "committing",
+    };
+    return this.matchRankingWorkbookForDraft(draft, rankingFile);
+  }
+
   private buildOrganizationSummary(
     eaOrganizations: Map<
       string,

@@ -49,6 +49,58 @@ async function writeWorkbook(
 }
 
 describe("historical import service", () => {
+  it("prepares workbook and organization previews without creating a sync job", async () => {
+    const root = mkdtempSync(join(tmpdir(), "historical-import-prepare-"));
+    const previousCwd = process.cwd();
+    process.chdir(root);
+    const eaPath = join(root, "ea.xlsx");
+    const efsPath = join(root, "efs.xlsx");
+    await writeWorkbook(eaPath, "Acme Corp", 1);
+    await writeWorkbook(efsPath, "Acme Corp", 1);
+    let createCalls = 0;
+    const prisma = {
+      syncJob: {
+        create: () => {
+          createCalls += 1;
+        },
+      },
+    };
+
+    try {
+      const service = new HistoricalImportService(prisma as never);
+      const result = await service.prepare(
+        {
+          sub: "user-1",
+          roles: ["admin"],
+          permissions: [],
+          organizationId: null,
+        },
+        {
+          projectName: "Test Project",
+          programName: "Test Program",
+          programYear: 2026,
+          efsLaunchDate: "2026-01-01",
+          efsDeadline: "2026-12-31",
+        },
+        {
+          eaFile: { filename: "ea.xlsx", buffer: readFileSync(eaPath) },
+          efsFile: { filename: "efs.xlsx", buffer: readFileSync(efsPath) },
+        },
+      );
+
+      assert.equal(createCalls, 0);
+      assert.equal(result.validation.blockingErrorCount, 0);
+      assert.equal(result.validation.workbooks.length, 2);
+      assert.equal(
+        result.validation.organizations[0]?.displayName,
+        "Acme Corp",
+      );
+    } finally {
+      process.chdir(previousCwd);
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("creates only a committing job when the complete wizard is submitted", async () => {
     const root = mkdtempSync(join(tmpdir(), "historical-import-submit-"));
     const previousCwd = process.cwd();
