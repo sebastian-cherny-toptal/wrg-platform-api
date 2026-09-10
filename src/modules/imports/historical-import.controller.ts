@@ -1,13 +1,9 @@
 import {
   BadRequestException,
-  Body,
   Controller,
-  Get,
   HttpCode,
   Inject,
-  Param,
   Post,
-  Put,
   Req,
   UseGuards,
   VERSION_NEUTRAL,
@@ -60,153 +56,31 @@ export class HistoricalImportController {
     private readonly imports: HistoricalImportService,
   ) {}
 
-  @Post()
-  @HttpCode(200)
-  createDraft(@CurrentUser() principal: Principal, @Body() body: unknown) {
-    return this.imports.createDraft(principal, body).then((data) => ({
-      success: true,
-      message: "Historical import draft created",
-      data,
-    }));
-  }
-
-  @Put(":importId/metadata")
-  @HttpCode(200)
-  updateMetadata(
-    @CurrentUser() principal: Principal,
-    @Param("importId") importId: string,
-    @Body() body: unknown,
-  ) {
-    return this.imports
-      .updateMetadata(principal, importId, body)
-      .then((data) => ({
-        success: true,
-        message: "Historical import metadata saved",
-        data,
-      }));
-  }
-
-  @Post(":importId/workbooks")
+  @Post("commit")
   @HttpCode(200)
   @ApiConsumes("multipart/form-data")
-  async uploadWorkbooks(
+  async submit(
     @CurrentUser() principal: Principal,
-    @Param("importId") importId: string,
     @Req() request: FastifyRequest,
   ) {
-    const { files } = await multipartPayload(request);
-    const resolvedEa = files.eaFile;
-    const resolvedEfs = files.efsFile;
-    if ((!resolvedEa && resolvedEfs) || (resolvedEa && !resolvedEfs)) {
+    const { fields, files } = await multipartPayload(request);
+    let metadata: unknown;
+    try {
+      metadata = JSON.parse(fields.metadata ?? "");
+    } catch {
       throw new BadRequestException(
-        "Upload both workbooks, or leave both empty",
+        "Valid historical import metadata is required",
       );
     }
-    if (!resolvedEa || !resolvedEfs) {
-      throw new BadRequestException("No workbooks were uploaded");
-    }
-    const data = await this.imports.uploadWorkbooks(
-      principal,
-      importId,
-      resolvedEa,
-      resolvedEfs,
-    );
+    const data = await this.imports.submit(principal, metadata, {
+      ...(files.eaFile ? { eaFile: files.eaFile } : {}),
+      ...(files.efsFile ? { efsFile: files.efsFile } : {}),
+      ...(files.rankingFile ? { rankingFile: files.rankingFile } : {}),
+    });
     return {
-      success: true,
-      message: "Historical import workbooks uploaded",
-      data,
-    };
-  }
-
-  @Post(":importId/workbooks/:kind")
-  @HttpCode(200)
-  @ApiConsumes("multipart/form-data")
-  async uploadWorkbook(
-    @CurrentUser() principal: Principal,
-    @Param("importId") importId: string,
-    @Param("kind") kind: string,
-    @Req() request: FastifyRequest,
-  ) {
-    const normalizedKind = kind.toUpperCase();
-    if (normalizedKind !== "EA" && normalizedKind !== "EFS") {
-      throw new BadRequestException("Workbook kind must be EA or EFS");
-    }
-    const { files } = await multipartPayload(request);
-    const workbook = files.workbook;
-    if (!workbook) throw new BadRequestException("Upload a workbook");
-    const data = await this.imports.uploadWorkbook(
-      principal,
-      importId,
-      normalizedKind,
-      workbook,
-    );
-    return {
-      success: true,
-      message: "Historical import workbook uploaded",
-      data,
-    };
-  }
-
-  @Post(":importId/ranking")
-  @HttpCode(200)
-  @ApiConsumes("multipart/form-data")
-  async matchRankingWorkbook(
-    @CurrentUser() principal: Principal,
-    @Param("importId") importId: string,
-    @Req() request: FastifyRequest,
-  ) {
-    const { files } = await multipartPayload(request);
-    const rankingFile = files.rankingFile;
-    if (!rankingFile) {
-      throw new BadRequestException("Upload a ranking workbook");
-    }
-    const data = await this.imports.matchRankingWorkbook(
-      principal,
-      importId,
-      rankingFile,
-    );
-    return {
-      success: true,
-      message: "Ranking workbook matched",
-      data,
-    };
-  }
-
-  @Post(":importId/validate")
-  @HttpCode(200)
-  validate(
-    @CurrentUser() principal: Principal,
-    @Param("importId") importId: string,
-  ) {
-    return this.imports.validate(principal, importId).then((data) => ({
-      success: true,
-      message: "Historical import validated",
-      data,
-    }));
-  }
-
-  @Post(":importId/commit")
-  @HttpCode(200)
-  commit(
-    @CurrentUser() principal: Principal,
-    @Param("importId") importId: string,
-  ) {
-    return this.imports.commit(principal, importId).then((data) => ({
       success: true,
       message: "Historical import completed",
       data,
-    }));
-  }
-
-  @Get(":importId")
-  status(
-    @CurrentUser() principal: Principal,
-    @Param("importId") importId: string,
-  ) {
-    return this.imports.getStatus(principal, importId).then((data) => ({
-      success: true,
-      message: "Historical import status",
-      data,
-    }));
+    };
   }
 }

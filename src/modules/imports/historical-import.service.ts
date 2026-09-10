@@ -1130,6 +1130,93 @@ export class HistoricalImportService {
     };
   }
 
+  async submit(
+    principal: Principal,
+    input: unknown,
+    files: {
+      eaFile?: UploadedWorkbookFile;
+      efsFile?: UploadedWorkbookFile;
+      rankingFile?: UploadedWorkbookFile;
+    },
+  ): Promise<HistoricalImportStatus> {
+    this.assertAccess(principal);
+    const metadata = await this.resolveMetadataReferences(
+      validateMetadata(input),
+    );
+    const hasEaFile = Boolean(files.eaFile);
+    const hasEfsFile = Boolean(files.efsFile);
+    if (hasEaFile !== hasEfsFile) {
+      throw new BadRequestException(
+        "Upload both EA and EFS workbooks, or leave both empty",
+      );
+    }
+    if (!metadata.programId && (!files.eaFile || !files.efsFile)) {
+      throw new BadRequestException(
+        "Upload both EA and EFS workbooks before creating a program",
+      );
+    }
+
+    const importId = randomUUID();
+    const stagingDir = ensureStagingDirectory(importId);
+    let draft: HistoricalImportDraft = {
+      ...metadata,
+      importId,
+      stagingDir,
+      createdByUserId: principal.sub,
+      status: "committing",
+    };
+
+    try {
+      if (files.eaFile && files.efsFile) {
+        draft = {
+          ...draft,
+          eaFile: this.storeWorkbook(draft, "EA", files.eaFile),
+          efsFile: this.storeWorkbook(draft, "EFS", files.efsFile),
+        };
+      }
+      if (files.rankingFile) {
+        const ranking = await this.matchRankingWorkbookForDraft(
+          draft,
+          files.rankingFile,
+        );
+        draft = {
+          ...draft,
+          organizationPrograms: ranking.organizationPrograms,
+        };
+      }
+
+      const validation = await this.validateDraft(draft);
+      if (validation.blockingErrorCount > 0) {
+        const details = validation.issues
+          .filter(({ level }) => level === "error")
+          .slice(0, 5)
+          .map(({ message }) => message)
+          .join("; ");
+        throw new BadRequestException(
+          details || "Resolve workbook validation errors before importing",
+        );
+      }
+
+      await this.prisma.syncJob.create({
+        data: {
+          provider: "historical-import",
+          kind: "commit",
+          externalId: importId,
+          idempotencyKey: `historical-import:${importId}`,
+          status: "RUNNING",
+          input: draft as unknown as Prisma.InputJsonValue,
+          output: validation as unknown as Prisma.InputJsonValue,
+        },
+      });
+      return await this.commit(principal, importId);
+    } catch (error) {
+      if (existsSync(stagingDir)) {
+        rmSync(stagingDir, { recursive: true, force: true });
+      }
+      throw error;
+    }
+  }
+
   private buildOrganizationSummary(
     eaOrganizations: Map<
       string,
@@ -1370,8 +1457,15 @@ export class HistoricalImportService {
     file: UploadedWorkbookFile,
   ) {
     this.assertAccess(principal);
-    assertXlsxFile(file);
     const draft = await this.loadDraft(importId);
+    return this.matchRankingWorkbookForDraft(draft, file);
+  }
+
+  private async matchRankingWorkbookForDraft(
+    draft: HistoricalImportDraft,
+    file: UploadedWorkbookFile,
+  ) {
+    assertXlsxFile(file);
     if (
       (!draft.eaFile || !draft.efsFile) &&
       !draft.organizationPrograms?.length
@@ -1523,19 +1617,28 @@ export class HistoricalImportService {
   ): Promise<HistoricalImportValidationSummary> {
     this.assertAccess(principal);
     const draft = await this.loadDraft(importId);
+    const summary = await this.validateDraft(draft);
+    await this.saveDraft(
+      {
+        ...draft,
+        status: summary.blockingErrorCount === 0 ? "validated" : "draft",
+      },
+      { output: summary as unknown as Prisma.InputJsonValue },
+    );
+    return summary;
+  }
+
+  private async validateDraft(
+    draft: HistoricalImportDraft,
+  ): Promise<HistoricalImportValidationSummary> {
     if (!draft.eaFile && !draft.efsFile && draft.programId) {
-      const summary: HistoricalImportValidationSummary = {
+      return {
         issues: [],
         workbooks: [],
         organizations: [],
         blockingErrorCount: 0,
         warningCount: 0,
       };
-      await this.saveDraft(
-        { ...draft, status: "validated" },
-        { output: summary as unknown as Prisma.InputJsonValue },
-      );
-      return summary;
     }
     assertStoredWorkbooksReady(draft);
     try {
@@ -1567,13 +1670,6 @@ export class HistoricalImportService {
         blockingErrorCount: eaAnalysis.errorCount + efsAnalysis.errorCount,
         warningCount,
       });
-      await this.saveDraft(
-        {
-          ...draft,
-          status: summary.blockingErrorCount === 0 ? "validated" : "draft",
-        },
-        { output: summary as unknown as Prisma.InputJsonValue },
-      );
       return summary;
     } catch (error) {
       throw toHttpException(error);
@@ -1668,7 +1764,7 @@ export class HistoricalImportService {
         ? (record.output as unknown as HistoricalImportValidationSummary)
         : undefined;
     if (
-      draft.status === "validated" &&
+      (draft.status === "validated" || draft.status === "committing") &&
       cachedValidation?.blockingErrorCount === 0
     ) {
       validation = cachedValidation;

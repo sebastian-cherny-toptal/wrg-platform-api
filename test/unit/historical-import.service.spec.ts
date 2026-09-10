@@ -49,6 +49,75 @@ async function writeWorkbook(
 }
 
 describe("historical import service", () => {
+  it("creates only a committing job when the complete wizard is submitted", async () => {
+    const root = mkdtempSync(join(tmpdir(), "historical-import-submit-"));
+    const previousCwd = process.cwd();
+    process.chdir(root);
+    const eaPath = join(root, "ea.xlsx");
+    const efsPath = join(root, "efs.xlsx");
+    await writeWorkbook(eaPath, "Acme Corp", 1);
+    await writeWorkbook(efsPath, "Acme Corp", 1);
+    let createdJob: Record<string, unknown> | undefined;
+    const prisma = {
+      syncJob: {
+        create: ({ data }: { data: Record<string, unknown> }) => {
+          createdJob = data;
+          return data;
+        },
+      },
+    };
+
+    try {
+      const service = new HistoricalImportService(prisma as never);
+      service.commit = (_principal, importId) =>
+        Promise.resolve({
+          importId,
+          status: "succeeded",
+          metadata: {
+            projectName: "Test Project",
+            programName: "Test Program",
+            programYear: 2026,
+            efsLaunchDate: "2026-01-01",
+            efsDeadline: "2026-12-31",
+          },
+        });
+
+      await service.submit(
+        {
+          sub: "user-1",
+          roles: ["admin"],
+          permissions: [],
+          organizationId: null,
+        },
+        {
+          projectName: "Test Project",
+          programName: "Test Program",
+          programYear: 2026,
+          efsLaunchDate: "2026-01-01",
+          efsDeadline: "2026-12-31",
+        },
+        {
+          eaFile: { filename: "ea.xlsx", buffer: readFileSync(eaPath) },
+          efsFile: { filename: "efs.xlsx", buffer: readFileSync(efsPath) },
+        },
+      );
+
+      assert.ok(createdJob);
+      assert.equal(createdJob.status, "RUNNING");
+      assert.equal(
+        (createdJob.input as { status?: string }).status,
+        "committing",
+      );
+      assert.equal(
+        (createdJob.output as { workbooks?: unknown[] }).workbooks?.length,
+        2,
+      );
+    } finally {
+      process.chdir(previousCwd);
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("stores and summarizes one workbook immediately after upload", async () => {
     const root = mkdtempSync(join(tmpdir(), "historical-import-upload-"));
     const previousCwd = process.cwd();
