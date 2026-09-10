@@ -1167,10 +1167,15 @@ export class HistoricalImportService {
     };
 
     try {
-      if (files.eaFile && files.efsFile) {
+      if (files.eaFile) {
         draft = {
           ...draft,
           eaFile: this.storeWorkbook(draft, "EA", files.eaFile),
+        };
+      }
+      if (files.efsFile) {
+        draft = {
+          ...draft,
           efsFile: this.storeWorkbook(draft, "EFS", files.efsFile),
         };
       }
@@ -1232,16 +1237,9 @@ export class HistoricalImportService {
     const metadata = await this.resolveMetadataReferences(
       validateMetadata(input),
     );
-    const hasEaFile = Boolean(files.eaFile);
-    const hasEfsFile = Boolean(files.efsFile);
-    if (hasEaFile !== hasEfsFile) {
+    if (Boolean(files.eaFile) === Boolean(files.efsFile)) {
       throw new BadRequestException(
-        "Upload both EA and EFS workbooks, or leave both empty",
-      );
-    }
-    if (!metadata.programId && (!files.eaFile || !files.efsFile)) {
-      throw new BadRequestException(
-        "Upload both EA and EFS workbooks before continuing",
+        "Upload exactly one EA or EFS workbook to preview",
       );
     }
 
@@ -1255,16 +1253,21 @@ export class HistoricalImportService {
       status: "committing",
     };
     try {
-      if (files.eaFile && files.efsFile) {
+      if (files.eaFile) {
         draft = {
           ...draft,
           eaFile: this.storeWorkbook(draft, "EA", files.eaFile),
+        };
+      }
+      if (files.efsFile) {
+        draft = {
+          ...draft,
           efsFile: this.storeWorkbook(draft, "EFS", files.efsFile),
         };
       }
       return {
         metadata,
-        validation: await this.validateDraft(draft),
+        validation: await this.validatePreviewDraft(draft),
       };
     } finally {
       if (existsSync(stagingDir)) {
@@ -1746,6 +1749,41 @@ export class HistoricalImportService {
         warningCount,
       });
       return summary;
+    } catch (error) {
+      throw toHttpException(error);
+    }
+  }
+
+  private async validatePreviewDraft(
+    draft: HistoricalImportDraft,
+  ): Promise<HistoricalImportValidationSummary> {
+    try {
+      const storedFile = draft.eaFile ?? draft.efsFile;
+      if (!storedFile) {
+        throw new BadRequestException(
+          "Upload an EA or EFS workbook to preview",
+        );
+      }
+      const kind = draft.eaFile ? "EA" : "EFS";
+      const analysis = await this.analyzeWorkbook(draft, storedFile);
+      return trimValidationSummary({
+        issues: analysis.issues,
+        workbooks: [analysis.summary],
+        organizations: [...analysis.organizations].map(
+          ([key, organization]) => ({
+            key,
+            displayName: organization.displayName,
+            ...(organization.workbookOrganizationId
+              ? { workbookOrganizationId: organization.workbookOrganizationId }
+              : {}),
+            eaRespondents: kind === "EA" ? organization.respondents : 0,
+            efsRespondents: kind === "EFS" ? organization.respondents : 0,
+            warnings: [],
+          }),
+        ),
+        blockingErrorCount: analysis.errorCount,
+        warningCount: analysis.warningCount,
+      });
     } catch (error) {
       throw toHttpException(error);
     }

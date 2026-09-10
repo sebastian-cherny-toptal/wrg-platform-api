@@ -49,14 +49,12 @@ async function writeWorkbook(
 }
 
 describe("historical import service", () => {
-  it("prepares workbook and organization previews without creating a sync job", async () => {
+  it("prepares a single-workbook preview without creating a sync job", async () => {
     const root = mkdtempSync(join(tmpdir(), "historical-import-prepare-"));
     const previousCwd = process.cwd();
     process.chdir(root);
     const eaPath = join(root, "ea.xlsx");
-    const efsPath = join(root, "efs.xlsx");
     await writeWorkbook(eaPath, "Acme Corp", 1);
-    await writeWorkbook(efsPath, "Acme Corp", 1);
     let createCalls = 0;
     const prisma = {
       syncJob: {
@@ -84,13 +82,13 @@ describe("historical import service", () => {
         },
         {
           eaFile: { filename: "ea.xlsx", buffer: readFileSync(eaPath) },
-          efsFile: { filename: "efs.xlsx", buffer: readFileSync(efsPath) },
         },
       );
 
       assert.equal(createCalls, 0);
       assert.equal(result.validation.blockingErrorCount, 0);
-      assert.equal(result.validation.workbooks.length, 2);
+      assert.equal(result.validation.workbooks.length, 1);
+      assert.equal(result.validation.workbooks[0]?.kind, "EA");
       assert.equal(
         result.validation.organizations[0]?.displayName,
         "Acme Corp",
