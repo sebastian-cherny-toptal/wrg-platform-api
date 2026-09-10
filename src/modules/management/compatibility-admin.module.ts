@@ -798,26 +798,64 @@ export class CompatibilityAdminService {
     const data = enrollments.flatMap((enrollment) => {
       const access = jsonObject(enrollment.reportAccess);
       const metrics = jsonObject(enrollment.metrics);
-      const kiaOrder = enrollment.orders.find((order) => includesKia(order.items));
+      const kiaOrder = enrollment.orders.find((order) =>
+        includesKia(order.items),
+      );
       const purchased =
         String(access.KIA_Access ?? "").toLowerCase() === "yes" ||
         typeof metrics.KIA_Order_Status === "string" ||
         Boolean(kiaOrder);
       if (!purchased || uploadedEnrollmentIds.has(enrollment.id)) return [];
-      return [{
-        organizationId: enrollment.organization.id,
-        organizationName: enrollment.organization.name,
-        organizationProgramId: enrollment.id,
-        programId: enrollment.program.id,
-        programName: enrollment.program.name,
-        programYear: enrollment.program.year,
-        projectId: enrollment.project.id,
-        projectName: enrollment.project.name,
-        purchasedAt: (kiaOrder?.updatedAt ?? enrollment.updatedAt).toISOString(),
-        status: String(metrics.KIA_Order_Status ?? "Processing"),
-      }];
+      return [
+        {
+          organizationId: enrollment.organization.id,
+          organizationName: enrollment.organization.name,
+          organizationProgramId: enrollment.id,
+          programId: enrollment.program.id,
+          programName: enrollment.program.name,
+          programYear: enrollment.program.year,
+          projectId: enrollment.project.id,
+          projectName: enrollment.project.name,
+          purchasedAt: (
+            kiaOrder?.updatedAt ?? enrollment.updatedAt
+          ).toISOString(),
+          status: String(metrics.KIA_Order_Status ?? "Processing"),
+        },
+      ];
     });
     return { success: true, data };
+  }
+
+  async viewCounts(principal: Principal) {
+    this.assertAdmin(principal);
+    const visibleOrderStatuses: OrderStatus[] = [
+      "PENDING",
+      "PAID",
+      "INVOICED",
+      "REQUIRES_PAYMENT",
+    ];
+    const [projects, users, orders, activity, roles, pendingKia] =
+      await Promise.all([
+        this.prisma.project.count(),
+        this.prisma.user.count({ where: { status: { not: "DISABLED" } } }),
+        this.prisma.order.count({
+          where: { status: { in: visibleOrderStatuses } },
+        }),
+        this.prisma.auditLog.count(),
+        this.prisma.role.count(),
+        this.pendingKeyImpactAnalyses(principal),
+      ]);
+    return {
+      success: true,
+      data: {
+        projects,
+        users,
+        keyImpactAnalyses: pendingKia.data.length,
+        orders,
+        activity,
+        roles,
+      },
+    };
   }
 
   async orderLogs(
@@ -1356,6 +1394,11 @@ export class CompatibilityAdminController {
   @Get("key-impact-analysis/pending")
   pendingKeyImpactAnalyses(@CurrentUser() principal: Principal) {
     return this.admin.pendingKeyImpactAnalyses(principal);
+  }
+
+  @Get("view-counts")
+  viewCounts(@CurrentUser() principal: Principal) {
+    return this.admin.viewCounts(principal);
   }
 
   @Get("order/log")
