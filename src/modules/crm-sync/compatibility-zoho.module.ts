@@ -29,6 +29,10 @@ import {
   type ZohoRecord,
 } from "../integrations/integrations.module.js";
 import { CrmSyncModule, SyncQueue } from "./crm-sync.module.js";
+import {
+  pricingCategoryNameByTier,
+  programZohoCategoryTiers,
+} from "../programs/program-zoho-category.js";
 
 type ZohoSyncKind = "Projects" | "Programs" | "Accounts" | "Contacts";
 
@@ -94,7 +98,9 @@ export function zohoOrganizationName(
   if (!rawAliasName) return accountName;
   const markerIndex = rawAliasName.lastIndexOf(`-${organizationId}-`);
   if (markerIndex > 0) return rawAliasName.slice(0, markerIndex).trim();
-  const withoutCompositeSuffix = rawAliasName.replace(/-\d{6,}-.+$/u, "").trim();
+  const withoutCompositeSuffix = rawAliasName
+    .replace(/-\d{6,}-.+$/u, "")
+    .trim();
   const parsed = withoutCompositeSuffix.split(" - ")[0]?.trim() ?? "";
   return parsed.length > 0 ? parsed : accountName;
 }
@@ -300,42 +306,41 @@ export class CompatibilityZohoService {
     };
     const categoryPricing = (record: ZohoRecord) => {
       const definitions = [
-        [
-          "Boutique",
-          "Boutique_EE_Name",
-          "Boutique_EE_Size",
-          "Category_15_24_Fee",
-        ],
-        ["Small", "Small_EE_Name", "Small_EE_Size", "Category_25_99_Fee"],
-        ["Medium", "Medium_EE_Name", "Medium_EE_Size", "Category_100_199_Fee"],
-        ["Large", "Large_EE_Name", "Large_EE_Size", "Category_200_499_Fee"],
-        ["Mega", "Mega_EE_Name", "Mega_EE_Size", "Category_500_999_Fee"],
-        ["Major", "Major_EE_Name", "Major_EE_Size", "Category_1000_Fee"],
+        ["Boutique", "Category_15_24_Fee"],
+        ["Small", "Category_25_99_Fee"],
+        ["Medium", "Category_100_199_Fee"],
+        ["Large", "Category_200_499_Fee"],
+        ["Mega", "Category_500_999_Fee"],
+        ["Major", "Category_1000_Fee"],
       ] as const;
-      const pricing = definitions.map(([tier, nameKey, sizeKey, feeKey]) => {
-        const zohoCategoryName = text(record, nameKey);
-        const employeeSize = text(record, sizeKey);
+      return definitions.map(([tier, feeKey]) => {
         const rawFee = record[feeKey];
         const normalizedFee = String(rawFee ?? "")
           .replace(/[^0-9.-]+/gu, "")
           .trim();
         const amount = normalizedFee ? Number(normalizedFee) : null;
-        return zohoCategoryName && employeeSize
-          ? {
-              tier,
-              zohoCategoryName,
-              employeeSize,
-              priceCents:
-                amount !== null && Number.isFinite(amount)
-                  ? Math.max(0, Math.round(amount * 100))
-                  : null,
-            }
-          : null;
+        return {
+          tier,
+          pricingCategoryName: pricingCategoryNameByTier[tier],
+          priceCents:
+            amount !== null && Number.isFinite(amount)
+              ? Math.max(0, Math.round(amount * 100))
+              : null,
+        };
       });
-      const completed = pricing.filter(
-        (entry): entry is NonNullable<typeof entry> => entry !== null,
+    };
+    const benchmarkCategories = (record: ZohoRecord) => {
+      const nameFields = programZohoCategoryTiers.map(
+        (tier) => `${tier}_EE_Name`,
       );
-      return completed.length ? completed : undefined;
+      const seen = new Set<string>();
+      return nameFields.flatMap((field) => {
+        const name = text(record, field);
+        const normalized = name?.toLocaleLowerCase("en") ?? "";
+        if (!name || seen.has(normalized)) return [];
+        seen.add(normalized);
+        return [name];
+      });
     };
     const lookup = (record: ZohoRecord, key: string) => {
       const value = record[key];
@@ -351,6 +356,7 @@ export class CompatibilityZohoService {
     return records
       .map((record) => {
         const pricing = categoryPricing(record);
+        const categories = benchmarkCategories(record);
         const projectLookup = lookup(record, "Project");
         return {
           id: record.id,
@@ -371,7 +377,8 @@ export class CompatibilityZohoService {
                 currentZohoCategory,
               }),
             ),
-          ...(pricing ? { categoryPricing: pricing } : {}),
+          benchmarkCategories: categories,
+          categoryPricing: pricing,
         };
       })
       .sort(

@@ -592,41 +592,43 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
         efsDeadline: "2026-04-30",
         organizations: [],
         winnerOrganizations: [],
+        benchmarkCategories: [
+          "Boutique",
+          "Small/Medium",
+          "Medium",
+          "Large",
+          "Mega",
+          "Major",
+        ],
         categoryPricing: [
           {
             tier: "Boutique",
-            zohoCategoryName: "Boutique",
-            employeeSize: "15-24",
+            pricingCategoryName: "15-24",
             priceCents: 45_000,
           },
           {
             tier: "Small",
-            zohoCategoryName: "Small/Medium",
-            employeeSize: "25-49",
+            pricingCategoryName: "25-99",
             priceCents: 55_000,
           },
           {
             tier: "Medium",
-            zohoCategoryName: "Medium",
-            employeeSize: "100-199",
+            pricingCategoryName: "100-199",
             priceCents: 65_000,
           },
           {
             tier: "Large",
-            zohoCategoryName: "Large",
-            employeeSize: "200-499",
+            pricingCategoryName: "200-499",
             priceCents: 75_000,
           },
           {
             tier: "Mega",
-            zohoCategoryName: "Mega",
-            employeeSize: "500-999",
+            pricingCategoryName: "500-999",
             priceCents: 85_000,
           },
           {
             tier: "Major",
-            zohoCategoryName: "Major",
-            employeeSize: "1000+",
+            pricingCategoryName: "1000+",
             priceCents: 95_000,
           },
         ],
@@ -638,7 +640,7 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
     assert.equal(requestedFields.has("Deals"), false);
   });
 
-  it("returns only categories configured on a Zoho program and preserves missing prices", async () => {
+  it("keeps Category List names separate from all six Pricing Information bands", async () => {
     const service = new CompatibilityZohoService(
       {} as SyncQueue,
       {
@@ -680,33 +682,43 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
       permissions: [],
     });
 
-    assert.deepEqual(programs[0]?.categoryPricing, [
-      {
-        tier: "Small",
-        zohoCategoryName: "Small",
-        employeeSize: "15-49 US",
-        priceCents: 111_000,
-      },
-    ]);
-    assert.deepEqual(programs[1]?.categoryPricing, [
+    assert.deepEqual(programs[0]?.benchmarkCategories, ["Small"]);
+    assert.deepEqual(programs[0].categoryPricing, [
       {
         tier: "Boutique",
-        zohoCategoryName: "Small",
-        employeeSize: "15-34 US",
+        pricingCategoryName: "15-24",
+        priceCents: 108_000,
+      },
+      { tier: "Small", pricingCategoryName: "25-99", priceCents: 111_000 },
+      { tier: "Medium", pricingCategoryName: "100-199", priceCents: null },
+      { tier: "Large", pricingCategoryName: "200-499", priceCents: null },
+      { tier: "Mega", pricingCategoryName: "500-999", priceCents: null },
+      { tier: "Major", pricingCategoryName: "1000+", priceCents: null },
+    ]);
+    assert.deepEqual(programs[1]?.benchmarkCategories, [
+      "Small",
+      "Small-Medium",
+      "Medium",
+    ]);
+    assert.deepEqual(programs[1].categoryPricing, [
+      {
+        tier: "Boutique",
+        pricingCategoryName: "15-24",
         priceCents: null,
       },
       {
         tier: "Small",
-        zohoCategoryName: "Small-Medium",
-        employeeSize: "35-74 US",
+        pricingCategoryName: "25-99",
         priceCents: null,
       },
       {
         tier: "Medium",
-        zohoCategoryName: "Medium",
-        employeeSize: "75-249 US",
+        pricingCategoryName: "100-199",
         priceCents: null,
       },
+      { tier: "Large", pricingCategoryName: "200-499", priceCents: null },
+      { tier: "Mega", pricingCategoryName: "500-999", priceCents: null },
+      { tier: "Major", pricingCategoryName: "1000+", priceCents: null },
     ]);
   });
 

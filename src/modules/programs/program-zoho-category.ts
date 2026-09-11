@@ -9,6 +9,18 @@ export const programZohoCategoryTiers = [
 
 export type ProgramZohoCategoryTier = (typeof programZohoCategoryTiers)[number];
 
+export const pricingCategoryNameByTier: Record<
+  ProgramZohoCategoryTier,
+  string
+> = {
+  Boutique: "15-24",
+  Small: "25-99",
+  Medium: "100-199",
+  Large: "200-499",
+  Mega: "500-999",
+  Major: "1000+",
+};
+
 export const defaultZohoCategoryOrder = [
   "Small",
   "Medium",

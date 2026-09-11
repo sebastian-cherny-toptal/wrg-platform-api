@@ -35,7 +35,6 @@ import {
 } from "../reports/benefits-best-practices-workbook.js";
 import {
   normalizeZohoCategory,
-  normalizeZohoCategoryName,
   programZohoCategoryTiers,
 } from "../programs/program-zoho-category.js";
 import {
@@ -68,8 +67,7 @@ export const categoryPricingTiers = programZohoCategoryTiers;
 
 export interface HistoricalCategoryPricing {
   tier: (typeof categoryPricingTiers)[number];
-  zohoCategoryName: string;
-  employeeSize: string;
+  pricingCategoryName: string;
   priceCents: number;
 }
 
@@ -77,18 +75,16 @@ function categoryPricingMetadata(
   pricing: HistoricalCategoryPricing[] | undefined,
 ): Record<string, string | number> {
   const fields = {
-    Boutique: ["Boutique_EE_Size", "Category_15_24_Fee"],
-    Small: ["Small_EE_Size", "Category_25_99_Fee"],
-    Medium: ["Medium_EE_Size", "Category_100_199_Fee"],
-    Large: ["Large_EE_Size", "Category_200_499_Fee"],
-    Mega: ["Mega_EE_Size", "Category_500_999_Fee"],
-    Major: ["Major_EE_Size", "Category_1000_Fee"],
+    Boutique: "Category_15_24_Fee",
+    Small: "Category_25_99_Fee",
+    Medium: "Category_100_199_Fee",
+    Large: "Category_200_499_Fee",
+    Mega: "Category_500_999_Fee",
+    Major: "Category_1000_Fee",
   } as const;
   const metadata: Record<string, string | number> = {};
-  for (const { tier, employeeSize, priceCents } of pricing ?? []) {
-    const [sizeField, priceField] = fields[tier];
-    metadata[sizeField] = employeeSize;
-    metadata[priceField] = priceCents / 100;
+  for (const { tier, priceCents } of pricing ?? []) {
+    metadata[fields[tier]] = priceCents / 100;
   }
   return metadata;
 }
@@ -140,6 +136,7 @@ export interface HistoricalImportMetadata {
     categoryRank?: string;
   }>;
   reportCatalog?: ReportCatalogProduct[];
+  benchmarkCategories?: string[];
   categoryPricing?: HistoricalCategoryPricing[];
 }
 
@@ -618,6 +615,22 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
     value.reportCatalog === undefined
       ? undefined
       : parseReportCatalog(value.reportCatalog);
+  const benchmarkCategories =
+    value.benchmarkCategories === undefined
+      ? undefined
+      : [
+          ...new Set(
+            (Array.isArray(value.benchmarkCategories)
+              ? value.benchmarkCategories
+              : []
+            ).map((entry) => requiredString({ entry }, "entry")),
+          ),
+        ];
+  if (benchmarkCategories?.length === 0) {
+    throw new BadRequestException(
+      "Benchmark categories must include at least one Category List name",
+    );
+  }
   const categoryPricing =
     value.categoryPricing === undefined
       ? undefined
@@ -632,9 +645,10 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
             ) {
               throw new BadRequestException(`Invalid category tier: ${tier}`);
             }
-            const employeeSize = requiredString(entry, "employeeSize");
-            const zohoCategoryName =
-              optionalString(entry, "zohoCategoryName") ?? tier;
+            const pricingCategoryName =
+              optionalString(entry, "pricingCategoryName") ??
+              optionalString(entry, "employeeSize") ??
+              tier;
             const priceCents =
               entry.priceCents === null || entry.priceCents === ""
                 ? Number.NaN
@@ -646,8 +660,7 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
             }
             return {
               tier: tier as (typeof categoryPricingTiers)[number],
-              zohoCategoryName,
-              employeeSize,
+              pricingCategoryName,
               priceCents,
             };
           },
@@ -659,19 +672,7 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
         categoryPricing.length)
   ) {
     throw new BadRequestException(
-      "Category pricing must include at least one uniquely configured Zoho category",
-    );
-  }
-  if (
-    categoryPricing &&
-    new Set(
-      categoryPricing.map(({ zohoCategoryName }) =>
-        normalizeZohoCategoryName(zohoCategoryName),
-      ),
-    ).size !== categoryPricing.length
-  ) {
-    throw new BadRequestException(
-      "Each Zoho category name must be unique within a program",
+      "Category pricing must include at least one unique pricing band",
     );
   }
   return {
@@ -689,6 +690,7 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
     ...(projectAbbreviation ? { projectAbbreviation } : {}),
     ...(organizationPrograms ? { organizationPrograms } : {}),
     ...(reportCatalog ? { reportCatalog } : {}),
+    ...(benchmarkCategories ? { benchmarkCategories } : {}),
     ...(categoryPricing ? { categoryPricing } : {}),
   };
 }
@@ -1980,6 +1982,9 @@ export class HistoricalImportService {
           categoryPricing: JSON.parse(
             JSON.stringify(draft.categoryPricing ?? []),
           ) as Prisma.InputJsonValue,
+          benchmarkCategories: JSON.parse(
+            JSON.stringify(draft.benchmarkCategories ?? []),
+          ) as Prisma.InputJsonValue,
         },
         fees: Object.fromEntries(
           (draft.reportCatalog ?? []).map(({ id, priceCents }) => [
@@ -2032,8 +2037,8 @@ export class HistoricalImportService {
           data: draft.categoryPricing.map((category, sortOrder) => ({
             programId,
             tier: category.tier,
-            zohoCategoryName: category.zohoCategoryName,
-            employeeSize: category.employeeSize,
+            zohoCategoryName: category.pricingCategoryName,
+            employeeSize: category.pricingCategoryName,
             priceCents: category.priceCents,
             sortOrder,
           })),

@@ -36,7 +36,10 @@ import {
   RESPONSE_DETAIL_ID,
   SORTED_VERBATIMS_ID,
 } from "../reports/report-catalog.js";
-import { normalizeZohoCategory } from "../programs/program-zoho-category.js";
+import {
+  normalizeZohoCategory,
+  pricingCategoryNameByTier,
+} from "../programs/program-zoho-category.js";
 import {
   CompatibilityZohoModule,
   CompatibilityZohoService,
@@ -1037,18 +1040,34 @@ export class CompatibilityManagementService {
     }>;
   }) {
     const metadata = jsonObject(program.metadata);
+    const benchmarkCategories = Array.isArray(metadata.benchmarkCategories)
+      ? metadata.benchmarkCategories
+      : Array.isArray(metadata.categoryPricing)
+        ? metadata.categoryPricing.flatMap((entry) => {
+            if (
+              entry === null ||
+              typeof entry !== "object" ||
+              Array.isArray(entry)
+            ) {
+              return [];
+            }
+            const name = entry.zohoCategoryName;
+            return typeof name === "string" && name.trim() ? [name.trim()] : [];
+          })
+        : undefined;
     const categoryPricing = program.zohoCategories?.length
-      ? program.zohoCategories.map(
-          ({ tier, zohoCategoryName, employeeSize, priceCents }) => ({
-            tier,
-            zohoCategoryName,
-            employeeSize,
-            priceCents,
-          }),
-        )
+      ? program.zohoCategories.map(({ tier, priceCents }) => ({
+          tier,
+          pricingCategoryName:
+            pricingCategoryNameByTier[
+              tier as keyof typeof pricingCategoryNameByTier
+            ],
+          priceCents,
+        }))
       : metadata.categoryPricing;
     return {
       ...metadata,
+      ...(benchmarkCategories?.length ? { benchmarkCategories } : {}),
       ...(Array.isArray(categoryPricing) ? { categoryPricing } : {}),
       _id: program.legacyId ?? program.id,
       id: program.externalId ?? program.id,
