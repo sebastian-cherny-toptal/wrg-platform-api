@@ -61,13 +61,9 @@ const adminStub = {
   manageRole: (_principal: Principal, _body: unknown, mode: string) =>
     mark(`manageRole:${mode}`),
   deleteRole: () => mark("deleteRole"),
-  uploadCustomReport: () => mark("uploadCustomReport"),
   uploadKeyImpactAnalysis: () => mark("uploadKeyImpactAnalysis"),
-  deleteAsset: (
-    _principal: Principal,
-    _id: string,
-    kind: "customReport" | "keyImpactAnalysis",
-  ) => mark(`deleteAsset:${kind}`),
+  deleteKeyImpactAnalysis: () => mark("deleteKeyImpactAnalysis"),
+  deleteCustomReport: () => mark("deleteCustomReport"),
   organizations: (_principal: Principal, reference: string | undefined) =>
     mark(reference ? "organization" : "organizations"),
   orderLogs: () => mark("orderLogs"),
@@ -893,11 +889,6 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
         }),
         app.inject({
           method: "POST",
-          url: "/admin/uploadCustomReport",
-          headers,
-        }),
-        app.inject({
-          method: "POST",
           url: "/admin/uploadKeyImpactAnalysis",
           headers,
         }),
@@ -978,6 +969,12 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
       for (const response of responses) {
         assert.equal(response.statusCode, 200, response.body);
       }
+      const removedCustomReportUpload = await app.inject({
+        method: "POST",
+        url: "/admin/uploadCustomReport",
+        headers,
+      });
+      assert.equal(removedCustomReportUpload.statusCode, 404);
       const removedBenefitsUpload = await app.inject({
         method: "POST",
         url: "/admin/organization-programs/enrollment-1/benefits-best-practices",
@@ -990,10 +987,9 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
         "manageRole:add": 1,
         "manageRole:remove": 1,
         deleteRole: 1,
-        uploadCustomReport: 1,
         uploadKeyImpactAnalysis: 1,
-        "deleteAsset:keyImpactAnalysis": 1,
-        "deleteAsset:customReport": 1,
+        deleteKeyImpactAnalysis: 1,
+        deleteCustomReport: 1,
         organizations: 1,
         organization: 1,
         orderLogs: 1,

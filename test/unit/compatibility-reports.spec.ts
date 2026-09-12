@@ -96,6 +96,13 @@ describe("compatibility report categories", () => {
   });
 
   it("returns an empty key-impact report while the purchased file is awaiting upload", async () => {
+    let keyImpactRows: Array<{
+      id: string;
+      label: string;
+      key: string;
+      value: string;
+      sourceFileName: string;
+    }> = [];
     const prisma = {
       program: {
         findFirst: () => ({
@@ -125,7 +132,7 @@ describe("compatibility report categories", () => {
           endsAt: null,
         }),
       },
-      asset: { findMany: () => [] },
+      keyImpactAnalysisRow: { findMany: () => keyImpactRows },
     } as unknown as PrismaService;
 
     const result = await new CompatibilityReportsService(
@@ -142,6 +149,48 @@ describe("compatibility report categories", () => {
 
     assert.deepEqual(result.data.mapping, {});
     assert.deepEqual(result.data.report, []);
+
+    keyImpactRows = [
+      {
+        id: "kia-row-1",
+        label: "Leadership",
+        key: "leadership",
+        value: "0.42",
+        sourceFileName: "kia.xlsx",
+      },
+      {
+        id: "kia-row-2",
+        label: "Benefits",
+        key: "benefits",
+        value: "27.5",
+        sourceFileName: "kia.xlsx",
+      },
+    ];
+    const uploaded = await new CompatibilityReportsService(
+      prisma,
+    ).keyImpactAnalysis(
+      {
+        sub: "client-1",
+        organizationId: "organization-1",
+        roles: ["client"],
+        permissions: [],
+      },
+      { selectedProgramId: "program-1", isDummy: false },
+    );
+
+    assert.deepEqual(uploaded.data.mapping, {
+      leadership: 42,
+      benefits: 27.5,
+    });
+    assert.deepEqual(uploaded.data.report, [
+      { label: "Leadership", key: "leadership", value: 0.42 },
+      { label: "Benefits", key: "benefits", value: 27.5 },
+    ]);
+    assert.equal(
+      "fileName" in uploaded.data ? uploaded.data.fileName : undefined,
+      "kia.xlsx",
+    );
+    assert.equal(uploaded.data.data.signedUrl, null);
   });
 
   it("includes zero-count standard demographic options", async () => {

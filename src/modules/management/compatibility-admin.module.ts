@@ -25,7 +25,7 @@ import { Prisma, type OrderStatus } from "@prisma/client";
 import type { FastifyRequest } from "fastify";
 import AWS from "aws-sdk";
 import ExcelJS from "exceljs";
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import type { Env } from "../../config/env.js";
 import { PrismaService } from "../../database/prisma.service.js";
 import {
@@ -202,28 +202,9 @@ class CompatibilityAssetStorage {
     @Inject(ConfigService) private readonly config: ConfigService<Env, true>,
   ) {}
 
-  async put(bucket: string, key: string, file: UploadedPart): Promise<void> {
-    if (this.config.get("INTEGRATIONS_MOCK", { infer: true })) return;
-    await this.s3
-      .upload({
-        Bucket: bucket,
-        Key: key,
-        Body: file.buffer,
-        ContentType: file.mimetype,
-      })
-      .promise();
-  }
-
   async remove(bucket: string, key: string): Promise<void> {
     if (this.config.get("INTEGRATIONS_MOCK", { infer: true })) return;
     await this.s3.deleteObject({ Bucket: bucket, Key: key }).promise();
-  }
-
-  url(bucket: string, key: string): string {
-    return `https://${bucket}.s3.amazonaws.com/${key
-      .split("/")
-      .map(encodeURIComponent)
-      .join("/")}`;
   }
 }
 
@@ -370,101 +351,6 @@ export class CompatibilityAdminService {
     return { success: true, message: "Role deleted" };
   }
 
-  async uploadCustomReport(principal: Principal, request: FastifyRequest) {
-    this.assertPermission(principal, "uploadDownloadCustomReportAccess");
-    const { fields, files } = await multipartPayload(request);
-    if (files.length === 0) {
-      throw new BadRequestException("no file uploaded");
-    }
-    const organization = await this.organization(
-      requiredString(fields, "organizationId"),
-    );
-    const program = await this.program(requiredString(fields, "programId"));
-    const project = await this.project(requiredString(fields, "projectId"));
-    const enrollment = await this.enrollment(
-      requiredString(fields, "orgProgramId"),
-      organization.id,
-      program.id,
-    );
-    if (
-      enrollment.projectId !== project.id ||
-      program.projectId !== project.id
-    ) {
-      throw new BadRequestException(
-        "organization, project and program do not match",
-      );
-    }
-    const bucket = "custom-reports-wrg";
-    const reportId = optionalString(fields.reportId);
-    const existingAssets = reportId
-      ? await this.prisma.asset.findMany({
-          where: { organizationId: organization.id },
-        })
-      : [];
-    const existingReport = existingAssets.find((asset) => {
-      const metadata = jsonObject(asset.metadata);
-      return (
-        metadata.kind === "customReport" &&
-        (asset.id === reportId ||
-          asset.legacyId === reportId ||
-          metadata.reportId === reportId)
-      );
-    });
-    const reportReference =
-      reportId ??
-      existingReport?.legacyId ??
-      existingReport?.id ??
-      randomUUID();
-    const assets = [];
-    for (const file of files) {
-      const key = `${enrollment.id}/${randomUUID()}/${file.filename.replace(
-        /[/\\]/gu,
-        "_",
-      )}`;
-      await this.storage.put(bucket, key, file);
-      const fileUrl = this.storage.url(bucket, key);
-      assets.push(
-        await this.prisma.asset.create({
-          data: {
-            ...(reportId && !existingReport && assets.length === 0
-              ? { legacyId: reportId }
-              : {}),
-            organizationId: organization.id,
-            key,
-            bucket,
-            contentType: file.mimetype || "application/octet-stream",
-            sizeBytes: BigInt(file.buffer.length),
-            checksum: createHash("sha256").update(file.buffer).digest("hex"),
-            metadata: inputJson({
-              kind: "customReport",
-              reportId: reportReference,
-              programId: program.id,
-              projectId: project.id,
-              organizationProgramId: enrollment.id,
-              orgProgramId: enrollment.legacyId ?? enrollment.id,
-              organizationId: organization.id,
-              ReportTitle: optionalString(fields.reportTitle) ?? "",
-              ReportDescription: optionalString(fields.reportDescription) ?? "",
-              reportTitle: optionalString(fields.reportTitle) ?? "",
-              reportDescription: optionalString(fields.reportDescription) ?? "",
-              reportFormats: [
-                {
-                  fileName: file.filename,
-                  key,
-                  fileType: file.mimetype,
-                  fileUrl,
-                },
-              ],
-              fileName: file.filename,
-              fileUrl,
-            }),
-          },
-        }),
-      );
-    }
-    return { success: true, message: "success", data: assets };
-  }
-
   async uploadKeyImpactAnalysis(
     principal: Principal,
     request: FastifyRequest,
@@ -505,85 +391,93 @@ export class CompatibilityAdminService {
       const value = cellText(row.getCell(4).value).trim();
       if (label || key || value) report.push({ label, key, value });
     });
-    const bucket = "key-impact-analysis-wrg";
-    const extension = file.filename.includes(".")
-      ? file.filename.split(".").pop()
-      : "xlsx";
-    const key = `${enrollment.id}.${extension}`;
-    await this.storage.put(bucket, key, file);
-    const previous = await this.prisma.asset.findMany({
-      where: { organizationId: organization.id },
-    });
-    const existing = previous.find((asset) => {
-      const metadata = jsonObject(asset.metadata);
-      return (
-        metadata.kind === "keyImpactAnalysis" &&
-        metadata.organizationProgramId === enrollment.id
-      );
-    });
-    const data = {
-      organizationId: organization.id,
-      key,
-      bucket,
-      contentType: file.mimetype || "application/octet-stream",
-      sizeBytes: BigInt(file.buffer.length),
-      checksum: createHash("sha256").update(file.buffer).digest("hex"),
-      metadata: inputJson({
-        kind: "keyImpactAnalysis",
-        programId: program.id,
-        projectId: project.id,
-        organizationProgramId: enrollment.id,
-        orgProgramId: enrollment.legacyId ?? enrollment.id,
-        organizationId: organization.id,
-        fileName: file.filename,
-        fileExtension: extension,
-        signedUrl: this.storage.url(bucket, key),
-        report,
+    if (report.length === 0) {
+      throw new BadRequestException("workbook has no data rows");
+    }
+    await this.prisma.$transaction([
+      this.prisma.keyImpactAnalysisRow.deleteMany({
+        where: { organizationProgramId: enrollment.id },
       }),
+      this.prisma.keyImpactAnalysisRow.createMany({
+        data: report.map((row, index) => ({
+          organizationProgramId: enrollment.id,
+          position: index + 1,
+          label: row.label,
+          key: row.key,
+          value: row.value,
+          sourceFileName: file.filename,
+        })),
+      }),
+      this.prisma.organizationProgram.update({
+        where: { id: enrollment.id },
+        data: {
+          reportAccess: inputJson({
+            ...jsonObject(enrollment.reportAccess),
+            KIA_Access: "yes",
+          }),
+          metrics: inputJson({
+            ...jsonObject(enrollment.metrics),
+            KIA_Order_Status: "Delivered",
+          }),
+        },
+      }),
+    ]);
+    return {
+      success: true,
+      message: "uploaded successfully",
+      data: { rowCount: report.length },
     };
-    if (existing && existing.key !== key) {
-      await this.storage.remove(existing.bucket, existing.key);
-    }
-    await this.prisma.asset.upsert({
-      where: { key },
-      update: data,
-      create: data,
-    });
-    if (existing && existing.key !== key) {
-      await this.prisma.asset.delete({ where: { id: existing.id } });
-    }
-    await this.prisma.organizationProgram.update({
-      where: { id: enrollment.id },
-      data: {
-        reportAccess: inputJson({
-          ...jsonObject(enrollment.reportAccess),
-          KIA_Access: "yes",
-        }),
-        metrics: inputJson({
-          ...jsonObject(enrollment.metrics),
-          KIA_Order_Status: "Delivered",
-        }),
-      },
-    });
-    return { success: true, message: "uploaded successfully" };
   }
 
-  async deleteAsset(
-    principal: Principal,
-    reference: string,
-    kind: "customReport" | "keyImpactAnalysis",
-  ) {
-    this.assertPermission(
-      principal,
-      kind === "customReport"
-        ? "uploadDownloadCustomReportAccess"
-        : "uploadKeyImpactAnalysisAccess",
-    );
+  async deleteKeyImpactAnalysis(principal: Principal, reference: string) {
+    this.assertPermission(principal, "uploadKeyImpactAnalysisAccess");
+    const row = isUuid(reference)
+      ? await this.prisma.keyImpactAnalysisRow.findFirst({
+          where: {
+            OR: [{ id: reference }, { organizationProgramId: reference }],
+          },
+          select: { organizationProgramId: true },
+        })
+      : null;
+    const referencedEnrollment = row
+      ? null
+      : await this.prisma.organizationProgram.findFirst({
+          where: referenceWhere(reference),
+          select: { id: true },
+        });
+    const organizationProgramId =
+      row?.organizationProgramId ?? referencedEnrollment?.id;
+    if (!organizationProgramId) {
+      return { success: false, message: "No data found to delete" };
+    }
+    const enrollment = await this.prisma.organizationProgram.findUnique({
+      where: { id: organizationProgramId },
+      select: { metrics: true },
+    });
+    const [, deleted] = await this.prisma.$transaction([
+      this.prisma.organizationProgram.update({
+        where: { id: organizationProgramId },
+        data: {
+          metrics: inputJson({
+            ...jsonObject(enrollment?.metrics),
+            KIA_Order_Status: "Processing",
+          }),
+        },
+      }),
+      this.prisma.keyImpactAnalysisRow.deleteMany({
+        where: { organizationProgramId },
+      }),
+    ]);
+    return { success: true, data: { deletedCount: deleted.count } };
+  }
+
+  async deleteCustomReport(principal: Principal, reference: string) {
+    this.assertPermission(principal, "uploadDownloadCustomReportAccess");
     const candidates = await this.prisma.asset.findMany();
     const asset = candidates.find((candidate) => {
       const metadata = jsonObject(candidate.metadata);
       return (
-        metadata.kind === kind &&
+        metadata.kind === "customReport" &&
         (candidate.id === reference ||
           candidate.legacyId === reference ||
           metadata.reportId === reference)
@@ -597,7 +491,9 @@ export class CompatibilityAdminService {
       typeof reportId === "string"
         ? candidates.filter((candidate) => {
             const metadata = jsonObject(candidate.metadata);
-            return metadata.kind === kind && metadata.reportId === reportId;
+            return (
+              metadata.kind === "customReport" && metadata.reportId === reportId
+            );
           })
         : [asset];
     await Promise.all(
@@ -762,6 +658,10 @@ export class CompatibilityAdminService {
         organization: true,
         program: true,
         project: true,
+        keyImpactAnalysisRows: {
+          select: { id: true },
+          take: 1,
+        },
         orders: {
           where: { status: "PAID" },
           orderBy: { updatedAt: "desc" },
@@ -769,24 +669,6 @@ export class CompatibilityAdminService {
       },
       orderBy: { updatedAt: "desc" },
     });
-    const organizationIds = [
-      ...new Set(enrollments.map(({ organizationId }) => organizationId)),
-    ];
-    const assets = organizationIds.length
-      ? await this.prisma.asset.findMany({
-          where: { organizationId: { in: organizationIds } },
-          select: { metadata: true },
-        })
-      : [];
-    const uploadedEnrollmentIds = new Set(
-      assets.flatMap(({ metadata }) => {
-        const value = jsonObject(metadata);
-        return value.kind === "keyImpactAnalysis" &&
-          typeof value.organizationProgramId === "string"
-          ? [value.organizationProgramId]
-          : [];
-      }),
-    );
     const includesKia = (items: Prisma.JsonValue): boolean => {
       const entries = Array.isArray(items) ? items : [items];
       return entries.some((entry) => {
@@ -805,7 +687,7 @@ export class CompatibilityAdminService {
         String(access.KIA_Access ?? "").toLowerCase() === "yes" ||
         typeof metrics.KIA_Order_Status === "string" ||
         Boolean(kiaOrder);
-      if (!purchased || uploadedEnrollmentIds.has(enrollment.id)) return [];
+      if (!purchased || enrollment.keyImpactAnalysisRows.length > 0) return [];
       return [
         {
           organizationId: enrollment.organization.id,
@@ -1337,16 +1219,6 @@ export class CompatibilityAdminController {
     return this.admin.deleteRole(principal, body);
   }
 
-  @Post("uploadCustomReport")
-  @HttpCode(200)
-  @ApiConsumes("multipart/form-data")
-  uploadCustomReport(
-    @CurrentUser() principal: Principal,
-    @Req() request: FastifyRequest,
-  ) {
-    return this.admin.uploadCustomReport(principal, request);
-  }
-
   @Post("uploadKeyImpactAnalysis")
   @HttpCode(200)
   @ApiConsumes("multipart/form-data")
@@ -1363,7 +1235,7 @@ export class CompatibilityAdminController {
     @CurrentUser() principal: Principal,
     @Param("id") id: string,
   ) {
-    return this.admin.deleteAsset(principal, id, "keyImpactAnalysis");
+    return this.admin.deleteKeyImpactAnalysis(principal, id);
   }
 
   @Delete("customReport/:id")
@@ -1371,7 +1243,7 @@ export class CompatibilityAdminController {
     @CurrentUser() principal: Principal,
     @Param("id") id: string,
   ) {
-    return this.admin.deleteAsset(principal, id, "customReport");
+    return this.admin.deleteCustomReport(principal, id);
   }
 
   @Get("getOrganizations")

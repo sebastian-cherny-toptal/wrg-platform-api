@@ -144,10 +144,27 @@ model OrganizationProgram {
   program             Program       @relation(fields: [programId], references: [id], onDelete: Cascade)
   users               User[]
   orders              Order[]
+  keyImpactAnalysisRows KeyImpactAnalysisRow[]
 
   @@unique([organizationId, programId])
   @@index([projectId])
   @@index([dealExternalId])
+}
+
+model KeyImpactAnalysisRow {
+  id                    String              @id @default(uuid()) @db.Uuid
+  organizationProgramId String              @db.Uuid
+  position              Int
+  label                 String
+  key                   String
+  value                 String
+  sourceFileName        String?             @map("source_file_name")
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+  organizationProgram   OrganizationProgram @relation(fields: [organizationProgramId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationProgramId, position])
+  @@index([organizationProgramId])
 }
 
 model User {

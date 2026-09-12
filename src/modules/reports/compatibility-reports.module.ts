@@ -3146,34 +3146,16 @@ export class CompatibilityReportsService {
         },
       };
     }
-    const assets = await this.prisma.asset.findMany({
-      where: { organizationId: context.organizationId },
-      orderBy: { createdAt: "desc" },
+    const rows = await this.prisma.keyImpactAnalysisRow.findMany({
+      where: { organizationProgramId: context.enrollmentId },
+      orderBy: { position: "asc" },
     });
-    const asset = assets.find((candidate) => {
-      const metadata = jsonObject(candidate.metadata);
-      return (
-        metadata.kind === "keyImpactAnalysis" &&
-        (metadata.organizationProgramId === context.enrollmentId ||
-          metadata.programId === context.program.id)
-      );
+    const storedReport = rows.flatMap((row) => {
+      const value = Number(row.value);
+      return Number.isFinite(value)
+        ? [{ label: row.label, key: row.key, value }]
+        : [];
     });
-    const metadata = asset ? jsonObject(asset.metadata) : {};
-    const uploadedReport = Array.isArray(metadata.report)
-      ? metadata.report.flatMap((entry) => {
-          const item = jsonObject(entry);
-          const value = Number(item.value);
-          if (
-            typeof item.label !== "string" ||
-            typeof item.key !== "string" ||
-            !Number.isFinite(value)
-          ) {
-            return [];
-          }
-          return [{ label: item.label, key: item.key, value }];
-        })
-      : [];
-    const storedReport = uploadedReport;
     const mapping = Object.fromEntries(
       storedReport.map((item) => {
         const percentage = item.value <= 1 ? item.value * 100 : item.value;
@@ -3184,12 +3166,12 @@ export class CompatibilityReportsService {
       success: true,
       message: "success",
       data: {
-        ...(asset ? { _id: asset.legacyId ?? asset.id, key: asset.key } : {}),
-        fileName: metadata.fileName,
+        ...(rows[0] ? { _id: rows[0].id } : {}),
+        fileName: rows[0]?.sourceFileName,
         mapping,
         report: storedReport,
         data: {
-          signedUrl: metadata.signedUrl ?? null,
+          signedUrl: null,
         },
       },
     };
