@@ -155,6 +155,8 @@ async function createTestApp(): Promise<NestFastifyApplication> {
 
 describe("native admin, payment and Zoho compatibility endpoints", () => {
   it("returns purchaser, payment, product and sorting details in order logs", async () => {
+    const sortingQuestionReference =
+      "seed-br-question-2026-efs-0dbcf364a57f";
     const service = new CompatibilityAdminService(
       {
         order: {
@@ -167,10 +169,10 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
                 currency: "USD",
                 items: [
                   {
-                    title: "Sorted Employee Verbatims Department",
+                    title: `Sorted Employee Verbatims ${sortingQuestionReference}`,
                     keys: {
                       productId: "report-verbatims-sorted",
-                      EV_Sorting_Filter: "Department",
+                      EV_Sorting_Filter: sortingQuestionReference,
                     },
                   },
                 ],
@@ -205,6 +207,18 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
             ]),
           count: () => Promise.resolve(1),
         },
+        question: {
+          findMany: () =>
+            Promise.resolve([
+              {
+                id: "00000000-0000-4000-8000-000000000001",
+                legacyId: null,
+                externalId: sortingQuestionReference,
+                dataLabel: "f_personaldemographics_agegeneration",
+                metadata: { categoryLabel: "Age Generation" },
+              },
+            ]),
+        },
         $transaction: (operations: Array<Promise<unknown>>) =>
           Promise.all(operations),
       } as never,
@@ -233,6 +247,7 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
           amount,
           currency,
           sortingFilter,
+          sortingFilterLabel,
           programName,
         }) => ({
           productName,
@@ -241,17 +256,19 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
           amount,
           currency,
           sortingFilter,
+          sortingFilterLabel,
           programName,
         }),
       ),
       [
         {
-          productName: "Sorted Employee Verbatims Department",
+          productName: `Sorted Employee Verbatims ${sortingQuestionReference}`,
           purchaserUsername: "acme-buyer",
           client: "Acme Health",
           amount: 42_500,
           currency: "USD",
-          sortingFilter: "Department",
+          sortingFilter: sortingQuestionReference,
+          sortingFilterLabel: "Age Generation",
           programName: "Feedback 2026",
         },
       ],

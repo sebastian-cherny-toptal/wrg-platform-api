@@ -116,6 +116,36 @@ function referenceWhere(reference: string) {
     : { OR: [{ legacyId: reference }, { externalId: reference }] };
 }
 
+const sortingFilterLabels: Array<[string, string]> = [
+  ["agegeneration", "Age Generation"],
+  ["department", "Department"],
+  ["employmentlength", "Employment Length"],
+  ["ethnicorigin", "Race/Ethnicity"],
+  ["gender", "Gender"],
+  ["joblevel", "Job Level"],
+  ["jobstatus", "Job Status"],
+  ["race", "Race/Ethnicity"],
+  ["workplacesetting", "Workplace Setting"],
+];
+
+function sortingFilterQuestionLabel(question: {
+  dataLabel: string;
+  metadata: unknown;
+}): string {
+  const metadata = jsonObject(question.metadata);
+  const configured =
+    optionalString(metadata.categoryLabel) ??
+    optionalString(metadata.filterLabel);
+  if (configured) return configured;
+  const normalized = question.dataLabel
+    .replace(/[^a-z0-9]/giu, "")
+    .toLowerCase();
+  return (
+    sortingFilterLabels.find(([key]) => normalized.includes(key))?.[1] ??
+    question.dataLabel
+  );
+}
+
 function roleReferenceWhere(reference: string): Prisma.RoleWhereInput {
   return isUuid(reference)
     ? { id: reference }
@@ -781,6 +811,50 @@ export class CompatibilityAdminService {
       }),
       this.prisma.order.count({ where }),
     ]);
+    const sortingFilterReferences = [
+      ...new Set(
+        orders.flatMap((order) => {
+          const rawItems = Array.isArray(order.items)
+            ? order.items
+            : [order.items];
+          return rawItems.flatMap((item) => {
+            const value = jsonObject(item);
+            const keys = jsonObject(value.keys);
+            const reference = optionalString(
+              keys.EV_Sorting_Filter ?? value.EV_Sorting_Filter,
+            );
+            return reference ? [reference] : [];
+          });
+        }),
+      ),
+    ];
+    const sortingQuestions = sortingFilterReferences.length
+      ? await this.prisma.question.findMany({
+          where: {
+            OR: sortingFilterReferences.map((reference) =>
+              referenceWhere(reference),
+            ),
+          },
+          select: {
+            id: true,
+            legacyId: true,
+            externalId: true,
+            dataLabel: true,
+            metadata: true,
+          },
+        })
+      : [];
+    const sortingFilterLabelByReference = new Map<string, string>();
+    for (const question of sortingQuestions) {
+      const label = sortingFilterQuestionLabel(question);
+      for (const reference of [
+        question.id,
+        question.legacyId,
+        question.externalId,
+      ]) {
+        if (reference) sortingFilterLabelByReference.set(reference, label);
+      }
+    }
     return {
       success: true,
       data: orders.map((order) => {
@@ -812,6 +886,9 @@ export class CompatibilityAdminService {
           client: order.organization.name,
           organizationName: order.organization.name,
           sortingFilter: sortingFilter ?? null,
+          sortingFilterLabel: sortingFilter
+            ? (sortingFilterLabelByReference.get(sortingFilter) ?? null)
+            : null,
           programName: program?.name ?? null,
           keys: jsonObject(order.items).keys ?? order.items,
           isPaid: order.status === "PAID",
