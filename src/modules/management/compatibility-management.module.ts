@@ -37,6 +37,8 @@ import {
   SORTED_VERBATIMS_ID,
 } from "../reports/report-catalog.js";
 import {
+  benchmarkCategoryNames,
+  usesDefaultBenchmarkCategory,
   normalizeZohoCategory,
   pricingCategoryNameByTier,
 } from "../programs/program-zoho-category.js";
@@ -339,6 +341,7 @@ export class ProgramZohoResyncService {
         id: true,
         legacyId: true,
         externalId: true,
+        metadata: true,
         organizations: {
           select: {
             id: true,
@@ -368,6 +371,13 @@ export class ProgramZohoResyncService {
     const matches: ResyncMatch[] = [];
     const unmatchedZoho: ProgramZohoResyncPreview["unmatchedZoho"] = [];
     for (const zohoOrganization of zohoOrganizations) {
+      if (
+        usesDefaultBenchmarkCategory(
+          jsonObject(program.metadata).benchmarkCategories,
+        )
+      ) {
+        zohoOrganization.currentZohoCategory = "Default";
+      }
       const sourceId = zohoOrganization.organizationId.trim();
       const normalizedName = normalizedOrganizationIdentity(
         zohoOrganization.organizationName,
@@ -738,12 +748,16 @@ export class CompatibilityManagementService {
     let nonWinnersCount = 0;
     const categoryCounts: Record<string, number> = {};
     for (const enrollment of program.organizations) {
-      const category = normalizeZohoCategory(
-        enrollment.currentZohoCategory ??
-          metadataString(enrollment.metrics, "Current_Year_Category") ??
-          enrollment.benchmarkCategory ??
-          metadataString(enrollment.metrics, "Benchmark_Category"),
-      );
+      const category = usesDefaultBenchmarkCategory(
+        jsonObject(program.metadata).benchmarkCategories,
+      )
+        ? "Default"
+        : normalizeZohoCategory(
+            enrollment.currentZohoCategory ??
+              metadataString(enrollment.metrics, "Current_Year_Category") ??
+              enrollment.benchmarkCategory ??
+              metadataString(enrollment.metrics, "Benchmark_Category"),
+          );
       if (enrollment.isWinner === "Y") winnersCount += 1;
       if (enrollment.isWinner === "N") nonWinnersCount += 1;
       if (category) {
@@ -892,11 +906,15 @@ export class CompatibilityManagementService {
             : enrollment.isWinner === "N"
               ? "Non-Winner"
               : "Not provided",
-        enrollment.currentZohoCategory ??
-          metadataString(enrollment.metrics, "Current_Year_Category") ??
-          enrollment.benchmarkCategory ??
-          metadataString(enrollment.metrics, "Benchmark_Category") ??
-          "",
+        usesDefaultBenchmarkCategory(
+          jsonObject(program.metadata).benchmarkCategories,
+        )
+          ? "Default"
+          : (enrollment.currentZohoCategory ??
+            metadataString(enrollment.metrics, "Current_Year_Category") ??
+            enrollment.benchmarkCategory ??
+            metadataString(enrollment.metrics, "Benchmark_Category") ??
+            ""),
         enrollment.categoryRank ?? "",
         enrollment.overallRank ?? "",
       ]);
@@ -1040,21 +1058,9 @@ export class CompatibilityManagementService {
     }>;
   }) {
     const metadata = jsonObject(program.metadata);
-    const benchmarkCategories = Array.isArray(metadata.benchmarkCategories)
-      ? metadata.benchmarkCategories
-      : Array.isArray(metadata.categoryPricing)
-        ? metadata.categoryPricing.flatMap((entry) => {
-            if (
-              entry === null ||
-              typeof entry !== "object" ||
-              Array.isArray(entry)
-            ) {
-              return [];
-            }
-            const name = entry.zohoCategoryName;
-            return typeof name === "string" && name.trim() ? [name.trim()] : [];
-          })
-        : undefined;
+    const benchmarkCategories = benchmarkCategoryNames(
+      metadata.benchmarkCategories,
+    );
     const categoryPricing = program.zohoCategories?.length
       ? program.zohoCategories.map(({ tier, priceCents }) => ({
           tier,
@@ -1067,7 +1073,7 @@ export class CompatibilityManagementService {
       : metadata.categoryPricing;
     return {
       ...metadata,
-      ...(benchmarkCategories?.length ? { benchmarkCategories } : {}),
+      benchmarkCategories,
       ...(Array.isArray(categoryPricing) ? { categoryPricing } : {}),
       _id: program.legacyId ?? program.id,
       id: program.externalId ?? program.id,

@@ -64,6 +64,7 @@ import {
   type ResponsePatternRanges,
 } from "./report-template-workbooks.js";
 import {
+  usesDefaultBenchmarkCategory,
   defaultZohoCategoryOrder,
   normalizeZohoCategory,
 } from "../programs/program-zoho-category.js";
@@ -3929,25 +3930,29 @@ export class CompatibilityReportsService {
             ? ("No" as const)
             : null;
       if (winner === null) return [];
-      const category = normalizeZohoCategory(
-        enrollment.currentZohoCategory ??
-          metadataString(
-            enrollment.metrics,
-            "Current_Year_Category",
-            "currentZohoCategory",
-          ) ??
-          metadataString(
-            enrollment.organization.metadata,
-            "Current_Year_Category",
-            "currentZohoCategory",
-          ) ??
-          enrollment.benchmarkCategory ??
-          metadataString(
-            enrollment.metrics,
-            "Benchmark_Category",
-            "benchmarkCategory",
-          ),
-      );
+      const category = usesDefaultBenchmarkCategory(
+        jsonObject(context.program.metadata).benchmarkCategories,
+      )
+        ? "Default"
+        : normalizeZohoCategory(
+            enrollment.currentZohoCategory ??
+              metadataString(
+                enrollment.metrics,
+                "Current_Year_Category",
+                "currentZohoCategory",
+              ) ??
+              metadataString(
+                enrollment.organization.metadata,
+                "Current_Year_Category",
+                "currentZohoCategory",
+              ) ??
+              enrollment.benchmarkCategory ??
+              metadataString(
+                enrollment.metrics,
+                "Benchmark_Category",
+                "benchmarkCategory",
+              ),
+          );
       return [
         {
           organizationId: enrollment.organizationId,

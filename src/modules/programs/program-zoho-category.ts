@@ -59,3 +59,23 @@ export function employeeSizeRange(
     ? { minimum: Number(openEnded[1]), maximum: Number.POSITIVE_INFINITY }
     : null;
 }
+
+/** Missing Category List names mean a single benchmark group for the program. */
+export function benchmarkCategoryNames(value: unknown): string[] {
+  const names = Array.isArray(value)
+    ? [
+        ...new Set(
+          value.flatMap((entry) => {
+            const name = typeof entry === "string" ? entry.trim() : "";
+            return name ? [name] : [];
+          }),
+        ),
+      ]
+    : [];
+  return names.length ? names : ["Default"];
+}
+
+export function usesDefaultBenchmarkCategory(value: unknown): boolean {
+  const names = benchmarkCategoryNames(value);
+  return names.length === 1 && names[0] === "Default";
+}

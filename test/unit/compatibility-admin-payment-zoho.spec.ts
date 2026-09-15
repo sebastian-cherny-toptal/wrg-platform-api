@@ -155,8 +155,7 @@ async function createTestApp(): Promise<NestFastifyApplication> {
 
 describe("native admin, payment and Zoho compatibility endpoints", () => {
   it("returns purchaser, payment, product and sorting details in order logs", async () => {
-    const sortingQuestionReference =
-      "seed-br-question-2026-efs-0dbcf364a57f";
+    const sortingQuestionReference = "seed-br-question-2026-efs-0dbcf364a57f";
     const service = new CompatibilityAdminService(
       {
         order: {
@@ -1029,4 +1028,29 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
       await app.close();
     }
   });
+});
+
+it("uses Default when Zoho provides pricing but no benchmark Category List names", async () => {
+  const service = new CompatibilityZohoService(
+    {} as never,
+    {
+      listAllRecords: () =>
+        Promise.resolve([
+          {
+            id: "no-categories",
+            Name: "No categories",
+            Small_EE_Size: "25-99",
+            Category_25_99_Fee: "550",
+          },
+        ]),
+    } as never,
+  );
+  const programs = await service.listPrograms({
+    sub: "admin",
+    roles: ["admin"],
+    permissions: [],
+    organizationId: null,
+  });
+  assert.deepEqual(programs[0]?.benchmarkCategories, ["Default"]);
+  assert.equal(programs[0].categoryPricing[1]?.pricingCategoryName, "25-99");
 });

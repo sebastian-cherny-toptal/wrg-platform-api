@@ -930,107 +930,120 @@ describe("compatibility report categories", () => {
     );
   });
 
-  it("calculates winner cohorts from every organization in the program", async () => {
-    const question = benchmarkQuestion("q-core", "Core Employee Experience", 1);
-    const winners = Array.from({ length: 2 }, (_, index) => `winner-${index}`);
-    const nonWinners = Array.from(
-      { length: 2 },
-      (_, index) => `non-winner-${index}`,
-    );
-    const prisma = {
-      program: {
-        findFirst: () => ({
-          id: "program-1",
-          projectId: "project-1",
-          name: "Test program",
-          year: 2026,
-          startsAt: null,
-          metadata: {} as Prisma.JsonValue,
-          project: { id: "project-1", name: "Test project" },
-        }),
-      },
-      organizationProgram: {
-        findFirst: () => ({
-          id: "enrollment-1",
-          reportAccess: {},
-          metrics: {},
-          metadata: {},
-        }),
-        findMany: () => [
-          ...winners.map((organizationId) => ({
-            organizationId,
-            isWinner: "Y",
-            currentZohoCategory: "Small/Medium",
-            benchmarkCategory: "Super",
-            metrics: {
-              Current_Year_Winner: "No",
-              Current_Year_Category: "Small/Medium",
-            },
-            organization: { metadata: {} },
-          })),
-          ...nonWinners.map((organizationId) => ({
-            organizationId,
-            isWinner: "N",
-            currentZohoCategory: "Small/Medium",
-            benchmarkCategory: "Super",
-            metrics: {
-              Current_Year_Winner: "Yes",
-              Current_Year_Category: "Small/Medium",
-            },
-            organization: { metadata: {} },
-          })),
-        ],
-      },
-      survey: {
-        findFirst: () => ({
-          id: "survey-1",
-          title: "Test survey",
-          startsAt: null,
-          endsAt: null,
-        }),
-      },
-      question: { findMany: () => [question] },
-      response: {
-        findMany: () => [
-          ...winners.map((organizationId) => ({
-            questionId: question.id,
-            value: "Agree",
-            score: null,
-            respondent: { organizationId },
-          })),
-          ...nonWinners.map((organizationId) => ({
-            questionId: question.id,
-            value: "Disagree",
-            score: null,
-            respondent: { organizationId },
-          })),
-        ],
-      },
-    } as unknown as PrismaService;
+  for (const categories of [["Small/Medium"], undefined, [], ["Default"]]) {
+    it(`calculates winner cohorts for categories ${JSON.stringify(categories)}`, async () => {
+      const question = benchmarkQuestion(
+        "q-core",
+        "Core Employee Experience",
+        1,
+      );
+      const winners = Array.from(
+        { length: 2 },
+        (_, index) => `winner-${index}`,
+      );
+      const nonWinners = Array.from(
+        { length: 2 },
+        (_, index) => `non-winner-${index}`,
+      );
+      const prisma = {
+        program: {
+          findFirst: () => ({
+            id: "program-1",
+            projectId: "project-1",
+            name: "Test program",
+            year: 2026,
+            startsAt: null,
+            metadata: { benchmarkCategories: categories } as Prisma.JsonValue,
+            project: { id: "project-1", name: "Test project" },
+          }),
+        },
+        organizationProgram: {
+          findFirst: () => ({
+            id: "enrollment-1",
+            reportAccess: {},
+            metrics: {},
+            metadata: {},
+          }),
+          findMany: () => [
+            ...winners.map((organizationId) => ({
+              organizationId,
+              isWinner: "Y",
+              currentZohoCategory: "Small/Medium",
+              benchmarkCategory: "Super",
+              metrics: {
+                Current_Year_Winner: "No",
+                Current_Year_Category: "Small/Medium",
+              },
+              organization: { metadata: {} },
+            })),
+            ...nonWinners.map((organizationId) => ({
+              organizationId,
+              isWinner: "N",
+              currentZohoCategory: "Small/Medium",
+              benchmarkCategory: "Super",
+              metrics: {
+                Current_Year_Winner: "Yes",
+                Current_Year_Category: "Small/Medium",
+              },
+              organization: { metadata: {} },
+            })),
+          ],
+        },
+        survey: {
+          findFirst: () => ({
+            id: "survey-1",
+            title: "Test survey",
+            startsAt: null,
+            endsAt: null,
+          }),
+        },
+        question: { findMany: () => [question] },
+        response: {
+          findMany: () => [
+            ...winners.map((organizationId) => ({
+              questionId: question.id,
+              value: "Agree",
+              score: null,
+              respondent: { organizationId },
+            })),
+            ...nonWinners.map((organizationId) => ({
+              questionId: question.id,
+              value: "Disagree",
+              score: null,
+              respondent: { organizationId },
+            })),
+          ],
+        },
+      } as unknown as PrismaService;
 
-    const result = await new CompatibilityReportsService(
-      prisma,
-    ).workforceComparison(
-      {
-        sub: "user-1",
-        organizationId: winners[0] ?? null,
-        roles: ["admin"],
-        permissions: [],
-      },
-      { selectedProgramId: "program-1", isDummy: false },
-    );
+      const result = await new CompatibilityReportsService(
+        prisma,
+      ).workforceComparison(
+        {
+          sub: "user-1",
+          organizationId: winners[0] ?? null,
+          roles: ["admin"],
+          permissions: [],
+        },
+        { selectedProgramId: "program-1", isDummy: false },
+      );
 
-    assert.deepEqual(result.data.data[0]?.dataValues, [100, 0, 100, 0]);
-    assert.equal(result.data.cohortOrganizationCount, 4);
-    assert.ok(
-      result.data.tableHeaders.some(
-        ({ title }) => title === "Small/Medium Employers",
-      ),
-    );
-    assert.ok(
-      result.data.tableHeaders.every(
-        ({ title }) => title !== "Super Employers",
-      ),
-    );
-  });
+      assert.deepEqual(result.data.data[0]?.dataValues, [100, 0, 100, 0]);
+      assert.equal(result.data.cohortOrganizationCount, 4);
+      assert.ok(
+        result.data.tableHeaders.some(
+          ({ title }) =>
+            title ===
+            (categories?.[0] === "Small/Medium"
+              ? "Small/Medium Employers"
+              : "Default Employers"),
+        ),
+      );
+      assert.ok(
+        result.data.tableHeaders.every(
+          ({ title }) => title !== "Super Employers",
+        ),
+      );
+    });
+  }
 });

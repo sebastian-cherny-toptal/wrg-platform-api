@@ -49,6 +49,54 @@ async function writeWorkbook(
 }
 
 describe("historical import service", () => {
+  for (const categories of [undefined, [], ["Default"]]) {
+    it(`defaults missing benchmark categories ${JSON.stringify(categories)} on draft creation`, async () => {
+      const service = new HistoricalImportService({
+        project: { findFirst: () => ({ id: "project-1" }) },
+        syncJob: { create: ({ data }: { data: unknown }) => data },
+      } as never);
+      const result = await service.createDraft(
+        {
+          sub: "admin",
+          roles: ["admin"],
+          permissions: [],
+          organizationId: null,
+        },
+        {
+          projectId: "project-1",
+          programName: "Default program",
+          programYear: 2026,
+          efsLaunchDate: "2026-01-01",
+          efsDeadline: "2026-12-31",
+          benchmarkCategories: categories,
+          organizationPrograms: [
+            {
+              organizationKey: "acme",
+              surveysSent: 10,
+              isWinner: "Y",
+              currentZohoCategory: "Large",
+              benchmarkCategory: "Small",
+              reportCategory: "25-99",
+            },
+          ],
+        },
+      );
+      assert.deepEqual(result.metadata.benchmarkCategories, ["Default"]);
+      assert.equal(
+        result.metadata.organizationPrograms?.[0]?.currentZohoCategory,
+        "Default",
+      );
+      assert.equal(
+        result.metadata.organizationPrograms[0].benchmarkCategory,
+        "Default",
+      );
+      assert.equal(
+        result.metadata.organizationPrograms[0].reportCategory,
+        "25-99",
+      );
+    });
+  }
+
   it("prepares a single-workbook preview without creating a sync job", async () => {
     const root = mkdtempSync(join(tmpdir(), "historical-import-prepare-"));
     const previousCwd = process.cwd();
@@ -496,6 +544,7 @@ describe("historical import service", () => {
             stagingDir,
             projectName: "Test Project",
             programName: "Test Program",
+            benchmarkCategories: ["Small/Medium"],
             programYear: 2026,
             efsLaunchDate: "2026-01-01",
             efsDeadline: "2026-12-31",

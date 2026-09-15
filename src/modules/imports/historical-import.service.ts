@@ -34,6 +34,8 @@ import {
   parsePublishedReportValues,
 } from "../reports/benefits-best-practices-workbook.js";
 import {
+  benchmarkCategoryNames,
+  usesDefaultBenchmarkCategory,
   normalizeZohoCategory,
   programZohoCategoryTiers,
 } from "../programs/program-zoho-category.js";
@@ -626,21 +628,19 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
     value.reportCatalog === undefined
       ? undefined
       : parseReportCatalog(value.reportCatalog);
-  const benchmarkCategories =
-    value.benchmarkCategories === undefined
-      ? undefined
-      : [
-          ...new Set(
-            (Array.isArray(value.benchmarkCategories)
-              ? value.benchmarkCategories
-              : []
-            ).map((entry) => requiredString({ entry }, "entry")),
-          ),
-        ];
-  if (benchmarkCategories?.length === 0) {
-    throw new BadRequestException(
-      "Benchmark categories must include at least one Category List name",
-    );
+  if (
+    value.benchmarkCategories !== undefined &&
+    value.benchmarkCategories !== null &&
+    !Array.isArray(value.benchmarkCategories)
+  ) {
+    throw new BadRequestException("Benchmark categories must be an array");
+  }
+  const benchmarkCategories = benchmarkCategoryNames(value.benchmarkCategories);
+  if (usesDefaultBenchmarkCategory(benchmarkCategories)) {
+    for (const entry of organizationPrograms ?? []) {
+      entry.currentZohoCategory = "Default";
+      entry.benchmarkCategory = "Default";
+    }
   }
   const categoryPricing =
     value.categoryPricing === undefined
@@ -701,7 +701,7 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
     ...(projectAbbreviation ? { projectAbbreviation } : {}),
     ...(organizationPrograms ? { organizationPrograms } : {}),
     ...(reportCatalog ? { reportCatalog } : {}),
-    ...(benchmarkCategories ? { benchmarkCategories } : {}),
+    benchmarkCategories,
     ...(categoryPricing ? { categoryPricing } : {}),
   };
 }
@@ -1786,11 +1786,13 @@ export class HistoricalImportService {
         ...(existing?.categoryRank
           ? { categoryRank: existing.categoryRank }
           : {}),
-        ...(ranking?.category
-          ? { currentZohoCategory: ranking.category }
-          : existing?.currentZohoCategory
-            ? { currentZohoCategory: existing.currentZohoCategory }
-            : {}),
+        ...(usesDefaultBenchmarkCategory(draft.benchmarkCategories)
+          ? { currentZohoCategory: "Default", benchmarkCategory: "Default" }
+          : ranking?.category
+            ? { currentZohoCategory: ranking.category }
+            : existing?.currentZohoCategory
+              ? { currentZohoCategory: existing.currentZohoCategory }
+              : {}),
       };
     });
     return {
@@ -2160,7 +2162,7 @@ export class HistoricalImportService {
             JSON.stringify(draft.categoryPricing ?? []),
           ) as Prisma.InputJsonValue,
           benchmarkCategories: JSON.parse(
-            JSON.stringify(draft.benchmarkCategories ?? []),
+            JSON.stringify(benchmarkCategoryNames(draft.benchmarkCategories)),
           ) as Prisma.InputJsonValue,
         },
         fees: Object.fromEntries(
@@ -2556,9 +2558,16 @@ export class HistoricalImportService {
       const employeesCount = configuredEmployeesCounts.get(key);
       const overallRank = configuredOverallRanks.get(key);
       const categoryRank = configuredCategoryRanks.get(key);
-      const currentZohoCategory = configuredCurrentZohoCategories.get(key);
+      const defaultCategory = usesDefaultBenchmarkCategory(
+        draft.benchmarkCategories,
+      );
+      const currentZohoCategory = defaultCategory
+        ? "Default"
+        : configuredCurrentZohoCategories.get(key);
       const reportCategory = configuredReportCategories.get(key);
-      const benchmarkCategory = configuredBenchmarkCategories.get(key);
+      const benchmarkCategory = defaultCategory
+        ? "Default"
+        : configuredBenchmarkCategories.get(key);
       const normalizedName = normalizeOrganizationName(details.displayName);
       const matched = existingEnrollments.find(({ metrics }) => {
         const values = objectBody(metrics);

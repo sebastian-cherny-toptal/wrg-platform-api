@@ -108,6 +108,7 @@ describe("native management compatibility endpoints", () => {
           Promise.resolve({
             id: "program-id",
             externalId: "zoho-program-id",
+            metadata: { benchmarkCategories: ["Small", "Community"] },
             organizations: [
               {
                 id: "enrollment-id",
@@ -263,6 +264,7 @@ describe("native management compatibility endpoints", () => {
             id: "program-id",
             externalId: "zoho-program-id",
             legacyId: null,
+            metadata: { benchmarkCategories: ["Small", "Community"] },
             organizations: [enrollment],
           }),
       },
@@ -464,13 +466,14 @@ describe("native management compatibility endpoints", () => {
       "program-id",
     );
 
+    assert.deepEqual(result.data.program.benchmarkCategories, ["Default"]);
     assert.deepEqual(result.data.categoriesInfo, {
       winnersCount: 1,
       nonWinnersCount: 1,
       categoryCounts: {
-        "Small Winners": 1,
-        "Small Non-Winners": 1,
-        "Small Total": 3,
+        "Default Winners": 1,
+        "Default Non-Winners": 1,
+        "Default Total": 3,
       },
     });
   });
@@ -482,6 +485,7 @@ describe("native management compatibility endpoints", () => {
           Promise.resolve({
             name: "Feedback 2026",
             metadata: {
+              benchmarkCategories: ["Small/Medium"],
               categoryPricing: [
                 { tier: "Small", employeeSize: "25-99", priceCents: 1 },
                 { tier: "Medium", employeeSize: "100-199", priceCents: 1 },

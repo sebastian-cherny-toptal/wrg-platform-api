@@ -30,6 +30,7 @@ import {
 } from "../integrations/integrations.module.js";
 import { CrmSyncModule, SyncQueue } from "./crm-sync.module.js";
 import {
+  benchmarkCategoryNames,
   pricingCategoryNameByTier,
   programZohoCategoryTiers,
 } from "../programs/program-zoho-category.js";
@@ -356,7 +357,15 @@ export class CompatibilityZohoService {
     return records
       .map((record) => {
         const pricing = categoryPricing(record);
-        const categories = benchmarkCategories(record);
+        const categories = benchmarkCategoryNames(benchmarkCategories(record));
+        const organizations = (organizationsByProgram.get(record.id) ?? []).map(
+          (organization) => ({
+            ...organization,
+            ...(categories.length === 1 && categories[0] === "Default"
+              ? { currentZohoCategory: "Default" }
+              : {}),
+          }),
+        );
         const projectLookup = lookup(record, "Project");
         return {
           id: record.id,
@@ -367,8 +376,8 @@ export class CompatibilityZohoService {
           projectAbbreviation: null,
           efsLaunchDate: text(record, "EFS_Launch_Date"),
           efsDeadline: text(record, "EFS_end_Date"),
-          organizations: organizationsByProgram.get(record.id) ?? [],
-          winnerOrganizations: (organizationsByProgram.get(record.id) ?? [])
+          organizations,
+          winnerOrganizations: organizations
             .filter(({ isWinner }) => isWinner === "Y")
             .map(
               ({ organizationId, organizationName, currentZohoCategory }) => ({

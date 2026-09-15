@@ -1,3 +1,4 @@
+import { usesDefaultBenchmarkCategory } from "../programs/program-zoho-category.js";
 import {
   BadRequestException,
   Body,
@@ -638,8 +639,16 @@ export class CompatibilityAdminService {
                 employees_count: enrollment.employeesCount,
                 overall_rank: enrollment.overallRank,
                 category_rank: enrollment.categoryRank,
-                current_zoho_category: enrollment.currentZohoCategory,
-                benchmark_category: enrollment.benchmarkCategory,
+                current_zoho_category: usesDefaultBenchmarkCategory(
+                  jsonObject(enrollment.program.metadata).benchmarkCategories,
+                )
+                  ? "Default"
+                  : enrollment.currentZohoCategory,
+                benchmark_category: usesDefaultBenchmarkCategory(
+                  jsonObject(enrollment.program.metadata).benchmarkCategories,
+                )
+                  ? "Default"
+                  : enrollment.benchmarkCategory,
                 Created_Time: enrollment.createdAt,
                 Last_time_deal_synced: enrollment.updatedAt,
                 _id: enrollment.legacyId ?? enrollment.id,
