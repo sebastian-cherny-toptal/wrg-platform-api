@@ -193,6 +193,10 @@ describe("list users endpoint", () => {
                   },
                 },
               ],
+              programs: [
+                { programId: "program-2025" },
+                { programId: "program-2026" },
+              ],
               projects: [
                 {
                   project: {
@@ -210,21 +214,20 @@ describe("list users endpoint", () => {
 
     const response = await service.list(
       "projects",
-      "fullName,role,projects,organization,lastLogin,payments,totalPaid,lastPaymentDatetime",
+      "fullName,role,projects,programs,organization,lastLogin,payments,totalPaid,lastPaymentDatetime",
     );
     const user = response.data[0];
     assert.ok(user);
     assert.equal(user._id, "legacy-user-id");
     assert.equal(user.fullName, "Example Person");
     assert.equal(user.role, "manager");
+    assert.deepEqual(user.programs, ["program-2025", "program-2026"]);
     assert.deepEqual(user.organization, {
       id: "organization-id",
       name: "Example Org",
     });
     assert.deepEqual(user.lastLogin, new Date("2026-01-03T12:30:00.000Z"));
-    assert.deepEqual(user.totalPaid, [
-      { currency: "USD", amountMinor: 42500 },
-    ]);
+    assert.deepEqual(user.totalPaid, [{ currency: "USD", amountMinor: 42500 }]);
     assert.deepEqual(
       user.lastPaymentDatetime,
       new Date("2026-02-03T12:30:00.000Z"),

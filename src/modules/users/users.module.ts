@@ -184,6 +184,17 @@ class UpdateUserDto {
   @ArrayMaxSize(100)
   @IsString({ each: true })
   projects?: string[];
+
+  @ApiPropertyOptional({
+    type: [String],
+    description: "Programs within the user's assigned projects.",
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayUnique()
+  @ArrayMaxSize(100)
+  @IsString({ each: true })
+  programs?: string[];
 }
 
 interface UserMutationResponse {
@@ -243,6 +254,7 @@ const listUserFields = new Set([
   "role",
   "roleId",
   "projects",
+  "programs",
   "createAt",
   "updatedAt",
   "isActive",
@@ -1030,6 +1042,7 @@ export class UsersService {
       select: {
         id: true,
         metadata: true,
+        projects: { select: { projectId: true } },
         roles: { select: { role: { select: { id: true, key: true } } } },
       },
     });
@@ -1039,7 +1052,12 @@ export class UsersService {
     if (!isAdmin && target.id !== principal.sub) {
       throw new ForbiddenException("You can only update your own user");
     }
-    if (!isAdmin && (dto.roleId !== undefined || dto.projects !== undefined)) {
+    if (
+      !isAdmin &&
+      (dto.roleId !== undefined ||
+        dto.projects !== undefined ||
+        dto.programs !== undefined)
+    ) {
       throw new ForbiddenException("Only administrators can assign access");
     }
 
@@ -1109,6 +1127,39 @@ export class UsersService {
       throw new NotFoundException("One or more projects were not found");
     }
 
+    const programs =
+      dto.programs === undefined
+        ? undefined
+        : dto.programs.length === 0
+          ? []
+          : await this.prisma.program.findMany({
+              where: {
+                OR: dto.programs.map((reference) =>
+                  isUuid(reference)
+                    ? { id: reference }
+                    : { legacyId: reference },
+                ),
+              },
+              select: { id: true, projectId: true },
+            });
+    if (programs !== undefined) {
+      if (programs.length !== dto.programs?.length) {
+        throw new NotFoundException("One or more programs were not found");
+      }
+      const assignedProjectIds = new Set(
+        projects !== undefined
+          ? projects.map(({ id }) => id)
+          : target.projects.map(({ projectId }) => projectId),
+      );
+      if (
+        programs.some(({ projectId }) => !assignedProjectIds.has(projectId))
+      ) {
+        throw new BadRequestException(
+          "Programs must belong to the user's assigned projects",
+        );
+      }
+    }
+
     const currentMetadata = jsonObject(target.metadata);
     const metadata: Prisma.InputJsonObject = {
       ...currentMetadata,
@@ -1138,6 +1189,14 @@ export class UsersService {
                 roles: {
                   deleteMany: {},
                   create: [{ roleId: role.id }],
+                },
+              }
+            : {}),
+          ...(programs !== undefined
+            ? {
+                programs: {
+                  deleteMany: {},
+                  create: programs.map(({ id }) => ({ programId: id })),
                 },
               }
             : {}),
@@ -1281,6 +1340,7 @@ export class UsersService {
             },
           },
         },
+        programs: { select: { programId: true } },
         projects: {
           select: {
             project: {
@@ -1350,6 +1410,7 @@ export class UsersService {
           username: user.username,
           role: role?.key ?? null,
           roleId: role ? (role.legacyId ?? role.id) : null,
+          programs: user.programs.map(({ programId }) => programId),
           projects:
             expand === "projects"
               ? user.projects.map(({ project }) => ({

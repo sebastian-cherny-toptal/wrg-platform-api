@@ -111,7 +111,7 @@ describe("update user endpoint", () => {
         method: "PUT",
         url: "/user/update/6c79998f-10bd-45af-bdd1-61e11b50297a",
         headers: { authorization: `Bearer ${token}` },
-        payload: { fullName: "Updated Person" },
+        payload: { fullName: "Updated Person", programs: ["program-2026"] },
       });
       assert.equal(updated.statusCode, 200, updated.body);
       assert.equal(updated.json<{ success: boolean }>().success, true);
@@ -191,5 +191,92 @@ describe("update user endpoint", () => {
       ),
       /only update your own user/u,
     );
+  });
+});
+
+describe("admin program assignments", () => {
+  const targetId = "6c79998f-10bd-45af-bdd1-61e11b50297a";
+  const admin: Principal = {
+    sub: "admin",
+    organizationId: null,
+    roles: ["admin"],
+    permissions: [],
+  };
+  function setup() {
+    let saved: Record<string, unknown> | undefined;
+    const prisma = {
+      user: {
+        findFirst: () =>
+          Promise.resolve({
+            id: targetId,
+            metadata: {},
+            roles: [],
+            projects: [{ projectId: "project-1" }],
+          }),
+        update: (args: { data: Record<string, unknown> }) => {
+          saved = args.data;
+          return Promise.resolve({
+            id: targetId,
+            email: "person@example.com",
+            username: null,
+            fullName: "Person",
+            status: "ACTIVE",
+            metadata: {},
+            createdAt: new Date(),
+            roles: [],
+            projects: [],
+          });
+        },
+      },
+      program: {
+        findMany: (args: { where: { OR: Array<{ legacyId: string }> } }) =>
+          Promise.resolve(
+            args.where.OR.filter(({ legacyId }) => legacyId !== "missing").map(
+              ({ legacyId }) => ({
+                id: legacyId,
+                projectId: legacyId === "outside" ? "project-2" : "project-1",
+              }),
+            ),
+          ),
+      },
+    } as unknown as PrismaService;
+    return {
+      service: new UsersService(prisma, {} as UserInvitationMailer),
+      saved: () => saved,
+    };
+  }
+  it("saves different years together and allows removing assignments", async () => {
+    const { service, saved } = setup();
+    await service.update(targetId, { programs: ["2025", "2026"] }, admin);
+    assert.deepEqual(saved()?.programs, {
+      deleteMany: {},
+      create: [{ programId: "2025" }, { programId: "2026" }],
+    });
+    await service.update(targetId, { programs: [] }, admin);
+    assert.deepEqual(saved()?.programs, { deleteMany: {}, create: [] });
+  });
+  it("rejects programs outside assigned projects and unknown programs before saving", async () => {
+    const { service, saved } = setup();
+    await assert.rejects(
+      service.update(targetId, { programs: ["outside"] }, admin),
+      /assigned projects/u,
+    );
+    await assert.rejects(
+      service.update(targetId, { programs: ["missing"] }, admin),
+      /not found/u,
+    );
+    assert.equal(saved(), undefined);
+  });
+  it("prevents users assigning their own program access", async () => {
+    const { service, saved } = setup();
+    await assert.rejects(
+      service.update(
+        targetId,
+        { programs: ["2026"] },
+        { ...admin, sub: targetId, roles: ["client"] },
+      ),
+      /Only administrators/u,
+    );
+    assert.equal(saved(), undefined);
   });
 });
