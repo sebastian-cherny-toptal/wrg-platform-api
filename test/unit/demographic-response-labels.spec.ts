@@ -4,9 +4,38 @@ import {
   demographicResponseCaption,
   demographicResponsePosition,
   reportResponseCaption,
+  surveyQuestionLabel,
 } from "../../src/modules/reports/compatibility-reports.module.js";
 
 describe("demographic response labels", () => {
+  it("uses Race/Ethnicity for existing imported ethnic-origin questions", () => {
+    const question = {
+      id: "ethnicity",
+      legacyId: null,
+      externalId: null,
+      dataLabel: "f_PersonalDemographics_ethnicOrigin",
+      caption: "Ethnic Origin",
+      type: "demographic",
+      position: 1,
+    };
+    for (const metadata of [
+      {},
+      { filterLabel: "Ethnic Origin" },
+      { categoryLabel: "Ethnic Origin", filterLabel: "Race/Ethnicity" },
+      { filterLabel: "Race/Ethnicity" },
+    ]) {
+      assert.equal(surveyQuestionLabel({ ...question, metadata }), "Race/Ethnicity");
+    }
+    assert.equal(
+      surveyQuestionLabel({ ...question, metadata: { filterLabel: "Custom ethnicity" } }),
+      "Custom ethnicity",
+    );
+    assert.equal(
+      surveyQuestionLabel({ ...question, metadata: { surveyDefinition: true } }),
+      "Ethnic Origin",
+    );
+  });
+
   it("returns the WRG standard gender captions for imported numeric codes", () => {
     const question = {
       dataLabel: "f_PersonalDemographics_gender",

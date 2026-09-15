@@ -162,6 +162,13 @@ export class CompatibilityPaymentService {
   ) {
     const body = objectBody(rawBody);
     const selectedCurrency = currency(body.currency);
+    const paymentMethod = body.paymentMethod ?? "card";
+    if (paymentMethod !== "card" && paymentMethod !== "ach") {
+      throw new BadRequestException("paymentMethod must be card or ach");
+    }
+    if (paymentMethod === "ach" && selectedCurrency !== "USD") {
+      throw new BadRequestException("ACH payments require USD");
+    }
     const context = await this.context(
       principal,
       programReference,
@@ -170,12 +177,16 @@ export class CompatibilityPaymentService {
     );
     const catalogOrder = this.catalogOrder(body.items, context);
     const amountMinor = catalogOrder
-      ? Math.round(catalogOrder.amountMinor * 1.03)
+      ? catalogOrder.amountMinor +
+        (paymentMethod === "card"
+          ? Math.round(catalogOrder.amountMinor * 0.03)
+          : 0)
       : Math.round(money(body.amount, "amount") * 100);
     const intent = await this.createIntent(
       context.organization,
       amountMinor,
       selectedCurrency,
+      paymentMethod,
     );
     await this.prisma.order.create({
       data: {
@@ -194,7 +205,8 @@ export class CompatibilityPaymentService {
               ? body.items
               : [{ amount: body.amount }]),
         ),
-        paymentMethod: "Paid via Credit Card",
+        paymentMethod:
+          paymentMethod === "ach" ? "Paid via ACH" : "Paid via Credit Card",
       },
     });
     return intent;
@@ -416,7 +428,7 @@ export class CompatibilityPaymentService {
 
   private crmFields(
     items: CatalogCheckoutItem[],
-    payment: "Needs Invoiced" | "Paid via Credit Card",
+    payment: "Needs Invoiced" | "Paid via Credit Card" | "Paid via ACH",
   ): JsonRecord {
     const fields: JsonRecord = {};
     const definitions: Record<string, [string, string]> = {
@@ -490,7 +502,11 @@ export class CompatibilityPaymentService {
         metrics.KIA_Order_Status = "Processing";
       }
     }
-    const crmFields = this.crmFields(items, "Paid via Credit Card");
+    const paidMethod =
+      order.paymentMethod === "Paid via ACH"
+        ? "Paid via ACH"
+        : "Paid via Credit Card";
+    const crmFields = this.crmFields(items, paidMethod);
     const paymentDetails = {
       ...jsonObject(enrollment.paymentDetails),
       ...crmFields,
@@ -507,7 +523,7 @@ export class CompatibilityPaymentService {
       }),
       this.prisma.order.update({
         where: { id: order.id },
-        data: { status: "PAID", paymentMethod: "Paid via Credit Card" },
+        data: { status: "PAID", paymentMethod: paidMethod },
       }),
     ]);
     if (enrollment.dealExternalId) {
@@ -628,6 +644,7 @@ export class CompatibilityPaymentService {
     },
     amountMinor: number,
     selectedCurrency: "USD" | "CAD" | "GBP",
+    paymentMethod?: "card" | "ach",
   ) {
     if (this.config.get("INTEGRATIONS_MOCK", { infer: true })) {
       const id = `pi_mock_${crypto.randomUUID()}`;
@@ -663,6 +680,13 @@ export class CompatibilityPaymentService {
         amount: amountMinor,
         currency: selectedCurrency.toLowerCase(),
         customer: customerId,
+        ...(paymentMethod
+          ? {
+              payment_method_types: [
+                paymentMethod === "ach" ? "us_bank_account" : "card",
+              ],
+            }
+          : {}),
         metadata: { organizationId: organization.id },
       },
       {

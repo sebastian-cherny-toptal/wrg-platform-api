@@ -946,8 +946,16 @@ export function surveyQuestionLabel(question: BenchmarkQuestion): string {
     ["demographic", "2", "3"].includes(question.type.toLowerCase()) ||
     [2, 3, "2", "3"].some((type) => type === jsonObject(question.metadata).QuestionTypeId);
   if (!demographic) return question.caption;
+  const configuredLabel = metadataString(question.metadata, "categoryLabel", "filterLabel");
+  // Importer changes do not update labels already persisted on existing questions.
+  if (
+    question.dataLabel === "f_PersonalDemographics_ethnicOrigin" &&
+    (!configuredLabel || configuredLabel === "Ethnic Origin")
+  ) {
+    return "Race/Ethnicity";
+  }
   return (
-    metadataString(question.metadata, "categoryLabel", "filterLabel") ??
+    configuredLabel ??
     categoryFromDataLabel(question.dataLabel)
       .replace(/^Demographics?\s*/iu, "")
       .replace(/\d+$/u, "")

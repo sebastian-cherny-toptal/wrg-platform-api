@@ -274,86 +274,209 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
     );
   });
 
-  it("confirms a successful card payment and grants Response Detail access", async () => {
-    let updatedReportAccess: unknown;
-    let updatedOrderStatus: unknown;
-    const order = {
-      id: "order-id",
-      organizationId: "organization-id",
-      status: "REQUIRES_PAYMENT",
-      items: [
-        {
-          productId: "report-response-detail",
-          title: "Response Detail Report",
-          amount: 425,
-          amountMinor: 42_500,
-          keys: { productId: "report-response-detail" },
-        },
-      ],
-      organizationProgram: {
-        id: "enrollment-id",
-        stage: "Closed",
-        reportAccess: { RD_Access: "no" },
-        metrics: {},
-        paymentDetails: {},
-        dealExternalId: null,
-      },
-    };
-    const prisma = {
-      order: {
-        findUnique: (args: { include?: unknown }) =>
-          Promise.resolve(
-            args.include
-              ? order
-              : {
-                  organizationId: order.organizationId,
-                  status: order.status,
-                },
-          ),
-        update: (args: { data: { status: unknown } }) => {
-          updatedOrderStatus = args.data.status;
-          return Promise.resolve({ id: order.id });
-        },
-      },
-      organizationProgram: {
-        update: (args: { data: { reportAccess: unknown } }) => {
-          updatedReportAccess = args.data.reportAccess;
-          return Promise.resolve({ id: "enrollment-id" });
-        },
-      },
-      $transaction: (operations: Array<Promise<unknown>>) =>
-        Promise.all(operations),
-    };
+  it("creates method-specific intents with server-priced ACH totals and rejects non-USD ACH", async () => {
+    const created: Record<string, unknown>[] = [];
+    const orders: Record<string, unknown>[] = [];
     const service = new CompatibilityPaymentService(
-      prisma as never,
+      {
+        order: {
+          create: ({ data }: { data: Record<string, unknown> }) => {
+            orders.push(data);
+            return Promise.resolve(data);
+          },
+        },
+      } as never,
       {
         get: (key: string) =>
           key === "INTEGRATIONS_MOCK" ? false : "sk_test_example",
       } as never,
       {} as never,
     );
+    Object.defineProperty(service, "context", {
+      value: () =>
+        Promise.resolve({
+          organization: { id: "org", stripeCustomerId: "cus_test" },
+          program: {
+            id: "program",
+            metadata: {},
+            fees: { "report-response-detail": 42500 },
+          },
+          enrollment: {
+            id: "enrollment",
+            metadata: {},
+            fees: {},
+            reportAccess: {},
+            metrics: {},
+            stage: "Full Package",
+          },
+        }),
+    });
     Object.defineProperty(service, "stripe", {
       value: {
         paymentIntents: {
-          retrieve: () => Promise.resolve({ status: "succeeded" }),
+          create: (params: Record<string, unknown>) => {
+            created.push(params);
+            return Promise.resolve({
+              id: `pi_${created.length}`,
+              client_secret: "secret",
+            });
+          },
         },
       },
     });
-
-    const result = await service.confirmPaidOrder(
-      {
-        sub: "client-id",
-        organizationId: "organization-id",
-        roles: ["client"],
-        permissions: [],
-      },
-      { paymentIntentId: "pi_response_detail" },
+    const principal = {
+      sub: "client",
+      organizationId: "org",
+      roles: ["client"],
+      permissions: [],
+    };
+    const body = {
+      amount: 1,
+      currency: "USD",
+      items: [{ amount: 1, keys: { productId: "report-response-detail" } }],
+    };
+    await service.paymentIntent(
+      principal,
+      { ...body, paymentMethod: "ach" },
+      "program",
     );
-
-    assert.deepEqual(result, { success: true, status: "paid" });
-    assert.deepEqual(updatedReportAccess, { RD_Access: "yes" });
-    assert.equal(updatedOrderStatus, "PAID");
+    await service.paymentIntent(principal, body, "program");
+    assert.equal(created[0]?.amount, 42500);
+    assert.deepEqual(created[0].payment_method_types, ["us_bank_account"]);
+    assert.equal(orders[0]?.paymentMethod, "Paid via ACH");
+    assert.equal(created[1]?.amount, 43775);
+    assert.deepEqual(created[1].payment_method_types, ["card"]);
+    await assert.rejects(
+      service.paymentIntent(
+        principal,
+        { ...body, paymentMethod: "ach", currency: "CAD" },
+        "program",
+      ),
+      /ACH payments require USD/,
+    );
+    await assert.rejects(
+      service.paymentIntent(
+        principal,
+        { ...body, paymentMethod: "invalid" },
+        "program",
+      ),
+      /paymentMethod must be/,
+    );
+    assert.equal(created.length, 2);
   });
+
+  for (const paymentMethod of ["Paid via Credit Card", "Paid via ACH"]) {
+    it(`confirms ${paymentMethod} only after success and grants Response Detail access`, async () => {
+      let updatedReportAccess: unknown;
+      let updatedOrderStatus: unknown;
+      let updatedPaymentDetails: unknown;
+      let updatedPaymentMethod: unknown;
+      let stripeStatus = "processing";
+      const order = {
+        id: "order-id",
+        organizationId: "organization-id",
+        status: "REQUIRES_PAYMENT",
+        paymentMethod,
+        items: [
+          {
+            productId: "report-response-detail",
+            title: "Response Detail Report",
+            amount: 425,
+            amountMinor: 42_500,
+            keys: { productId: "report-response-detail" },
+          },
+        ],
+        organizationProgram: {
+          id: "enrollment-id",
+          stage: "Closed",
+          reportAccess: { RD_Access: "no" },
+          metrics: {},
+          paymentDetails: {},
+          dealExternalId: null,
+        },
+      };
+      const prisma = {
+        order: {
+          findUnique: (args: { include?: unknown }) =>
+            Promise.resolve(
+              args.include
+                ? order
+                : {
+                    organizationId: order.organizationId,
+                    status: order.status,
+                  },
+            ),
+          update: (args: {
+            data: { status: unknown; paymentMethod: unknown };
+          }) => {
+            updatedPaymentMethod = args.data.paymentMethod;
+            updatedOrderStatus = args.data.status;
+            return Promise.resolve({ id: order.id });
+          },
+        },
+        organizationProgram: {
+          update: (args: {
+            data: { reportAccess: unknown; paymentDetails: unknown };
+          }) => {
+            updatedReportAccess = args.data.reportAccess;
+            updatedPaymentDetails = args.data.paymentDetails;
+            return Promise.resolve({ id: "enrollment-id" });
+          },
+        },
+        $transaction: (operations: Array<Promise<unknown>>) =>
+          Promise.all(operations),
+      };
+      const service = new CompatibilityPaymentService(
+        prisma as never,
+        {
+          get: (key: string) =>
+            key === "INTEGRATIONS_MOCK" ? false : "sk_test_example",
+        } as never,
+        {} as never,
+      );
+      Object.defineProperty(service, "stripe", {
+        value: {
+          paymentIntents: {
+            retrieve: () => Promise.resolve({ status: stripeStatus }),
+          },
+        },
+      });
+
+      await assert.rejects(
+        service.confirmPaidOrder(
+          {
+            sub: "client-id",
+            organizationId: "organization-id",
+            roles: ["client"],
+            permissions: [],
+          },
+          { paymentIntentId: "pi_response_detail" },
+        ),
+        /still processing/,
+      );
+      assert.equal(updatedReportAccess, undefined);
+      assert.equal(updatedOrderStatus, undefined);
+      stripeStatus = "succeeded";
+      const result = await service.confirmPaidOrder(
+        {
+          sub: "client-id",
+          organizationId: "organization-id",
+          roles: ["client"],
+          permissions: [],
+        },
+        { paymentIntentId: "pi_response_detail" },
+      );
+
+      assert.deepEqual(result, { success: true, status: "paid" });
+      assert.deepEqual(updatedReportAccess, { RD_Access: "yes" });
+      assert.equal(updatedOrderStatus, "PAID");
+      assert.equal(updatedPaymentMethod, paymentMethod);
+      assert.deepEqual(updatedPaymentDetails, {
+        RDR_Fee: 425,
+        RDR_Payment: paymentMethod,
+      });
+    });
+  }
 
   it("persists KIA ownership while the purchased report is awaiting upload", async () => {
     let enrollmentUpdate: Record<string, unknown> | undefined;
