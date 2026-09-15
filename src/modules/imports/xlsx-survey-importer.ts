@@ -117,6 +117,7 @@ function humanizeDataLabel(dataLabel: string): string {
 }
 
 function demographicFilterLabel(dataLabel: string): string | undefined {
+  if (dataLabel === "f_PersonalDemographics_ethnicOrigin") return "Race/Ethnicity";
   const match = /^f_(?:Personal|Workplace)Demographics_([^_]+)/u.exec(
     dataLabel,
   );
