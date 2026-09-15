@@ -15,6 +15,7 @@ import {
   type Principal,
 } from "../auth/auth.module.js";
 import { TenantGuard } from "../tenants/tenants.module.js";
+import { definitionAnswer } from "../imports/survey-definition.js";
 import {
   effectiveReportCatalog,
   hasStandardPackage,
@@ -66,7 +67,7 @@ class ReportsController {
         include: {
           responses: {
             where: { respondent: { organizationId } },
-            select: { score: true },
+            select: { score: true, value: true },
           },
         },
       }),
@@ -76,9 +77,22 @@ class ReportsController {
       respondentCount: total,
       completionRate: total === 0 ? 0 : completed / total,
       questionScores: questions.map((question) => {
-        const scores = question.responses.flatMap(({ score }) =>
-          score === null ? [] : [Number(score)],
-        );
+        const scores = question.responses.flatMap(({ score, value }) => {
+          const metadata = jsonObject(question.metadata);
+          if (question.type === "likert" && metadata.surveyDefinitionAnswers) {
+            const option = definitionAnswer(value, question.metadata);
+            const configuredScore = Number(option?.Score ?? option?.Id);
+            return Number.isInteger(configuredScore) &&
+              configuredScore >= 1 &&
+              configuredScore <= 5 &&
+              !["n/a", "not applicable"].includes(
+                String(option?.Caption).toLowerCase(),
+              )
+              ? [configuredScore]
+              : [];
+          }
+          return score === null ? [] : [Number(score)];
+        });
         return {
           dataLabel: question.dataLabel,
           caption: question.caption,

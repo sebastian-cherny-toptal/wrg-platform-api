@@ -77,6 +77,9 @@ export class HistoricalImportController {
     const data = await this.imports.prepare(principal, parseMetadata(fields), {
       ...(files.eaFile ? { eaFile: files.eaFile } : {}),
       ...(files.efsFile ? { efsFile: files.efsFile } : {}),
+      ...(files.surveyDefinitionFile
+        ? { surveyDefinitionFile: files.surveyDefinitionFile }
+        : {}),
     });
     return {
       success: true,
@@ -120,6 +123,9 @@ export class HistoricalImportController {
       ...(files.eaFile ? { eaFile: files.eaFile } : {}),
       ...(files.efsFile ? { efsFile: files.efsFile } : {}),
       ...(files.rankingFile ? { rankingFile: files.rankingFile } : {}),
+      ...(files.surveyDefinitionFile
+        ? { surveyDefinitionFile: files.surveyDefinitionFile }
+        : {}),
     });
     return {
       success: true,

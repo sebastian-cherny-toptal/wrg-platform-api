@@ -52,6 +52,7 @@ export interface ReadXlsxSurveyDefinitionInput {
   fileName: string;
   filePath: string;
   questionId: (dataLabel: string) => string;
+  includedQuestionLabels?: readonly string[];
 }
 
 export interface IterateXlsxSurveyRowsOptions {
@@ -155,6 +156,7 @@ function questionsForHeaders(
   headers: ExcelJS.Row,
   columnCount: number,
   questionId: (dataLabel: string) => string,
+  includedQuestionLabels: readonly string[] = [],
 ): XlsxQuestionDefinition[] {
   const scorePercentColumn = metadataColumn(headers, "Score %");
   if (scorePercentColumn === 0) throw new Error('Missing "Score %" column');
@@ -169,7 +171,8 @@ function questionsForHeaders(
     if (
       !original ||
       /^(?:organization_ID|organization_name)$/iu.test(original) ||
-      /_ORGID(?:_|$)/iu.test(original)
+      (/_ORGID(?:_|$)/iu.test(original) &&
+        !includedQuestionLabels.includes(original))
     ) {
       continue;
     }
@@ -287,7 +290,12 @@ export async function readXlsxSurveyDefinition(
     columns,
     fileName: input.fileName,
     filePath: input.filePath,
-    questions: questionsForHeaders(row, columnCount, input.questionId),
+    questions: questionsForHeaders(
+      row,
+      columnCount,
+      input.questionId,
+      input.includedQuestionLabels,
+    ),
   };
 }
 

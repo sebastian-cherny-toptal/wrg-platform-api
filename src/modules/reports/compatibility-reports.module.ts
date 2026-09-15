@@ -67,6 +67,7 @@ import {
   defaultZohoCategoryOrder,
   normalizeZohoCategory,
 } from "../programs/program-zoho-category.js";
+import { definitionAnswer } from "../imports/survey-definition.js";
 
 const privacyThreshold = 5;
 const promotionalPreviewAccess = new Set([
@@ -424,6 +425,7 @@ export interface BenchmarkQuestion {
 }
 
 interface AgreementResponse {
+  agreementCaption?: string;
   questionId: string;
   value: Prisma.JsonValue;
   score: Prisma.Decimal | null;
@@ -431,6 +433,7 @@ interface AgreementResponse {
 }
 
 export interface DetailedResponse {
+  agreementCaption?: string;
   questionId: string;
   value: Prisma.JsonValue;
   score: Prisma.Decimal | null;
@@ -761,6 +764,9 @@ function demographicOptionOrder(
   question: Pick<DetailedResponse["question"], "dataLabel" | "metadata">,
   programYear?: number | null,
 ): string[] {
+  if (jsonObject(question.metadata).surveyDefinitionAnswers) {
+    return configuredResponseOptions(question).map(({ caption }) => caption);
+  }
   const dataLabel = question.dataLabel.toLowerCase();
   const standardOptions =
     dataLabel === "f_personaldemographics_ethnicorigin"
@@ -817,6 +823,10 @@ export function demographicResponseCaption(
   question: Pick<DetailedResponse["question"], "dataLabel" | "metadata">,
   programYear?: number | null,
 ): string | null {
+  const defined = definitionAnswer(value, question.metadata);
+  if (defined) return optionScalar(defined.Caption);
+  if (jsonObject(question.metadata).surveyDefinitionAnswers)
+    return responseCaption(value);
   const rawCaption = responseCaption(value);
   if (!rawCaption) return null;
   const configured = metadataResponseCaption(rawCaption, question.metadata);
@@ -867,6 +877,10 @@ export function reportResponseCaption(
   >,
   programYear?: number | null,
 ): string | null {
+  const defined = definitionAnswer(value, question.metadata);
+  if (defined) return optionScalar(defined.Caption);
+  if (jsonObject(question.metadata).surveyDefinitionAnswers)
+    return responseCaption(value);
   const mapped = demographicResponseCaption(value, question, programYear);
   if (!mapped || !isLikertQuestion(question)) return mapped;
   const numeric = Number(mapped);
@@ -898,6 +912,115 @@ export function reportResponseCaption(
 
 export type ResponseDetailTableCell =
   number | string | { percentile: string; respondentCount: number };
+
+function configuredResponseOptions(
+  question: Pick<BenchmarkQuestion, "metadata">,
+): Array<{ caption: string; score: number | null }> {
+  const options = jsonObject(question.metadata).QuestionResponses;
+  if (!Array.isArray(options)) return [];
+  return options.flatMap((value) => {
+    const option = jsonObject(value);
+    const caption = optionScalar(option.Caption);
+    if (!caption) return [];
+    const numeric = Number(option.Score ?? option.Id);
+    return [
+      {
+        caption,
+        score:
+          Number.isInteger(numeric) && numeric >= 1 && numeric <= 6
+            ? numeric
+            : numeric === 99
+              ? 6
+              : null,
+      },
+    ];
+  });
+}
+
+/** The same question label used by client demographics and definition exports. */
+export function surveyQuestionLabel(question: BenchmarkQuestion): string {
+  if (jsonObject(question.metadata).surveyDefinition) return question.caption;
+  const demographic =
+    question.dataLabel.toLowerCase().includes("demographic") ||
+    ["demographic", "2", "3"].includes(question.type.toLowerCase()) ||
+    [2, 3, "2", "3"].some((type) => type === jsonObject(question.metadata).QuestionTypeId);
+  if (!demographic) return question.caption;
+  return (
+    metadataString(question.metadata, "categoryLabel", "filterLabel") ??
+    categoryFromDataLabel(question.dataLabel)
+      .replace(/^Demographics?\s*/iu, "")
+      .replace(/\d+$/u, "")
+      .trim()
+  );
+}
+
+function detailOptions(
+  question: Pick<BenchmarkQuestion, "metadata">,
+): Array<{ caption: string; score: number | null }> {
+  const options = jsonObject(question.metadata).surveyDefinitionAnswers
+    ? configuredResponseOptions(question)
+    : responseDetailOptions.map((caption, index) => ({
+        caption,
+        score: index + 1,
+      }));
+  return [
+    ...new Map(options.map((option) => [option.caption, option])).values(),
+  ];
+}
+
+/** Interpret only explicit program overrides; legacy/default responses are untouched. */
+function derivedResponse<
+  T extends {
+    value: Prisma.JsonValue;
+    score: Prisma.Decimal | null;
+    question: Pick<BenchmarkQuestion, "metadata" | "type">;
+  },
+>(response: T): T & { agreementCaption?: string } {
+  const option = definitionAnswer(response.value, response.question.metadata);
+  if (!option) {
+    return jsonObject(response.question.metadata).surveyDefinitionAnswers &&
+      isLikertQuestion(response.question)
+      ? { ...response, score: null, agreementCaption: "Unmapped" }
+      : response;
+  }
+  const caption = optionScalar(option.Caption);
+  if (!caption) return response;
+  const likert = isLikertQuestion(response.question);
+  const numeric = Number(option.Score ?? option.Id);
+  const score =
+    likert && Number.isInteger(numeric) && numeric >= 1 && numeric <= 5
+      ? new Prisma.Decimal(numeric)
+      : response.score;
+  const excluded =
+    likert &&
+    (numeric === 6 ||
+      numeric === 99 ||
+      ["n/a", "not applicable"].includes(caption.toLowerCase()));
+  const agreementCaption = likert
+    ? excluded
+      ? "N/A"
+      : score !== null
+        ? Number(score) >= 4
+          ? "Agree"
+          : Number(score) <= 2
+            ? "Disagree"
+            : "Neutral"
+        : caption
+    : undefined;
+  return {
+    ...response,
+    value: {
+      ...(response.value &&
+      typeof response.value === "object" &&
+      !Array.isArray(response.value)
+        ? response.value
+        : { Value: response.value }),
+      ResponseCaption: caption,
+    },
+    score: excluded ? null : score,
+    ...(agreementCaption ? { agreementCaption } : {}),
+  };
+}
 
 function responseDetailPercentage(count: number, denominator: number): string {
   if (denominator === 0) return "0%";
@@ -933,7 +1056,7 @@ export function buildResponseDetailTable(
     compareDemographicOptions(left, right, filterQuestion, programYear),
   );
   const data: ResponseDetailTableCell[][] = [["", ...headers]];
-  for (const option of responseDetailOptions) {
+  for (const { caption: option } of detailOptions(question)) {
     const row: ResponseDetailTableCell[] = [option];
     for (const header of headers) {
       const group = groups.get(header) ?? [];
@@ -1917,9 +2040,7 @@ export class CompatibilityReportsService {
     >();
     for (const respondent of respondents) {
       for (const response of respondent.responses) {
-        if (
-          !response.question.dataLabel.toLowerCase().includes("demographic")
-        ) {
+        if (!this.isDemographicQuestion(response.question)) {
           continue;
         }
         const value = demographicResponseCaption(
@@ -2069,8 +2190,10 @@ export class CompatibilityReportsService {
     let negative = 0;
     let negativeDenominator = 0;
     for (const response of scoped) {
-      const caption = responseCaption(response.value)?.toLowerCase();
-      if (caption === "n/a" || caption === "not applicable") continue;
+      const caption = (
+        response.agreementCaption ?? responseCaption(response.value)
+      )?.toLowerCase();
+      if (caption === "n/a" || caption === "not applicable" || caption === "unmapped") continue;
       const score =
         response.score === null
           ? caption && /^-?\d+(?:\.\d+)?$/u.test(caption)
@@ -2398,9 +2521,9 @@ export class CompatibilityReportsService {
           programYear,
         );
         if (!label) continue;
-        const group = demographicGroupFromDataLabel(
-          response.question.dataLabel,
-        );
+        const group = jsonObject(response.question.metadata).surveyDefinition
+          ? this.demographicLabel(response.question)
+          : demographicGroupFromDataLabel(response.question.dataLabel);
         const groupLabels = labels.get(group) ?? new Set<string>();
         groupLabels.add(label);
         labels.set(group, groupLabels);
@@ -2485,7 +2608,9 @@ export class CompatibilityReportsService {
       .sort(([, left], [, right]) => left.position - right.position)
       .map(([questionId, question]) => ({
         title: this.demographicLabel(question),
-        groupLabel: demographicGroupFromDataLabel(question.dataLabel),
+        groupLabel: jsonObject(question.metadata).surveyDefinition
+          ? this.demographicLabel(question)
+          : demographicGroupFromDataLabel(question.dataLabel),
         options: [...(counts.get(questionId) ?? new Map<string, number>())]
           .sort(([left], [right]) =>
             compareDemographicOptions(left, right, question, programYear),
@@ -2695,7 +2820,7 @@ export class CompatibilityReportsService {
           : null;
         return caption ? [caption] : [];
       });
-      return responseDetailOptions.map((option) => {
+      return detailOptions(question).map(({ caption: option }) => {
         if (captions.length === 0) return 0;
         return (
           (captions.filter((caption) => caption === option).length * 100) /
@@ -2710,6 +2835,19 @@ export class CompatibilityReportsService {
       title: category,
       questions: (groupedQuestions.get(category) ?? []).map((question) => {
         const responseDistribution = distribution(question, respondents);
+        const configured = Boolean(
+          jsonObject(question.metadata).surveyDefinitionAnswers,
+        );
+        const responseOptions = detailOptions(question);
+        const scoreDistribution = (matches: (score: number) => boolean) =>
+          responseOptions.reduce(
+            (total, { score }, index) =>
+              total +
+              (score !== null && matches(score)
+                ? responseDistribution[index] ?? 0
+                : 0),
+            0,
+          );
         const demographicResponseDistribution = Object.fromEntries(
           demographics.map((demographic) => [
             demographic.groupLabel,
@@ -2735,11 +2873,22 @@ export class CompatibilityReportsService {
         );
         return {
           text: question.caption,
-          disagreement:
-            (responseDistribution[0] ?? 0) + (responseDistribution[1] ?? 0),
-          neutral: responseDistribution[2] ?? 0,
-          agreement:
-            (responseDistribution[3] ?? 0) + (responseDistribution[4] ?? 0),
+          ...(configured
+            ? {
+                responseLabels: detailOptions(question).map(
+                  ({ caption }) => caption,
+                ),
+              }
+            : {}),
+          disagreement: configured
+            ? scoreDistribution((score) => score <= 2)
+            : (responseDistribution[0] ?? 0) + (responseDistribution[1] ?? 0),
+          neutral: configured
+            ? scoreDistribution((score) => score === 3)
+            : responseDistribution[2] ?? 0,
+          agreement: configured
+            ? scoreDistribution((score) => score >= 4 && score <= 5)
+            : (responseDistribution[3] ?? 0) + (responseDistribution[4] ?? 0),
           responseCount: respondents.length,
           responseDistribution,
           demographicResponseDistribution,
@@ -3845,7 +3994,7 @@ export class CompatibilityReportsService {
     questions: BenchmarkQuestion[],
   ): Promise<AgreementResponse[]> {
     if (questions.length === 0) return [];
-    return this.prisma.response.findMany({
+    const responses = await this.prisma.response.findMany({
       where: {
         questionId: { in: questions.map(({ id }) => id) },
         respondent: {
@@ -3860,6 +4009,11 @@ export class CompatibilityReportsService {
         score: true,
         respondent: { select: { organizationId: true } },
       },
+    });
+    const byId = new Map(questions.map((question) => [question.id, question]));
+    return responses.map((response) => {
+      const question = byId.get(response.questionId);
+      return question ? derivedResponse({ ...response, question }) : response;
     });
   }
 
@@ -3901,6 +4055,11 @@ export class CompatibilityReportsService {
         },
       },
     });
+    for (const respondent of respondents) {
+      respondent.responses = respondent.responses.map((response) =>
+        derivedResponse(response),
+      );
+    }
     if (!queryFilter || Object.keys(queryFilter).length === 0) {
       return respondents;
     }
@@ -3948,16 +4107,7 @@ export class CompatibilityReportsService {
   }
 
   private demographicLabel(question: DetailedResponse["question"]): string {
-    const configured = metadataString(
-      question.metadata,
-      "categoryLabel",
-      "filterLabel",
-    );
-    if (configured) return configured;
-    return categoryFromDataLabel(question.dataLabel)
-      .replace(/^Demographics?\s*/iu, "")
-      .replace(/\d+$/u, "")
-      .trim();
+    return surveyQuestionLabel(question);
   }
 
   private demographicCategory(label: string): string {
@@ -4102,8 +4252,10 @@ export class CompatibilityReportsService {
   private trendDistribution(responses: DetailedResponse[]) {
     const counts = { Agree: 0, Neutral: 0, Disagree: 0 };
     for (const response of responses) {
-      const caption = responseCaption(response.value)?.toLowerCase();
-      if (!caption || caption === "n/a" || caption === "not applicable") {
+      const caption = (
+        response.agreementCaption ?? responseCaption(response.value)
+      )?.toLowerCase();
+      if (!caption || caption === "n/a" || caption === "not applicable" || caption === "unmapped") {
         continue;
       }
       const numericCaption = /^-?\d+(?:\.\d+)?$/u.test(caption)
@@ -4205,6 +4357,7 @@ export class CompatibilityReportsService {
     for (const response of responses) {
       const caption = responseCaption(response.value);
       if (
+        response.agreementCaption === "N/A" ||
         !caption ||
         ["n/a", "not applicable"].includes(caption.toLowerCase())
       ) {
@@ -4259,33 +4412,53 @@ export class CompatibilityReportsService {
         question,
         programYear,
       );
-      if (!caption || caption === "N/A") continue;
+      if (!caption || caption === "N/A" || response.agreementCaption === "N/A")
+        continue;
       counts.set(caption, (counts.get(caption) ?? 0) + 1);
     }
     const denominator = [...counts.values()].reduce(
       (sum, count) => sum + count,
       0,
     );
-    return responseDetailOptions
-      .filter((caption) => caption !== "N/A")
-      .map((ResponseCaption) => {
-        const numberOfResponses = counts.get(ResponseCaption) ?? 0;
-        return {
-          ResponseCaption,
-          numberOfResponses,
-          percent:
-            denominator === 0 ? 0 : (numberOfResponses * 100) / denominator,
-          colorCode: responseColor(ResponseCaption),
-        };
-      });
+    const options = detailOptions(question).filter(
+      ({ caption, score }) => caption !== "N/A" && score !== 6,
+    );
+    const known = new Set(options.map(({ caption }) => caption));
+    if (jsonObject(question.metadata).surveyDefinitionAnswers) {
+      for (const caption of counts.keys())
+        if (!known.has(caption)) options.push({ caption, score: null });
+    }
+    return options.map(({ caption: ResponseCaption, score }) => {
+      const numberOfResponses = counts.get(ResponseCaption) ?? 0;
+      return {
+        ResponseCaption,
+        numberOfResponses,
+        percent:
+          denominator === 0 ? 0 : (numberOfResponses * 100) / denominator,
+        colorCode: responseColor(ResponseCaption),
+        ...(jsonObject(question.metadata).surveyDefinitionAnswers &&
+        score !== null
+          ? {
+              agreementGroup:
+                score >= 4
+                  ? ("Agree" as const)
+                  : score <= 2
+                    ? ("Disagree" as const)
+                    : ("Neutral" as const),
+            }
+          : {}),
+      };
+    });
   }
 
   private positivePercentage(responses: DetailedResponse[]): number {
     let positive = 0;
     let denominator = 0;
     for (const response of responses) {
-      const caption = responseCaption(response.value)?.toLowerCase();
-      if (!caption || caption === "n/a" || caption === "not applicable") {
+      const caption = (
+        response.agreementCaption ?? responseCaption(response.value)
+      )?.toLowerCase();
+      if (!caption || caption === "n/a" || caption === "not applicable" || caption === "unmapped") {
         continue;
       }
       const score =
@@ -4353,8 +4526,10 @@ export class CompatibilityReportsService {
       ) {
         continue;
       }
-      const caption = responseCaption(response.value)?.toLowerCase();
-      if (caption === "n/a" || caption === "not applicable") continue;
+      const caption = (
+        response.agreementCaption ?? responseCaption(response.value)
+      )?.toLowerCase();
+      if (caption === "n/a" || caption === "not applicable" || caption === "unmapped") continue;
       const score =
         response.score === null
           ? caption && /^-?\d+(?:\.\d+)?$/u.test(caption)
@@ -4391,6 +4566,19 @@ export class CompatibilityReportsService {
   private publishedWorkforce(
     context: ReportContext,
   ): PublishedWorkforceSnapshot | null {
+    const definition = jsonObject(context.program.metadata).surveyDefinition;
+    // Published snapshots use the original questions and scoring.
+    if (
+      Array.isArray(definition) &&
+      definition.some((value) => {
+        const question = jsonObject(value);
+        return (
+          String(question.dataLabel).startsWith("q_") ||
+          question.type === "likert"
+        );
+      })
+    )
+      return null;
     const published = jsonObject(context.program.metadata).publishedReports;
     if (
       published === null ||

@@ -24,6 +24,7 @@ export interface FeedbackWorkbookSection {
     demographicAgreement?: Record<string, Record<string, number>>;
     demographicResponseCount?: Record<string, Record<string, number>>;
     responseDistribution?: number[];
+    responseLabels?: string[];
     demographicResponseDistribution?: Record<
       string,
       Record<string, number[]>
@@ -1057,6 +1058,11 @@ export async function createResponseDetailWorkbook(input: {
     if (responseMatch) {
       const question = questions[Number(responseMatch[1]) - 1];
       if (!question) return null;
+      if (question.responseLabels) {
+        cell.worksheet.getCell(cell.row, 3).value = safeValue(
+          question.responseLabels[Number(responseMatch[2]) - 1] ?? "",
+        );
+      }
       const value =
         responsePercentages(question)[Number(responseMatch[2]) - 1] ?? 0;
       if (cell.fullAddress.col === 5) return value;
