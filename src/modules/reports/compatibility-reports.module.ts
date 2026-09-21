@@ -944,9 +944,15 @@ export function surveyQuestionLabel(question: BenchmarkQuestion): string {
   const demographic =
     question.dataLabel.toLowerCase().includes("demographic") ||
     ["demographic", "2", "3"].includes(question.type.toLowerCase()) ||
-    [2, 3, "2", "3"].some((type) => type === jsonObject(question.metadata).QuestionTypeId);
+    [2, 3, "2", "3"].some(
+      (type) => type === jsonObject(question.metadata).QuestionTypeId,
+    );
   if (!demographic) return question.caption;
-  const configuredLabel = metadataString(question.metadata, "categoryLabel", "filterLabel");
+  const configuredLabel = metadataString(
+    question.metadata,
+    "categoryLabel",
+    "filterLabel",
+  );
   // Importer changes do not update labels already persisted on existing questions.
   if (
     question.dataLabel === "f_PersonalDemographics_ethnicOrigin" &&
@@ -1754,14 +1760,19 @@ export class CompatibilityReportsService {
       context.enrollmentMetrics,
       "SEV_Filter",
     );
-    const questions = await this.openQuestions(
-      context.survey.id,
-      sortingReference ? { questionId: sortingReference } : undefined,
-    );
-    const question = questions.find((candidate) =>
+    if (sortingReference) {
+      this.requiresDemo(principal, context, "SEV_Access");
+    }
+    const openQuestions = await this.openQuestions(context.survey.id);
+    const question = openQuestions.find((candidate) =>
       this.questionMatchesReference(candidate, questionReference),
     );
     if (!question) throw new NotFoundException("Question not found");
+    const questions = sortingReference
+      ? await this.openQuestions(context.survey.id, {
+          questionId: sortingReference,
+        })
+      : openQuestions;
     const sortingQuestion = sortingReference
       ? questions.find(
           (candidate) =>
@@ -1769,11 +1780,31 @@ export class CompatibilityReportsService {
             this.questionMatchesReference(candidate, sortingReference),
         )
       : undefined;
+    if (sortingReference && !sortingQuestion) {
+      throw new BadRequestException("Purchased sorting filter is unavailable");
+    }
+    if (sortingQuestion && queryFilter && Object.keys(queryFilter).length > 0) {
+      throw new BadRequestException(
+        "Additional verbatim filters are unavailable",
+      );
+    }
     const respondents = await this.organizationRespondents(
       context,
       queryFilter,
     );
-    const respondentData = respondents.flatMap((respondent) => {
+    if (respondents.length < privacyThreshold) {
+      throw new BadRequestException(
+        "The information is not visible due to confidentiality reasons. The number of employee responses is less than 5.",
+      );
+    }
+    const visibleRespondents = sortingQuestion
+      ? this.eligibleSortedRespondents(
+          respondents,
+          sortingQuestion,
+          context.program.year,
+        )
+      : respondents;
+    const respondentData = visibleRespondents.flatMap((respondent) => {
       const response = respondent.responses.find(
         (candidate) => candidate.questionId === question.id,
       );
@@ -1813,11 +1844,6 @@ export class CompatibilityReportsService {
           ]
         : [];
     });
-    if (respondents.length < privacyThreshold) {
-      throw new BadRequestException(
-        "The information is not visible due to confidentiality reasons. The number of employee responses is less than 5.",
-      );
-    }
     respondentData.sort((left, right) => {
       if (sortingQuestion) {
         if (left.sortingSortValue === right.sortingSortValue) return 0;
@@ -2202,7 +2228,12 @@ export class CompatibilityReportsService {
       const caption = (
         response.agreementCaption ?? responseCaption(response.value)
       )?.toLowerCase();
-      if (caption === "n/a" || caption === "not applicable" || caption === "unmapped") continue;
+      if (
+        caption === "n/a" ||
+        caption === "not applicable" ||
+        caption === "unmapped"
+      )
+        continue;
       const score =
         response.score === null
           ? caption && /^-?\d+(?:\.\d+)?$/u.test(caption)
@@ -2853,7 +2884,7 @@ export class CompatibilityReportsService {
             (total, { score }, index) =>
               total +
               (score !== null && matches(score)
-                ? responseDistribution[index] ?? 0
+                ? (responseDistribution[index] ?? 0)
                 : 0),
             0,
           );
@@ -2894,7 +2925,7 @@ export class CompatibilityReportsService {
             : (responseDistribution[0] ?? 0) + (responseDistribution[1] ?? 0),
           neutral: configured
             ? scoreDistribution((score) => score === 3)
-            : responseDistribution[2] ?? 0,
+            : (responseDistribution[2] ?? 0),
           agreement: configured
             ? scoreDistribution((score) => score >= 4 && score <= 5)
             : (responseDistribution[3] ?? 0) + (responseDistribution[4] ?? 0),
@@ -3560,9 +3591,28 @@ export class CompatibilityReportsService {
   ): Promise<Buffer> {
     const context = await this.context(principal, query);
     this.requiresDemo(principal, context, "EV_Access");
-    if (queryFilter?.questionId !== undefined) {
+    const purchasedFilter = metadataString(
+      context.enrollmentMetrics,
+      "SEV_Filter",
+    );
+    if (purchasedFilter) {
       this.requiresDemo(principal, context, "SEV_Access");
     }
+    const requestedFilter = queryFilter?.questionId;
+    if (requestedFilter !== undefined && !purchasedFilter) {
+      throw new BadRequestException("A purchased sorting filter is required");
+    }
+    if (
+      queryFilter &&
+      Object.keys(queryFilter).some((key) => key !== "questionId")
+    ) {
+      throw new BadRequestException(
+        "Additional verbatim filters are unavailable",
+      );
+    }
+    const effectiveFilter = purchasedFilter
+      ? { questionId: purchasedFilter }
+      : undefined;
     if (query.isDummy) {
       return createVerbatimWorkbook({
         metadata: await this.reportWorkbookMetadata(principal, query, context),
@@ -3580,16 +3630,29 @@ export class CompatibilityReportsService {
         })),
       });
     }
-    const questions = await this.openQuestions(context.survey.id, queryFilter);
-    const filterReference = queryFilter?.questionId;
+    const questions = await this.openQuestions(
+      context.survey.id,
+      effectiveFilter,
+    );
+    const filterReference = effectiveFilter?.questionId;
     const filterQuestion =
       typeof filterReference === "string" || typeof filterReference === "number"
         ? questions.find((question) =>
-            [question.id, question.legacyId, question.externalId]
-              .filter(Boolean)
-              .includes(String(filterReference)),
+            this.questionMatchesReference(question, filterReference),
           )
         : undefined;
+    if (filterReference && !filterQuestion) {
+      throw new BadRequestException("Purchased sorting filter is unavailable");
+    }
+    if (
+      requestedFilter !== undefined &&
+      filterQuestion &&
+      !this.questionMatchesReference(filterQuestion, String(requestedFilter))
+    ) {
+      throw new BadRequestException(
+        "Only the purchased sorting filter is available",
+      );
+    }
     const reportQuestions = filterQuestion
       ? questions.filter(({ id }) => id !== filterQuestion.id)
       : questions;
@@ -3607,6 +3670,13 @@ export class CompatibilityReportsService {
         },
       },
     });
+    const visibleRespondents = filterQuestion
+      ? this.eligibleSortedRespondents(
+          respondents,
+          filterQuestion,
+          context.program.year,
+        )
+      : respondents;
     return createVerbatimWorkbook({
       metadata: await this.reportWorkbookMetadata(principal, query, context),
       ...(filterQuestion
@@ -3614,7 +3684,7 @@ export class CompatibilityReportsService {
         : {}),
       questions: reportQuestions.map((question) => ({
         text: question.caption,
-        responses: respondents
+        responses: visibleRespondents
           .flatMap((respondent) => {
             const response = respondent.responses.find(
               (item) => item.questionId === question.id,
@@ -3811,7 +3881,8 @@ export class CompatibilityReportsService {
     const access = jsonObject(context.reportAccess);
     const kiaPurchased =
       accessKey === "KIA_Access" &&
-      typeof jsonObject(context.enrollmentMetrics).KIA_Order_Status === "string";
+      typeof jsonObject(context.enrollmentMetrics).KIA_Order_Status ===
+        "string";
     const aliases = {
       WBC_Access: "workforceBenchmark",
       EV_Access: "employeeVerbatims",
@@ -4028,6 +4099,38 @@ export class CompatibilityReportsService {
       const question = byId.get(response.questionId);
       return question ? derivedResponse({ ...response, question }) : response;
     });
+  }
+
+  private eligibleSortedRespondents<
+    T extends {
+      responses: Array<{ questionId: string; value: Prisma.JsonValue }>;
+    },
+  >(
+    respondents: T[],
+    sortingQuestion: BenchmarkQuestion,
+    programYear: number | null,
+  ): T[] {
+    const category = (respondent: T) => {
+      const response = respondent.responses.find(
+        (item) => item.questionId === sortingQuestion.id,
+      );
+      return response
+        ? demographicResponseCaption(
+            response.value,
+            sortingQuestion,
+            programYear,
+          )
+        : null;
+    };
+    const counts = new Map<string | null, number>();
+    for (const respondent of respondents) {
+      const key = category(respondent);
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return respondents.filter(
+      (respondent) =>
+        (counts.get(category(respondent)) ?? 0) >= privacyThreshold,
+    );
   }
 
   private async organizationRespondents(
@@ -4268,7 +4371,12 @@ export class CompatibilityReportsService {
       const caption = (
         response.agreementCaption ?? responseCaption(response.value)
       )?.toLowerCase();
-      if (!caption || caption === "n/a" || caption === "not applicable" || caption === "unmapped") {
+      if (
+        !caption ||
+        caption === "n/a" ||
+        caption === "not applicable" ||
+        caption === "unmapped"
+      ) {
         continue;
       }
       const numericCaption = /^-?\d+(?:\.\d+)?$/u.test(caption)
@@ -4471,7 +4579,12 @@ export class CompatibilityReportsService {
       const caption = (
         response.agreementCaption ?? responseCaption(response.value)
       )?.toLowerCase();
-      if (!caption || caption === "n/a" || caption === "not applicable" || caption === "unmapped") {
+      if (
+        !caption ||
+        caption === "n/a" ||
+        caption === "not applicable" ||
+        caption === "unmapped"
+      ) {
         continue;
       }
       const score =
@@ -4542,7 +4655,12 @@ export class CompatibilityReportsService {
       const caption = (
         response.agreementCaption ?? responseCaption(response.value)
       )?.toLowerCase();
-      if (caption === "n/a" || caption === "not applicable" || caption === "unmapped") continue;
+      if (
+        caption === "n/a" ||
+        caption === "not applicable" ||
+        caption === "unmapped"
+      )
+        continue;
       const score =
         response.score === null
           ? caption && /^-?\d+(?:\.\d+)?$/u.test(caption)

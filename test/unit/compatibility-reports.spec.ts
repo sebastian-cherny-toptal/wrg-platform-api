@@ -676,6 +676,154 @@ describe("compatibility report categories", () => {
     assert.equal(result.data.sortingFilter, undefined);
   });
 
+  it("suppresses small sorted verbatim groups in answers and workbook", async () => {
+    const department = {
+      id: "department",
+      legacyId: null,
+      externalId: null,
+      dataLabel: "custom_department",
+      caption: "Department",
+      type: "demographic",
+      position: 1,
+      metadata: { QuestionTypeId: 2, filterLabel: "Department" },
+    };
+    const questions = [1, 2].map((number) => ({
+      id: `open-${number}`,
+      legacyId: null,
+      externalId: null,
+      dataLabel: `q_OpenEnded_${number}`,
+      caption: `Open question ${number}`,
+      type: "open-text",
+      position: number + 1,
+      metadata: { QuestionTypeId: 9 },
+    }));
+    const respondents = Array.from({ length: 9 }, (_, index) => {
+      const small = index < 4;
+      return {
+        id: `respondent-${index + 1}`,
+        legacyId: null,
+        externalId: null,
+        metadata: {},
+        responses: [department, ...questions].map((question) => ({
+          questionId: question.id,
+          value:
+            question.id === department.id
+              ? small
+                ? "Private Team"
+                : "Public Team"
+              : `${small ? "private" : "public"} answer ${question.id} ${index}`,
+          score: null,
+          question,
+        })),
+      };
+    });
+    const prisma = {
+      program: {
+        findFirst: () => ({
+          id: "program-1",
+          projectId: "project-1",
+          name: "Test program",
+          year: 2026,
+          startsAt: null,
+          metadata: {},
+          project: { id: "project-1", name: "Test project" },
+        }),
+      },
+      organizationProgram: {
+        findFirst: () => ({
+          id: "enrollment-1",
+          reportAccess: { EV_Access: "yes", SEV_Access: "yes" },
+          metrics: { SEV_Filter: department.id },
+          metadata: {},
+          organization: { name: "Actual Organization Name" },
+        }),
+        findMany: () => [],
+      },
+      survey: {
+        findFirst: () => ({
+          id: "survey-1",
+          title: "Test survey",
+          startsAt: null,
+          endsAt: null,
+        }),
+      },
+      question: { findMany: () => [department, ...questions] },
+      respondent: { findMany: () => respondents },
+    } as unknown as PrismaService;
+    const service = new CompatibilityReportsService(prisma);
+    const principal = {
+      sub: "client-1",
+      organizationId: "organization-1",
+      roles: ["client"],
+      permissions: [],
+    };
+    const query = { selectedProgramId: "program-1", isDummy: false };
+
+    for (const question of questions) {
+      const result = await service.openResponseAnswers(
+        principal,
+        query,
+        question.id,
+      );
+      const serialized = JSON.stringify(result);
+      assert.doesNotMatch(serialized, /Private Team|private answer/u);
+      assert.match(serialized, /Public Team|public answer/u);
+      assert.equal(result.data.respondentData.length, 5);
+    }
+    await assert.rejects(
+      service.openResponseAnswers(principal, query, department.id),
+      /Question not found/u,
+    );
+    const firstQuestion = questions[0];
+    assert.ok(firstQuestion);
+    await assert.rejects(
+      service.openResponseAnswers(principal, query, firstQuestion.id, {
+        [department.id]: "Private Team",
+      }),
+      /Additional verbatim filters are unavailable/u,
+    );
+    await assert.rejects(
+      service.openResponsesWorkbook(principal, query, {
+        questionId: firstQuestion.id,
+      }),
+      /Only the purchased sorting filter is available/u,
+    );
+
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(
+      (await service.openResponsesWorkbook(principal, query, {
+        questionId: department.id,
+      })) as never,
+    );
+    const workbookText: string[] = [];
+    workbook.eachSheet((sheet) => {
+      sheet.eachRow((row) => {
+        row.eachCell((cell) => {
+          workbookText.push(String(cell.value ?? ""));
+        });
+      });
+    });
+    assert.doesNotMatch(workbookText.join(" "), /Private Team|private answer/u);
+    assert.match(workbookText.join(" "), /Public Team|public answer/u);
+    const withoutFilter = new ExcelJS.Workbook();
+    await withoutFilter.xlsx.load(
+      (await service.openResponsesWorkbook(principal, query)) as never,
+    );
+    const directRequestText: string[] = [];
+    withoutFilter.eachSheet((sheet) => {
+      sheet.eachRow((row) => {
+        row.eachCell((cell) => {
+          directRequestText.push(String(cell.value ?? ""));
+        });
+      });
+    });
+    assert.doesNotMatch(
+      directRequestText.join(" "),
+      /Private Team|private answer/u,
+    );
+    assert.match(directRequestText.join(" "), /Public Team|public answer/u);
+  });
+
   it("sorts each open-ended question by the purchased demographic and returns its label", async () => {
     const departmentQuestion = {
       id: "department",
@@ -705,7 +853,10 @@ describe("compatibility report categories", () => {
       position: 2,
       metadata: { QuestionTypeId: 9 },
     };
-    let departments: Array<number | string> = [10, 2, 1, 10, 2];
+    const five = (value: string) => Array.from({ length: 5 }, () => value);
+    let departments: Array<number | string> = [
+      10, 2, 1, 10, 2, 1, 1, 1, 1, 2, 2, 2, 10, 10, 10,
+    ];
     const prisma = {
       program: {
         findFirst: () => ({
@@ -777,16 +928,11 @@ describe("compatibility report categories", () => {
     );
 
     assert.deepEqual(
-      result.data.respondentData.map((respondent) => ({
-        id: respondent.RespondentId,
-        sortingValue: respondent.sortingValue,
-      })),
+      result.data.respondentData.map(({ sortingValue }) => sortingValue),
       [
-        { id: "respondent-3", sortingValue: "Administration/Management" },
-        { id: "respondent-2", sortingValue: "Human Resources" },
-        { id: "respondent-5", sortingValue: "Human Resources" },
-        { id: "respondent-1", sortingValue: "Technology" },
-        { id: "respondent-4", sortingValue: "Technology" },
+        ...five("Administration/Management"),
+        ...five("Human Resources"),
+        ...five("Technology"),
       ],
     );
     assert.equal(result.data.sortingFilter?.label, "Department");
@@ -812,25 +958,24 @@ describe("compatibility report categories", () => {
     );
     assert.equal(sheet.getCell("B4").value, "Department");
     assert.deepEqual(
-      ["B5", "B6", "B7", "B8", "B9"].map(
-        (address) => sheet.getCell(address).value,
+      Array.from(
+        { length: 15 },
+        (_, index) => sheet.getCell(`B${index + 5}`).value,
       ),
       [
-        "Administration/Management",
-        "Human Resources",
-        "Human Resources",
-        "Technology",
-        "Technology",
+        ...five("Administration/Management"),
+        ...five("Human Resources"),
+        ...five("Technology"),
       ],
     );
 
-    departments = [
-      "Sales 10",
-      "Sales 2",
-      "Administration",
-      "Human Resources",
-      "Finance",
-    ];
+    departments = Array.from(
+      { length: 25 },
+      (_, index) =>
+        ["Sales 10", "Sales 2", "Administration", "Human Resources", "Finance"][
+          index % 5
+        ] ?? "",
+    );
     const alphanumericResult = await service.openResponseAnswers(
       {
         sub: "client-1",
@@ -845,7 +990,13 @@ describe("compatibility report categories", () => {
       alphanumericResult.data.respondentData.map(
         ({ sortingValue }) => sortingValue,
       ),
-      ["Administration", "Finance", "Human Resources", "Sales 2", "Sales 10"],
+      [
+        ...five("Administration"),
+        ...five("Finance"),
+        ...five("Human Resources"),
+        ...five("Sales 2"),
+        ...five("Sales 10"),
+      ],
     );
   });
 
