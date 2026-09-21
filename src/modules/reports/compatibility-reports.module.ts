@@ -1756,10 +1756,7 @@ export class CompatibilityReportsService {
         },
       };
     }
-    const sortingReference = metadataString(
-      context.enrollmentMetrics,
-      "SEV_Filter",
-    );
+    const sortingReference = this.purchasedVerbatimFilter(context);
     if (sortingReference) {
       this.requiresDemo(principal, context, "SEV_Access");
     }
@@ -3591,10 +3588,7 @@ export class CompatibilityReportsService {
   ): Promise<Buffer> {
     const context = await this.context(principal, query);
     this.requiresDemo(principal, context, "EV_Access");
-    const purchasedFilter = metadataString(
-      context.enrollmentMetrics,
-      "SEV_Filter",
-    );
+    const purchasedFilter = this.purchasedVerbatimFilter(context);
     if (purchasedFilter) {
       this.requiresDemo(principal, context, "SEV_Access");
     }
@@ -3902,6 +3896,20 @@ export class CompatibilityReportsService {
       );
     }
     return false;
+  }
+
+  private purchasedVerbatimFilter(context: ReportContext): string | null {
+    const filter = metadataString(context.enrollmentMetrics, "SEV_Filter");
+    const access = jsonObject(context.reportAccess);
+    const sortedAccess = access.SEV_Access ?? access.sortedEmployeeVerbatims;
+    const sortedReportOwned =
+      sortedAccess === true ||
+      (typeof sortedAccess === "string" &&
+        sortedAccess.trim().toLowerCase() === "yes");
+    if (!context.isDummy && sortedReportOwned && !filter) {
+      throw new BadRequestException("Purchased sorting filter is unavailable");
+    }
+    return filter;
   }
 
   private async benchmarkQuestions(
