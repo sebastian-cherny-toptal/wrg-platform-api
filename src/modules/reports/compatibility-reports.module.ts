@@ -1510,7 +1510,7 @@ export class CompatibilityReportsService {
       categoryResponse: Array<{
         category: string;
         currentOrg: number;
-        otherOrg: number;
+        otherOrg: number | string;
       }>;
     };
   }> {
@@ -1527,6 +1527,10 @@ export class CompatibilityReportsService {
       if (selectedIndex < 0) {
         throw new BadRequestException("Invalid benchmark category");
       }
+      const hidden = this.benchmarkGroupHidden(
+        context,
+        published.headers[selectedIndex]?.type ?? "",
+      );
       const responses = await this.agreementResponses(
         context.survey.id,
         questions,
@@ -1545,7 +1549,11 @@ export class CompatibilityReportsService {
               currentOrg: this.percentage(responses, questionIds, [
                 context.organizationId,
               ]),
-              otherOrg: Number(category.dataValues[selectedIndex] ?? 0),
+              otherOrg: hidden
+                ? "x"
+                : this.publishedValue(
+                    category.dataValues[selectedIndex] ?? "x",
+                  ),
             };
           }),
         },
@@ -1577,7 +1585,7 @@ export class CompatibilityReportsService {
                 context.organizationId,
               ]),
               otherOrg: selected.hidden
-                ? 0
+                ? "x"
                 : this.percentage(
                     responses,
                     questionIds,
@@ -1608,6 +1616,10 @@ export class CompatibilityReportsService {
       if (selectedIndex < 0) {
         throw new BadRequestException("Invalid benchmark category");
       }
+      const hidden = this.benchmarkGroupHidden(
+        context,
+        published.headers[selectedIndex]?.type ?? "",
+      );
       const categorySnapshot = published.categories.find(
         (item) => item.title.toLowerCase() === category.trim().toLowerCase(),
       );
@@ -1634,10 +1646,13 @@ export class CompatibilityReportsService {
               [question.id],
               [context.organizationId],
             ),
-            otherOrg: this.publishedValue(
-              categorySnapshot.questions[index]?.dataValues[selectedIndex] ??
-                "x",
-            ),
+            otherOrg: hidden
+              ? "x"
+              : this.publishedValue(
+                  categorySnapshot.questions[index]?.dataValues[
+                    selectedIndex
+                  ] ?? "x",
+                ),
           })),
         },
       };
@@ -1670,7 +1685,7 @@ export class CompatibilityReportsService {
             [context.organizationId],
           ),
           otherOrg: selected.hidden
-            ? 0
+            ? "x"
             : this.percentage(
                 responses,
                 [question.id],
@@ -4075,10 +4090,25 @@ export class CompatibilityReportsService {
           size,
           winner,
           organizationIds,
-          hidden: organizationIds.length === 0,
+          hidden: organizationIds.length < privacyThreshold,
         };
       }),
     );
+  }
+
+  private benchmarkGroupHidden(
+    context: ReportContext,
+    headerType: string,
+  ): boolean {
+    const canonical = (value: string) =>
+      value
+        .toLowerCase()
+        .replace(/[^a-z0-9]/gu, "")
+        .replace(/^super(?=yes$|no$)/u, "smallmedium");
+    const group = this.groups(context).find(
+      ({ key }) => canonical(key) === canonical(headerType),
+    );
+    return !group || group.hidden;
   }
 
   private async agreementResponses(

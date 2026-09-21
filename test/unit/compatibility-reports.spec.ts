@@ -1089,11 +1089,11 @@ describe("compatibility report categories", () => {
         1,
       );
       const winners = Array.from(
-        { length: 2 },
+        { length: 5 },
         (_, index) => `winner-${index}`,
       );
       const nonWinners = Array.from(
-        { length: 2 },
+        { length: 5 },
         (_, index) => `non-winner-${index}`,
       );
       const prisma = {
@@ -1180,7 +1180,7 @@ describe("compatibility report categories", () => {
       );
 
       assert.deepEqual(result.data.data[0]?.dataValues, [100, 0, 100, 0]);
-      assert.equal(result.data.cohortOrganizationCount, 4);
+      assert.equal(result.data.cohortOrganizationCount, 10);
       assert.ok(
         result.data.tableHeaders.some(
           ({ title }) =>
@@ -1197,4 +1197,257 @@ describe("compatibility report categories", () => {
       );
     });
   }
+
+  it("suppresses benchmark cohorts below five in details, averages, and workbook", async () => {
+    const question = benchmarkQuestion("q-core", "Core Employee Experience", 1);
+    const programMetadata: {
+      benchmarkCategories: string[];
+      publishedReports?: Record<string, unknown>;
+    } = { benchmarkCategories: ["Small", "Medium"] };
+    const principal = {
+      sub: "user-1",
+      organizationId: "winner-0",
+      roles: ["admin"],
+      permissions: [],
+    };
+    const query = { selectedProgramId: "program-1", isDummy: false };
+    const enrollments = [
+      ...Array.from({ length: 5 }, (_, index) => ({
+        organizationId: `winner-${index}`,
+        isWinner: "Y",
+        currentZohoCategory: index === 4 ? "Medium" : "Small",
+        isIncluded: true,
+      })),
+      ...Array.from({ length: 5 }, (_, index) => ({
+        organizationId: `non-winner-${index}`,
+        isWinner: "N",
+        currentZohoCategory: "Small",
+        isIncluded: true,
+      })),
+      {
+        organizationId: "excluded-winner",
+        isWinner: "Y",
+        currentZohoCategory: "Small",
+        isIncluded: false,
+      },
+    ];
+    const prisma = {
+      program: {
+        findFirst: () => ({
+          id: "program-1",
+          projectId: "project-1",
+          name: "Test program",
+          year: 2026,
+          startsAt: null,
+          metadata: programMetadata,
+          project: { id: "project-1", name: "Test project" },
+        }),
+      },
+      organizationProgram: {
+        findFirst: () => ({
+          id: "enrollment-1",
+          reportAccess: {},
+          metrics: {},
+          metadata: {},
+          organization: { name: "Test organization" },
+        }),
+        findMany: ({ where }: { where: { isIncluded: boolean } }) => {
+          assert.equal(where.isIncluded, true);
+          return enrollments
+            .filter((enrollment) => enrollment.isIncluded)
+            .map((enrollment) => ({
+              ...enrollment,
+              benchmarkCategory: enrollment.currentZohoCategory,
+              metrics: {},
+              organization: { metadata: {} },
+            }));
+        },
+      },
+      survey: {
+        findFirst: () => ({
+          id: "survey-1",
+          title: "Test survey",
+          startsAt: null,
+          endsAt: null,
+        }),
+      },
+      question: { findMany: () => [question] },
+      response: {
+        findMany: () =>
+          enrollments.map((enrollment) => ({
+            questionId: question.id,
+            value: enrollment.isWinner === "Y" ? "Agree" : "Disagree",
+            score: null,
+            respondent: { organizationId: enrollment.organizationId },
+          })),
+      },
+    } as unknown as PrismaService;
+    const service = new CompatibilityReportsService(prisma);
+
+    const report = await service.workforceComparison(principal, query);
+    const headers = report.data.tableHeaders.map(({ type }) => type);
+    const values = report.data.data[0]?.dataValues as Array<number | string>;
+    const detailValues = (
+      report.data.data[0]?.nestedData as Array<{ dataValues: unknown[] }>
+    )[0]?.dataValues;
+    const averages = report.data.surveyAverage;
+    const valueAt = (type: string) => values[headers.indexOf(type)];
+    const detailAt = (type: string) => detailValues?.[headers.indexOf(type)];
+    assert.equal(valueAt("All_Yes"), 100);
+    assert.equal(valueAt("All_No"), 0);
+    assert.equal(valueAt("Small_Yes"), "x");
+    assert.equal(valueAt("Small_No"), 0);
+    assert.equal(valueAt("Medium_Yes"), "x");
+    assert.equal(valueAt("Medium_No"), "x");
+    assert.equal(detailAt("Small_Yes"), "x");
+    assert.equal(detailAt("Small_No"), 0);
+    assert.deepEqual(
+      averages.find(({ title }) => title === "Small Employers")?.Yes,
+      {
+        title: "Winners",
+        value: "x",
+      },
+    );
+    assert.deepEqual(
+      averages.find(({ title }) => title === "Small Employers")?.No,
+      {
+        title: "Non-Winners",
+        value: 0,
+      },
+    );
+    assert.equal(report.data.cohortOrganizationCount, 10);
+
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(
+      (await service.benchmarkWorkbook(principal, query)) as never,
+    );
+    const sheet = workbook.getWorksheet("Workforce Benchmark Comparisons");
+    assert.ok(sheet);
+    assert.equal(sheet.getCell("B9").value, 100);
+    assert.equal(sheet.getCell("D9").value, "x");
+    assert.equal(sheet.getCell("D18").value, "x");
+    assert.equal(sheet.getCell("D104").value, "x");
+
+    const selected = await service.questionComparisonWithMe(
+      principal,
+      query,
+      "Core Employee Experience",
+      "SmallYes",
+    );
+    assert.equal(selected.data.questionResponse[0]?.otherOrg, "x");
+    const selectedSummary = await service.sectionComparisonWithMe(
+      principal,
+      query,
+      "SmallYes",
+    );
+    assert.equal(selectedSummary.data.categoryResponse[0]?.otherOrg, "x");
+    const directDetail = await service.workforceQuestionComparison(
+      principal,
+      query,
+      "Core Employee Experience",
+    );
+    assert.equal(
+      (
+        directDetail.data.tableData[0]?.nestedData as Array<{
+          dataValues: Array<number | string>;
+        }>
+      )[0]?.dataValues[headers.indexOf("Small_Yes")],
+      "x",
+    );
+    const legacy = await service.employeeComparison(principal, query);
+    assert.ok(legacy.data.every((entry) => !("SmallYes" in entry)));
+    assert.ok(
+      (await service.winnersList(principal, query)).every(
+        ({ key }) => key !== "SmallYes",
+      ),
+    );
+
+    for (const winnerCount of [0, 1, 2, 3, 4, 5]) {
+      for (const enrollment of enrollments) {
+        enrollment.isIncluded =
+          enrollment.organizationId === "excluded-winner"
+            ? false
+            : enrollment.isWinner === "Y"
+              ? Number(enrollment.organizationId.split("-").at(-1)) <
+                winnerCount
+              : true;
+      }
+      const boundary = await service.workforceComparison(principal, query);
+      const allWinnerIndex = boundary.data.tableHeaders.findIndex(
+        ({ type }) => type === "All_Yes",
+      );
+      assert.equal(
+        (boundary.data.data[0]?.dataValues as Array<number | string>)[
+          allWinnerIndex
+        ],
+        winnerCount < 5 ? "x" : 100,
+        `overall winners with ${winnerCount} included organizations`,
+      );
+      assert.equal(
+        (boundary.data.data[0]?.dataValues as Array<number | string>)[
+          boundary.data.tableHeaders.findIndex(({ type }) => type === "All_No")
+        ],
+        0,
+      );
+    }
+    for (const nonWinnerCount of [0, 1, 2, 3, 4, 5]) {
+      for (const enrollment of enrollments) {
+        enrollment.isIncluded =
+          enrollment.organizationId === "excluded-winner"
+            ? false
+            : enrollment.isWinner === "N"
+              ? Number(enrollment.organizationId.split("-").at(-1)) <
+                nonWinnerCount
+              : true;
+      }
+      const boundary = await service.workforceComparison(principal, query);
+      assert.equal(
+        (boundary.data.data[0]?.dataValues as Array<number | string>)[
+          boundary.data.tableHeaders.findIndex(({ type }) => type === "All_No")
+        ],
+        nonWinnerCount < 5 ? "x" : 0,
+        `overall non-winners with ${nonWinnerCount} included organizations`,
+      );
+      assert.equal(
+        (boundary.data.data[0]?.dataValues as Array<number | string>)[
+          boundary.data.tableHeaders.findIndex(({ type }) => type === "All_Yes")
+        ],
+        100,
+      );
+    }
+
+    programMetadata.publishedReports = {
+      workforceBenchmark: {
+        headers: [{ type: "Small_Yes" }, { type: "Small_No" }],
+        categories: [
+          {
+            title: "Core Employee Experience",
+            dataValues: [100, 0],
+            questions: [{ text: question.caption, dataValues: [100, 0] }],
+          },
+        ],
+        surveyAverage: [100, 0],
+        sourceFile: "fixture.xlsx",
+      },
+    };
+    for (const enrollment of enrollments) {
+      enrollment.isIncluded = enrollment.organizationId !== "excluded-winner";
+    }
+    assert.equal(
+      (
+        await service.questionComparisonWithMe(
+          principal,
+          query,
+          "Core Employee Experience",
+          "SmallYes",
+        )
+      ).data.questionResponse[0]?.otherOrg,
+      "x",
+    );
+    assert.equal(
+      (await service.sectionComparisonWithMe(principal, query, "SmallNo")).data
+        .categoryResponse[0]?.otherOrg,
+      0,
+    );
+  });
 });
