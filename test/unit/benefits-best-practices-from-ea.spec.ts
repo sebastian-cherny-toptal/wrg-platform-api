@@ -447,4 +447,115 @@ describe("Benefits & Best Practices generation from EA", () => {
     assert.equal(yesRow.dataValues[allYes], 100);
     assert.equal(yesRow.dataValues[allNo], 20);
   });
+
+  it("renders and downloads an entitled EA report when the program has no employee survey", async () => {
+    const winnerIds = Array.from(
+      { length: 5 },
+      (_, index) => `winner-${index + 1}`,
+    );
+    const nonWinnerIds = Array.from(
+      { length: 5 },
+      (_, index) => `non-winner-${index + 1}`,
+    );
+    const organizationIds = [...winnerIds, ...nonWinnerIds];
+    let hasEmployerSurvey = true;
+    const prisma = {
+      program: {
+        findFirst: () => ({
+          id: "ea-only-program",
+          projectId: "project-1",
+          name: "EA Only 2026",
+          year: 2026,
+          startsAt: null,
+          metadata: {} as Prisma.JsonValue,
+          project: { id: "project-1", name: "EA Only" },
+        }),
+      },
+      organizationProgram: {
+        findFirst: () => ({
+          id: "enrollment-1",
+          reportAccess: { BBP_Access: "yes" },
+          metrics: {},
+          metadata: {},
+          organization: { name: "Winner One" },
+        }),
+        findMany: () =>
+          organizationIds.map((organizationId, index) => ({
+            organizationId,
+            isWinner: index < winnerIds.length ? "Y" : "N",
+            currentZohoCategory: "Small",
+            benchmarkCategory: "Small",
+            metrics: {},
+            organization: { metadata: {} },
+          })),
+      },
+      survey: {
+        findFirst: ({ where }: { where: { OR?: unknown[] } }) =>
+          hasEmployerSurvey && JSON.stringify(where).includes("employer")
+            ? { id: "ea-survey" }
+            : null,
+      },
+      respondent: {
+        findMany: () =>
+          organizationIds.map((organizationId) => ({
+            organizationId,
+            responses: [
+              {
+                value:
+                  winnerIds.includes(organizationId) ||
+                  organizationId === "non-winner-1"
+                    ? 1
+                    : 0,
+                question: { dataLabel: "q_EmployerInformation_FunActivities" },
+              },
+            ],
+          })),
+      },
+    } as unknown as PrismaService;
+    const service = new CompatibilityReportsService(prisma);
+    const principal = {
+      sub: "client-1",
+      organizationId: "winner-1",
+      roles: ["client"],
+      permissions: [],
+    };
+    const query = { selectedProgramId: "ea-only-program", isDummy: false };
+
+    const report = await service.employerBenchmark(principal, query);
+    const fun = report.data.tableData
+      .flatMap((section) => section.nestedData)
+      .find(({ title }) => title.includes("Fun"));
+    assert.ok(fun);
+    const allWinners = report.data.tableHeaders.findIndex(
+      (header) => header.type === "All_Yes",
+    );
+    const allNonWinners = report.data.tableHeaders.findIndex(
+      (header) => header.type === "All_No",
+    );
+    const yesRow = fun.nestedData[0];
+    assert.ok(yesRow);
+    assert.equal(yesRow.dataValues[allWinners], 100);
+    assert.equal(yesRow.dataValues[allNonWinners], 20);
+
+    const buffer = await service.employerBenchmarkWorkbook(principal, query);
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer as never);
+    const sheet = workbook.getWorksheet("Benefits & Best Practices");
+    assert.ok(sheet);
+    assert.equal(sheet.getCell("A6").value, "PROGRAM: EA Only 2026");
+    let funRow = 0;
+    sheet.eachRow((row, rowNumber) => {
+      if (String(row.getCell(1).value ?? "").includes("Fun"))
+        funRow = rowNumber;
+    });
+    assert.ok(funRow > 0);
+    assert.equal(sheet.getCell(funRow + 1, allWinners + 2).value, 1);
+    assert.equal(sheet.getCell(funRow + 1, allNonWinners + 2).value, 0.2);
+
+    hasEmployerSurvey = false;
+    await assert.rejects(
+      service.employerBenchmark(principal, query),
+      /Benefits & Best Practices is not available for this program/u,
+    );
+  });
 });

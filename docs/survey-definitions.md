@@ -4,6 +4,10 @@ In the admin program wizard's upload step, optionally upload a **Survey definiti
 `.xlsx`. You can upload it with EA/EFS when creating or re-importing a program, or
 by itself when editing an existing program. Preview validates it before saving.
 The multipart field is `surveyDefinitionFile` on historical import `prepare` and `commit`.
+Historical EFS preview lists each unresolved Likert question key as a blocking
+error. A definition with the exact key and approved wording resolves that error;
+templates from a different program year are not used. Commit runs the same
+lookup and retains its final guard against missing question text.
 
 You can also download and upload **Questions and Answers** directly from the
 admin program view. The download exports the effective definitions from that
@@ -25,9 +29,9 @@ question keys and raw answers are case-sensitive.
 
 ## Questions
 
-| question_key | question_label | question_type | category | display_order |
-| --- | --- | --- | --- | --- |
-| f_WorkplaceDemographics_jobLevel_ORGID_234 | Job level | demographic | Workplace Demographics | 1 |
+| question_key                               | question_label | question_type | category               | display_order |
+| ------------------------------------------ | -------------- | ------------- | ---------------------- | ------------- |
+| f_WorkplaceDemographics_jobLevel_ORGID_234 | Job level      | demographic   | Workplace Demographics | 1             |
 
 `question_key` and `question_label` are required. The key is the exact EFS export
 column name, not a generated platform UUID. Other columns are optional.
@@ -36,10 +40,10 @@ Display order is a positive integer.
 
 ## Answers
 
-| question_key | raw_answer | answer_label | display_order | score |
-| --- | --- | --- | --- | --- |
-| f_WorkplaceDemographics_jobLevel_ORGID_234 | 1 | Executive | 1 | |
-| f_WorkplaceDemographics_jobLevel_ORGID_234 | 2 | Individual contributor | 2 | |
+| question_key                               | raw_answer | answer_label           | display_order | score |
+| ------------------------------------------ | ---------- | ---------------------- | ------------- | ----- |
+| f_WorkplaceDemographics_jobLevel_ORGID_234 | 1          | Executive              | 1             |       |
+| f_WorkplaceDemographics_jobLevel_ORGID_234 | 2          | Individual contributor | 2             |       |
 
 The first three columns are required. `raw_answer` can be a numeric code or text
 as it appears in EFS. Numeric strings are normalized in the same way as EFS imports.

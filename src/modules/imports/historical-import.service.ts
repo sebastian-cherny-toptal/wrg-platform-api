@@ -1088,6 +1088,21 @@ export class HistoricalImportService {
           applySurveyDefinition(question, draft.surveyDefinition);
         }
       }
+      const templates = await this.questionTemplates(
+        this.prisma,
+        draft,
+        draft.programId,
+        definition.questions,
+      );
+      for (const dataLabel of missingQuestionTemplateLabels(
+        definition.questions,
+        new Set(templates.keys()),
+      )) {
+        appendValidationIssue(issues, issueCounters, {
+          level: "error",
+          message: `${workbook.fileName}: question text is unavailable for ${dataLabel}. Add this key and its approved wording to the program survey definition.`,
+        });
+      }
     }
     if (definition.questions.length === 0) {
       appendValidationIssue(issues, issueCounters, {
@@ -1925,6 +1940,81 @@ export class HistoricalImportService {
       },
       include: { responses: { select: { value: true } } },
     });
+  }
+
+  private async questionTemplates(
+    prisma: PrismaClient,
+    draft: HistoricalImportDraft,
+    programId: string | undefined,
+    questions: XlsxQuestionDefinition[],
+  ): Promise<Map<string, HistoricalQuestionTemplate>> {
+    const storedTemplates = await prisma.question.findMany({
+      where: {
+        dataLabel: { in: questions.map(({ dataLabel }) => dataLabel) },
+        OR: [
+          { externalId: null },
+          { externalId: { not: { startsWith: "historical-import:" } } },
+          ...(programId ? [{ survey: { programId } }] : []),
+        ],
+      },
+      select: {
+        dataLabel: true,
+        caption: true,
+        type: true,
+        metadata: true,
+        survey: {
+          select: {
+            programId: true,
+            program: { select: { year: true } },
+          },
+        },
+      },
+      orderBy: { survey: { createdAt: "desc" } },
+    });
+    const templates = new Map<string, HistoricalQuestionTemplate>();
+    for (const template of storedTemplates) {
+      const sameProgram = template.survey.programId === programId;
+      if (
+        !sameProgram &&
+        (template.survey.program.year !== draft.programYear ||
+          objectBody(template.metadata).surveyDefinition)
+      ) {
+        continue;
+      }
+      if (!templates.has(template.dataLabel)) {
+        templates.set(template.dataLabel, template);
+      }
+    }
+    const bundled = await loadBundledWorkforceQuestionTemplates(
+      draft.programYear,
+      questions,
+    );
+    for (const [dataLabel, template] of bundled) {
+      if (!templates.has(dataLabel)) templates.set(dataLabel, template);
+    }
+    for (const configured of draft.surveyDefinition ?? []) {
+      const source = questions.find(
+        ({ dataLabel }) => dataLabel === configured.dataLabel,
+      );
+      if (!source) continue;
+      const existing = templates.get(configured.dataLabel);
+      const mapped = applySurveyDefinition(
+        {
+          ...source,
+          metadata: existing?.metadata ?? {},
+          caption: existing?.caption ?? source.caption,
+          type: existing?.type ?? source.type,
+        },
+        draft.surveyDefinition,
+      );
+      templates.set(configured.dataLabel, {
+        dataLabel: mapped.dataLabel,
+        caption: mapped.caption,
+        type: mapped.type,
+        metadata: mapped.metadata,
+      });
+    }
+    return templates;
   }
 
   private async validatePreviewDraft(
@@ -2910,78 +3000,20 @@ export class HistoricalImportService {
       filePath: workbook.filePath,
       includedQuestionLabels:
         kind === "EFS"
-          ? draft.surveyDefinition?.map(({ dataLabel }) => dataLabel) ?? []
+          ? (draft.surveyDefinition?.map(({ dataLabel }) => dataLabel) ?? [])
           : [],
       questionId: (dataLabel) =>
         deterministicUuid(`${surveyId}:question:${dataLabel}`),
     });
-    const storedTemplates = await prisma.question.findMany({
-      where: {
-        dataLabel: {
-          in: definition.questions.map(({ dataLabel }) => dataLabel),
-        },
-        OR: [
-          { externalId: null },
-          {
-            externalId: {
-              not: { startsWith: "historical-import:" },
-            },
-          },
-        ],
-      },
-      select: {
-        dataLabel: true,
-        caption: true,
-        type: true,
-        metadata: true,
-        survey: { select: { programId: true } },
-      },
-      orderBy: { survey: { createdAt: "desc" } },
-    });
-    const templatesByDataLabel = new Map<string, HistoricalQuestionTemplate>();
-    for (const template of storedTemplates) {
-      if (
-        objectBody(template.metadata).surveyDefinition &&
-        template.survey.programId !== programId
-      )
-        continue;
-      if (!templatesByDataLabel.has(template.dataLabel)) {
-        templatesByDataLabel.set(template.dataLabel, template);
-      }
-    }
-    if (kind === "EFS") {
-      const bundledTemplates = await loadBundledWorkforceQuestionTemplates(
-        draft.programYear,
-        definition.questions,
-      );
-      for (const [dataLabel, template] of bundledTemplates) {
-        if (!templatesByDataLabel.has(dataLabel)) {
-          templatesByDataLabel.set(dataLabel, template);
-        }
-      }
-      for (const configured of draft.surveyDefinition ?? []) {
-        const source = definition.questions.find(
-          ({ dataLabel }) => dataLabel === configured.dataLabel,
-        );
-        if (!source) continue;
-        const existing = templatesByDataLabel.get(configured.dataLabel);
-        const mapped = applySurveyDefinition(
-          {
-            ...source,
-            metadata: existing?.metadata ?? {},
-            caption: existing?.caption ?? source.caption,
-            type: existing?.type ?? source.type,
-          },
-          draft.surveyDefinition,
-        );
-        templatesByDataLabel.set(configured.dataLabel, {
-          dataLabel: mapped.dataLabel,
-          caption: mapped.caption,
-          type: mapped.type,
-          metadata: mapped.metadata,
-        });
-      }
-    }
+    const templatesByDataLabel =
+      kind === "EFS"
+        ? await this.questionTemplates(
+            prisma,
+            draft,
+            programId,
+            definition.questions,
+          )
+        : new Map<string, HistoricalQuestionTemplate>();
     const missingTemplates = missingQuestionTemplateLabels(
       definition.questions,
       new Set(templatesByDataLabel.keys()),

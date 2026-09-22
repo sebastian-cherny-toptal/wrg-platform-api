@@ -147,6 +147,76 @@ describe("historical import service", () => {
     }
   });
 
+  it("reports missing EFS question text during preview and accepts a program definition", async () => {
+    const root = mkdtempSync(
+      join(tmpdir(), "historical-import-label-preview-"),
+    );
+    const previousCwd = process.cwd();
+    process.chdir(root);
+    const efsPath = join(root, "efs.xlsx");
+    await writeWorkbook(efsPath, "Acme Corp", 1);
+    const workbook = readFileSync(efsPath);
+    const prisma = {
+      question: {
+        findMany: () => [
+          {
+            dataLabel: "q_CoreEmployeeExperience_Test",
+            caption: "A newer program's wording",
+            type: "likert",
+            metadata: {},
+            survey: { programId: "newer-program", program: { year: 2026 } },
+          },
+        ],
+      },
+    };
+    const service = new HistoricalImportService(prisma as never);
+    const principal = {
+      sub: "user-1",
+      roles: ["admin"],
+      permissions: [],
+      organizationId: null,
+    };
+    const metadata = {
+      projectName: "Test Project",
+      programName: "Test Program",
+      programYear: 2022,
+      efsLaunchDate: "2022-01-01",
+      efsDeadline: "2022-12-31",
+    };
+
+    try {
+      const missing = await service.prepare(principal, metadata, {
+        efsFile: { filename: "efs.xlsx", buffer: workbook },
+      });
+      assert.equal(missing.validation.blockingErrorCount, 1);
+      assert.match(
+        missing.validation.issues[0]?.message ?? "",
+        /q_CoreEmployeeExperience_Test/u,
+      );
+
+      const definition = new ExcelJS.Workbook();
+      definition.addWorksheet("Questions").addRows([
+        ["question_key", "question_label", "question_type"],
+        ["q_CoreEmployeeExperience_Test", "Approved 2022 wording", "likert"],
+      ]);
+      definition.addWorksheet("Answers").addRows([
+        ["question_key", "raw_answer", "answer_label", "score"],
+        ["q_CoreEmployeeExperience_Test", 4, "Agree", 4],
+      ]);
+      const defined = await service.prepare(principal, metadata, {
+        efsFile: { filename: "efs.xlsx", buffer: workbook },
+        surveyDefinitionFile: {
+          filename: "definition.xlsx",
+          buffer: Buffer.from(await definition.xlsx.writeBuffer()),
+        },
+      });
+      assert.equal(defined.validation.blockingErrorCount, 0);
+    } finally {
+      process.chdir(previousCwd);
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("creates only a committing job when the complete wizard is submitted", async () => {
     const root = mkdtempSync(join(tmpdir(), "historical-import-submit-"));
     const previousCwd = process.cwd();
@@ -157,6 +227,17 @@ describe("historical import service", () => {
     await writeWorkbook(efsPath, "Acme Corp", 1);
     let createdJob: Record<string, unknown> | undefined;
     const prisma = {
+      question: {
+        findMany: () => [
+          {
+            dataLabel: "q_CoreEmployeeExperience_Test",
+            caption: "Approved 2026 wording",
+            type: "likert",
+            metadata: {},
+            survey: { programId: "known-program", program: { year: 2026 } },
+          },
+        ],
+      },
       syncJob: {
         create: ({ data }: { data: Record<string, unknown> }) => {
           createdJob = data;
@@ -537,6 +618,17 @@ describe("historical import service", () => {
     await writeWorkbook(efsPath, "Acme Corp", 1);
 
     const prisma = {
+      question: {
+        findMany: () => [
+          {
+            dataLabel: "q_CoreEmployeeExperience_Test",
+            caption: "Approved 2026 wording",
+            type: "likert",
+            metadata: {},
+            survey: { programId: "known-program", program: { year: 2026 } },
+          },
+        ],
+      },
       syncJob: {
         findFirst: () => ({
           input: {

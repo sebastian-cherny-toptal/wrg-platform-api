@@ -382,7 +382,7 @@ interface ResponsePatternQueryInput {
   negativeMax: string | string[] | undefined;
 }
 
-interface ReportContext {
+interface BaseReportContext {
   isDummy: boolean;
   organizationId: string;
   enrollmentId: string;
@@ -401,12 +401,6 @@ interface ReportContext {
     metadata: Prisma.JsonValue;
     project: { id: string; name: string };
   };
-  survey: {
-    id: string;
-    title: string;
-    startsAt: Date | null;
-    endsAt: Date | null;
-  };
   organizationPrograms: Array<{
     organizationId: string;
     isWinner: WinnerStatus | null;
@@ -415,6 +409,15 @@ interface ReportContext {
     metrics: Prisma.JsonValue;
     organization: { metadata: Prisma.JsonValue };
   }>;
+}
+
+interface ReportContext extends BaseReportContext {
+  survey: {
+    id: string;
+    title: string;
+    startsAt: Date | null;
+    endsAt: Date | null;
+  };
 }
 
 export interface BenchmarkQuestion {
@@ -3120,7 +3123,7 @@ export class CompatibilityReportsService {
   }
 
   async employerBenchmark(principal: Principal, query: ReportQuery) {
-    const context = await this.context(principal, query, true);
+    const context = await this.baseContext(principal, query, true);
     this.requiresDemo(principal, context, "BBP_Access");
     if (query.isDummy) {
       const tableHeaders = [
@@ -3234,7 +3237,7 @@ export class CompatibilityReportsService {
     query: ReportQuery,
   ): Promise<Buffer> {
     const [context, report] = await Promise.all([
-      this.context(principal, query, true),
+      this.baseContext(principal, query, true),
       this.employerBenchmark(principal, query),
     ]);
     return createBenefitsWorkbook({
@@ -3807,6 +3810,38 @@ export class CompatibilityReportsService {
     query: ReportQuery,
     promotionalDemoSupported = false,
   ): Promise<ReportContext> {
+    const context = await this.baseContext(
+      principal,
+      query,
+      promotionalDemoSupported,
+    );
+    const survey = await this.prisma.survey.findFirst({
+      where: {
+        programId: context.program.id,
+        OR: [
+          { metadata: { path: ["kind"], equals: "employee" } },
+          {
+            title: {
+              contains: "Employee Feedback Survey",
+              mode: "insensitive",
+            },
+          },
+          { externalId: { endsWith: "-efs", mode: "insensitive" } },
+          { externalId: { endsWith: ":efs", mode: "insensitive" } },
+        ],
+      },
+      orderBy: [{ endsAt: "desc" }, { createdAt: "desc" }],
+      select: { id: true, title: true, startsAt: true, endsAt: true },
+    });
+    if (!survey) throw new NotFoundException("Survey not found");
+    return { ...context, survey };
+  }
+
+  private async baseContext(
+    principal: Principal,
+    query: ReportQuery,
+    promotionalDemoSupported = false,
+  ): Promise<BaseReportContext> {
     if (
       principal.roles.includes("promotional") &&
       (!query.isDummy || !promotionalDemoSupported)
@@ -3883,25 +3918,6 @@ export class CompatibilityReportsService {
         "You are not authorized to access this program",
       );
     }
-    const survey = await this.prisma.survey.findFirst({
-      where: {
-        programId: program.id,
-        OR: [
-          { metadata: { path: ["kind"], equals: "employee" } },
-          {
-            title: {
-              contains: "Employee Feedback Survey",
-              mode: "insensitive",
-            },
-          },
-          { externalId: { endsWith: "-efs", mode: "insensitive" } },
-          { externalId: { endsWith: ":efs", mode: "insensitive" } },
-        ],
-      },
-      orderBy: [{ endsAt: "desc" }, { createdAt: "desc" }],
-      select: { id: true, title: true, startsAt: true, endsAt: true },
-    });
-    if (!survey) throw new NotFoundException("Survey not found");
     const organizationPrograms = await this.prisma.organizationProgram.findMany(
       {
         where: { programId: program.id, isIncluded: true },
@@ -3924,14 +3940,13 @@ export class CompatibilityReportsService {
       enrollmentMetadata: enrollment.metadata,
       organization: enrollment.organization,
       program,
-      survey,
       organizationPrograms,
     };
   }
 
   private requiresDemo(
     principal: Principal,
-    context: ReportContext,
+    context: BaseReportContext,
     accessKey:
       | "WBC_Access"
       | "EV_Access"
@@ -4097,7 +4112,7 @@ export class CompatibilityReportsService {
     );
   }
 
-  private groups(context: ReportContext): BenchmarkGroup[] {
+  private groups(context: BaseReportContext): BenchmarkGroup[] {
     const categorized = context.organizationPrograms.flatMap((enrollment) => {
       const winner =
         enrollment.isWinner === "Y"
@@ -4855,13 +4870,13 @@ export class CompatibilityReportsService {
   }
 
   private publishedBenefits(
-    context: ReportContext,
+    context: BaseReportContext,
   ): BenefitsBestPracticesSnapshot | null {
     return publishedBenefitsBestPracticesSnapshot(context.enrollmentMetadata);
   }
 
   private async generatedBenefitsFromEa(
-    context: ReportContext,
+    context: BaseReportContext,
   ): Promise<BenefitsBestPracticesSnapshot | null> {
     const survey = await this.prisma.survey.findFirst({
       where: {
