@@ -5,11 +5,12 @@ import {
   Inject,
   Post,
   Req,
+  Res,
   UseGuards,
   VERSION_NEUTRAL,
 } from "@nestjs/common";
 import { ApiBearerAuth, ApiConsumes, ApiTags } from "@nestjs/swagger";
-import type { FastifyRequest } from "fastify";
+import type { FastifyReply, FastifyRequest } from "fastify";
 import {
   CurrentUser,
   JwtAuthGuard,
@@ -65,6 +66,36 @@ export class HistoricalImportController {
     @Inject(HistoricalImportService)
     private readonly imports: HistoricalImportService,
   ) {}
+
+  @Post("default-survey-definition.xlsx")
+  @HttpCode(200)
+  @ApiConsumes("multipart/form-data")
+  async downloadDefaultSurveyDefinition(
+    @CurrentUser() principal: Principal,
+    @Req() request: FastifyRequest,
+    @Res() reply: FastifyReply,
+  ) {
+    const { fields, files } = await multipartPayload(request);
+    if (!files.efsFile)
+      throw new BadRequestException("Upload an EFS workbook first");
+    const bytes = await this.imports.downloadDefaultSurveyDefinition(
+      principal,
+      parseMetadata(fields),
+      files.efsFile,
+    );
+    reply
+      .header(
+        "content-type",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      )
+      .header(
+        "content-disposition",
+        'attachment; filename="Survey_Definition_Default_Template.xlsx"',
+      )
+      .header("access-control-expose-headers", "*")
+      .header("cache-control", "no-store")
+      .send(bytes);
+  }
 
   @Post("prepare")
   @HttpCode(200)

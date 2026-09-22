@@ -49,6 +49,79 @@ async function writeWorkbook(
 }
 
 describe("historical import service", () => {
+  it("downloads the no-upload definition from the selected EFS and matching year defaults", async () => {
+    const root = mkdtempSync(join(tmpdir(), "historical-definition-"));
+    const previousCwd = process.cwd();
+    process.chdir(root);
+    try {
+      const efsPath = join(root, "efs.xlsx");
+      const source = new ExcelJS.Workbook();
+      const survey = source.addWorksheet("Survey");
+      survey.addRow([
+        "organization name",
+        "Respondent",
+        "Language",
+        "Date responded",
+        "Reached end",
+        "Score %",
+        "q_CoreEmployeeExperience_Test",
+      ]);
+      survey.addRow(["Acme Corp", 1, "en", "2026-01-01", "Yes", null, 4]);
+      await source.xlsx.writeFile(efsPath);
+      const service = new HistoricalImportService({
+        project: {
+          findFirst: () =>
+            Promise.resolve({ id: "project-1", name: "Project" }),
+        },
+        question: {
+          findMany: () =>
+            Promise.resolve([
+              {
+                dataLabel: "q_CoreEmployeeExperience_Test",
+                caption: "I feel supported at work.",
+                type: "likert",
+                metadata: {},
+                survey: { programId: "other-program", program: { year: 2026 } },
+              },
+            ]),
+        },
+      } as never);
+      const bytes = await service.downloadDefaultSurveyDefinition(
+        {
+          sub: "admin",
+          roles: ["admin"],
+          permissions: [],
+          organizationId: null,
+        },
+        {
+          projectId: "project-1",
+          programName: "Program 2026",
+          programYear: 2026,
+          efsLaunchDate: "2026-01-01",
+          efsDeadline: "2026-12-31",
+        },
+        { filename: "efs.xlsx", buffer: readFileSync(efsPath) },
+      );
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.load(bytes as unknown as ExcelJS.Buffer);
+      assert.deepEqual(
+        workbook.worksheets.map(({ name }) => name),
+        ["Questions", "Answers"],
+      );
+      assert.equal(
+        workbook.getWorksheet("Questions")?.getCell("B2").value,
+        "I feel supported at work.",
+      );
+      assert.equal(
+        workbook.getWorksheet("Answers")?.getCell("C5").value,
+        "Agree",
+      );
+    } finally {
+      process.chdir(previousCwd);
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   for (const categories of [undefined, [], ["Default"]]) {
     it(`defaults missing benchmark categories ${JSON.stringify(categories)} on draft creation`, async () => {
       const service = new HistoricalImportService({

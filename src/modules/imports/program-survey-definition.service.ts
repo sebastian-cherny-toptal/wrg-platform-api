@@ -183,6 +183,70 @@ export function effectiveSurveyDefinition(
   });
 }
 
+export async function surveyDefinitionWorkbook(
+  definition: SurveyDefinition,
+): Promise<Buffer> {
+  const workbook = new ExcelJS.Workbook();
+  const questions = workbook.addWorksheet("Questions");
+  questions.addRow([
+    "question_key",
+    "question_label",
+    "question_type",
+    "category",
+    "display_order",
+  ]);
+  const answers = workbook.addWorksheet("Answers");
+  answers.addRow([
+    "question_key",
+    "raw_answer",
+    "answer_label",
+    "display_order",
+    "score",
+  ]);
+  for (const question of definition) {
+    questions.addRow([
+      question.dataLabel,
+      question.caption,
+      question.type,
+      question.categoryLabel,
+      question.position,
+    ]);
+    for (const option of question.options ?? [])
+      answers.addRow([
+        question.dataLabel,
+        option.Id,
+        option.Caption,
+        option.Position,
+        option.Score,
+      ]);
+  }
+  for (const sheet of [questions, answers]) {
+    sheet.views = [{ state: "frozen", ySplit: 1, showGridLines: false }];
+    sheet.autoFilter = `A1:E${sheet.rowCount}`;
+    sheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
+    sheet.getRow(1).fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FF273E5A" },
+    };
+    sheet.columns.forEach((column, index) => {
+      column.width =
+        [
+          65,
+          sheet === questions ? 95 : 18,
+          sheet === questions ? 18 : 70,
+          35,
+          18,
+        ][index] ?? 18;
+    });
+    sheet.getColumn(sheet === questions ? 2 : 3).alignment = {
+      wrapText: true,
+      vertical: "middle",
+    };
+  }
+  return Buffer.from(await workbook.xlsx.writeBuffer());
+}
+
 @Injectable()
 export class ProgramSurveyDefinitionService {
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
@@ -260,65 +324,7 @@ export class ProgramSurveyDefinitionService {
       program.year,
       await this.responses(this.prisma, survey.questions),
     );
-    const workbook = new ExcelJS.Workbook();
-    const questions = workbook.addWorksheet("Questions");
-    questions.addRow([
-      "question_key",
-      "question_label",
-      "question_type",
-      "category",
-      "display_order",
-    ]);
-    const answers = workbook.addWorksheet("Answers");
-    answers.addRow([
-      "question_key",
-      "raw_answer",
-      "answer_label",
-      "display_order",
-      "score",
-    ]);
-    for (const question of definition) {
-      questions.addRow([
-        question.dataLabel,
-        question.caption,
-        question.type,
-        question.categoryLabel,
-        question.position,
-      ]);
-      for (const option of question.options ?? [])
-        answers.addRow([
-          question.dataLabel,
-          option.Id,
-          option.Caption,
-          option.Position,
-          option.Score,
-        ]);
-    }
-    for (const sheet of [questions, answers]) {
-      sheet.views = [{ state: "frozen", ySplit: 1, showGridLines: false }];
-      sheet.autoFilter = `A1:E${sheet.rowCount}`;
-      sheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
-      sheet.getRow(1).fill = {
-        type: "pattern",
-        pattern: "solid",
-        fgColor: { argb: "FF273E5A" },
-      };
-      sheet.columns.forEach((column, index) => {
-        column.width =
-          [
-            65,
-            sheet === questions ? 95 : 18,
-            sheet === questions ? 18 : 70,
-            35,
-            18,
-          ][index] ?? 18;
-      });
-      sheet.getColumn(sheet === questions ? 2 : 3).alignment = {
-        wrapText: true,
-        vertical: "middle",
-      };
-    }
-    return Buffer.from(await workbook.xlsx.writeBuffer());
+    return surveyDefinitionWorkbook(definition);
   }
 
   async upload(

@@ -1,8 +1,12 @@
 # Program-specific EFS definitions
 
-In the admin program wizard's upload step, optionally upload a **Survey definition**
-`.xlsx`. You can upload it with EA/EFS when creating or re-importing a program, or
-by itself when editing an existing program. Preview validates it before saving.
+The admin program wizard has a **Survey Definition** step after EA/EFS upload.
+Download the default template there to inspect the effective questions and answer
+options for the selected EFS workbook and program year. The workbook has Questions
+and Answers sheets and uses the same definitions as import preview. Optionally
+upload an edited `.xlsx` in that step. For an existing program without a new EFS
+upload, the download uses its currently imported EFS definitions. Preview validates
+the uploaded definition before saving.
 The multipart field is `surveyDefinitionFile` on historical import `prepare` and `commit`.
 Historical EFS preview lists each unresolved Likert question key as a blocking
 error. A definition with the exact key and approved wording resolves that error;
@@ -23,6 +27,13 @@ values before updating questions and program metadata atomically. Uploading an
 unchanged download performs no updates. Client pages read the saved labels on
 refresh; detailed results retain custom answer captions rather than collapsing
 them into generic agreement labels.
+
+The wizard's default download is multipart
+`POST /admin/historicalImports/default-survey-definition.xlsx` with `metadata`
+and `efsFile`. It derives question keys from that EFS, resolves approved question
+wording through the same year-aware template lookup as import, and exports actual
+recorded and configured answer options. A question with no approved wording has a
+blank label in the template; fill it before uploading the definition.
 
 Use two sheets with headers in row 1. Sheet names and headers are case-insensitive;
 question keys and raw answers are case-sensitive.

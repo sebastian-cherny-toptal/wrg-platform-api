@@ -33,6 +33,11 @@ import {
   parsePublishedReportHeaders,
   parsePublishedReportValues,
 } from "../reports/benefits-best-practices-workbook.js";
+import type { BenchmarkQuestion } from "../reports/compatibility-reports.module.js";
+import {
+  effectiveSurveyDefinition,
+  surveyDefinitionWorkbook,
+} from "./program-survey-definition.service.js";
 import {
   benchmarkCategoryNames,
   usesDefaultBenchmarkCategory,
@@ -945,6 +950,102 @@ async function insertBatches<T>(
 @Injectable()
 export class HistoricalImportService {
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
+
+  async downloadDefaultSurveyDefinition(
+    principal: Principal,
+    input: unknown,
+    file: UploadedWorkbookFile,
+  ): Promise<Buffer> {
+    this.assertAccess(principal);
+    const metadata = await this.resolveMetadataReferences(
+      validateMetadata(input),
+    );
+    const importId = randomUUID();
+    const stagingDir = ensureStagingDirectory(importId);
+    const draft: HistoricalImportDraft = {
+      ...metadata,
+      importId,
+      stagingDir,
+      createdByUserId: principal.sub,
+      status: "draft",
+    };
+    try {
+      const workbook = this.storeWorkbook(draft, "EFS", file);
+      const definition = await readXlsxSurveyDefinition({
+        fileName: workbook.fileName,
+        filePath: workbook.filePath,
+        includedQuestionLabels:
+          draft.surveyDefinition?.map(({ dataLabel }) => dataLabel) ?? [],
+        questionId: (dataLabel) =>
+          deterministicUuid(`${importId}:${dataLabel}`),
+      });
+      if (!definition.questions.length)
+        throw new BadRequestException("EFS has no importable question columns");
+      const templates = await this.questionTemplates(
+        this.prisma,
+        draft,
+        metadata.programId,
+        definition.questions,
+      );
+      const questions: BenchmarkQuestion[] = definition.questions.map(
+        (source, index) => {
+          const template = templates.get(source.dataLabel);
+          const question = mergeHistoricalQuestionTemplate(source, template);
+          return {
+            id: question.id,
+            legacyId: null,
+            externalId: null,
+            dataLabel: question.dataLabel,
+            caption: question.caption,
+            type: question.type,
+            position: index + 1,
+            metadata: historicalQuestionMetadata(
+              question,
+              template?.metadata,
+              importId,
+            ) as unknown as Prisma.JsonValue,
+          };
+        },
+      );
+      const questionsById = new Map(
+        questions.map((question) => [question.id, question]),
+      );
+      const values = new Map<string, Set<string>>();
+      await forEachXlsxSurveyRow(definition, {}, (row) => {
+        for (const response of row.responses) {
+          const question = questionsById.get(response.question.id);
+          if (!question || ["text", "open-text"].includes(question.type))
+            continue;
+          const recorded = values.get(question.id) ?? new Set<string>();
+          recorded.add(String(response.value));
+          values.set(question.id, recorded);
+        }
+      });
+      const responses = [...values].flatMap(([questionId, rawValues]) =>
+        [...rawValues].map((value) => ({ questionId, value })),
+      );
+      const effective = effectiveSurveyDefinition(
+        questions,
+        metadata.programYear,
+        responses,
+      );
+      const unresolved = new Set(
+        missingQuestionTemplateLabels(
+          definition.questions,
+          new Set(templates.keys()),
+        ),
+      );
+      return await surveyDefinitionWorkbook(
+        effective.map((question) =>
+          unresolved.has(question.dataLabel)
+            ? { ...question, caption: "" }
+            : question,
+        ),
+      );
+    } finally {
+      rmSync(stagingDir, { recursive: true, force: true });
+    }
+  }
 
   private assertAccess(principal: Principal): void {
     if (
