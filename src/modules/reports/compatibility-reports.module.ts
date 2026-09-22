@@ -403,11 +403,18 @@ interface BaseReportContext {
   };
   organizationPrograms: Array<{
     organizationId: string;
+    legacyId?: string | null;
+    externalId?: string | null;
+    dealExternalId?: string | null;
     isWinner: WinnerStatus | null;
     currentZohoCategory: string | null;
     benchmarkCategory: string | null;
     metrics: Prisma.JsonValue;
-    organization: { metadata: Prisma.JsonValue };
+    organization: {
+      legacyId?: string | null;
+      externalId?: string | null;
+      metadata: Prisma.JsonValue;
+    };
   }>;
 }
 
@@ -3924,11 +3931,16 @@ export class CompatibilityReportsService {
         where: { programId: program.id, isIncluded: true },
         select: {
           organizationId: true,
+          legacyId: true,
+          externalId: true,
+          dealExternalId: true,
           isWinner: true,
           currentZohoCategory: true,
           benchmarkCategory: true,
           metrics: true,
-          organization: { select: { metadata: true } },
+          organization: {
+            select: { legacyId: true, externalId: true, metadata: true },
+          },
         },
       },
     );
@@ -4879,32 +4891,77 @@ export class CompatibilityReportsService {
   private async generatedBenefitsFromEa(
     context: BaseReportContext,
   ): Promise<BenefitsBestPracticesSnapshot | null> {
-    const survey = await this.prisma.survey.findFirst({
-      where: {
-        programId: context.program.id,
-        OR: [
-          { metadata: { path: ["kind"], equals: "employer" } },
-          {
-            title: {
-              contains: "Employer Assessment",
-              mode: "insensitive",
+    const programMetadata = jsonObject(context.program.metadata);
+    const assessmentReference =
+      programMetadata.Employer_Survey_ID ?? programMetadata.employerSurveyId;
+    const assessmentId =
+      typeof assessmentReference === "string" ||
+      typeof assessmentReference === "number"
+        ? String(assessmentReference).trim()
+        : "";
+    const survey =
+      (assessmentId
+        ? await this.prisma.survey.findFirst({
+            where: {
+              programId: context.program.id,
+              OR: [
+                { externalId: assessmentId },
+                { legacyId: assessmentId },
+                ...(isUuid(assessmentId) ? [{ id: assessmentId }] : []),
+              ],
             },
-          },
-          { externalId: { endsWith: "-ea", mode: "insensitive" } },
-          { externalId: { endsWith: ":ea", mode: "insensitive" } },
-        ],
-      },
-      orderBy: [{ endsAt: "desc" }, { createdAt: "desc" }],
-      select: { id: true },
-    });
+            select: { id: true },
+          })
+        : null) ??
+      (await this.prisma.survey.findFirst({
+        where: {
+          programId: context.program.id,
+          OR: [
+            { metadata: { path: ["kind"], equals: "employer" } },
+            { metadata: { path: ["kind"], equals: "EA" } },
+            { title: { contains: "Employer", mode: "insensitive" } },
+            { externalId: { endsWith: "-ea", mode: "insensitive" } },
+            { externalId: { endsWith: ":ea", mode: "insensitive" } },
+          ],
+        },
+        orderBy: [{ endsAt: "desc" }, { createdAt: "desc" }],
+        select: { id: true },
+      }));
     if (!survey) return null;
+    // Legacy assessment OrgId identifies the deal's organization, not its UUID.
+    const organizationByReference = new Map<string, string | null>();
+    for (const enrollment of context.organizationPrograms) {
+      const metrics = jsonObject(enrollment.metrics);
+      const organizationMetadata = jsonObject(enrollment.organization.metadata);
+      for (const reference of [
+        enrollment.organizationId,
+        enrollment.legacyId,
+        enrollment.externalId,
+        enrollment.dealExternalId,
+        enrollment.organization.legacyId,
+        enrollment.organization.externalId,
+        metrics.Deal_Organization_ID,
+        metrics.Source_Organization_ID,
+        organizationMetadata.Deal_Organization_ID,
+      ]) {
+        if (typeof reference === "string" || typeof reference === "number") {
+          const key = String(reference).trim();
+          if (!key) continue;
+          const existing = organizationByReference.get(key);
+          organizationByReference.set(
+            key,
+            existing === undefined || existing === enrollment.organizationId
+              ? enrollment.organizationId
+              : null,
+          );
+        }
+      }
+    }
     const respondents = await this.prisma.respondent.findMany({
-      where: {
-        surveyId: survey.id,
-        organizationId: { not: null },
-      },
+      where: { surveyId: survey.id },
       select: {
         organizationId: true,
+        metadata: true,
         responses: {
           select: {
             value: true,
@@ -4914,14 +4971,42 @@ export class CompatibilityReportsService {
       },
     });
     const answers = respondents.flatMap((respondent) => {
-      if (!respondent.organizationId || respondent.responses.length === 0) {
-        return [];
-      }
+      const metadata = jsonObject(respondent.metadata);
+      const references = [
+        metadata.OrgId,
+        metadata.organizationId,
+        metadata.OrganizationId,
+        metadata.organizationProgramId,
+        metadata.OrganizationProgramId,
+        metadata.dealId,
+        metadata.DealId,
+      ];
+      const organizationId =
+        respondent.organizationId ??
+        references
+          .flatMap((reference) =>
+            typeof reference === "string" || typeof reference === "number"
+              ? [organizationByReference.get(String(reference).trim())]
+              : [],
+          )
+          .find((value): value is string => typeof value === "string") ??
+        null;
+      if (!organizationId) return [];
       const values: Record<string, unknown> = {};
+      // CheckMarket payloads can retain answers before Response rows are normalized.
+      const rawResponses = metadata.Responses;
+      if (Array.isArray(rawResponses)) {
+        for (const rawResponse of rawResponses) {
+          const response = jsonObject(rawResponse);
+          if (typeof response.DataLabel === "string") {
+            values[response.DataLabel] = response.Value;
+          }
+        }
+      }
       for (const response of respondent.responses) {
         values[response.question.dataLabel] = response.value;
       }
-      return [{ organizationId: respondent.organizationId, values }];
+      return Object.keys(values).length > 0 ? [{ organizationId, values }] : [];
     });
     if (answers.length === 0) return null;
     const groups = this.groups(context).filter(

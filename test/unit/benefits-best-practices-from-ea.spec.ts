@@ -558,4 +558,100 @@ describe("Benefits & Best Practices generation from EA", () => {
       /Benefits & Best Practices is not available for this program/u,
     );
   });
+
+  it("generates from the linked Employer Assessment and raw organization answers", async () => {
+    const organizationIds = Array.from(
+      { length: 10 },
+      (_, index) => `org-${index}`,
+    );
+    const prisma = {
+      program: {
+        findFirst: () => ({
+          id: "program-1",
+          projectId: "project-1",
+          name: "Dealerships 2026",
+          year: 2026,
+          startsAt: null,
+          metadata: { Employer_Survey_ID: 765432 },
+          project: { id: "project-1", name: "Dealerships" },
+        }),
+      },
+      organizationProgram: {
+        findFirst: () => ({
+          id: "enrollment-1",
+          reportAccess: { BBP_Access: "yes" },
+          metrics: {},
+          metadata: {},
+          organization: { name: "Winner One" },
+        }),
+        findMany: () =>
+          organizationIds.map((organizationId, index) => ({
+            organizationId,
+            isWinner: index < 5 ? "Y" : "N",
+            currentZohoCategory: "Small",
+            benchmarkCategory: "Small",
+            metrics: { Deal_Organization_ID: 9000 + index },
+            organization: { metadata: {} },
+          })),
+      },
+      survey: {
+        findFirst: ({ where }: { where: unknown }) =>
+          JSON.stringify(where).includes("765432") ? { id: "ea-survey" } : null,
+      },
+      respondent: {
+        findMany: () =>
+          organizationIds.map((_, index) => ({
+            organizationId: null,
+            metadata: {
+              OrgId: 9000 + index,
+              Responses: [
+                {
+                  DataLabel: "q_EmployerInformation_FunActivities",
+                  Value: index < 5 || index === 5 ? "1" : "0",
+                },
+              ],
+            },
+            responses: [],
+          })),
+      },
+    } as unknown as PrismaService;
+    const service = new CompatibilityReportsService(prisma);
+    const report = await service.employerBenchmark(
+      {
+        sub: "client-1",
+        organizationId: "org-0",
+        roles: ["client"],
+        permissions: [],
+      },
+      { selectedProgramId: "program-1", isDummy: false },
+    );
+    const fun = report.data.tableData
+      .flatMap((section) => section.nestedData)
+      .find(({ title }) => title.includes("Fun"));
+    assert.ok(fun);
+    assert.equal(fun.nestedData[0]?.dataValues[0], 100);
+    assert.equal(fun.nestedData[0].dataValues[1], 20);
+
+    const workbookBuffer = await service.employerBenchmarkWorkbook(
+      {
+        sub: "client-1",
+        organizationId: "org-0",
+        roles: ["client"],
+        permissions: [],
+      },
+      { selectedProgramId: "program-1", isDummy: false },
+    );
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(workbookBuffer as never);
+    const sheet = workbook.getWorksheet("Benefits & Best Practices");
+    assert.ok(sheet);
+    let funRow = 0;
+    sheet.eachRow((row, rowNumber) => {
+      if (String(row.getCell(1).value ?? "").includes("Fun"))
+        funRow = rowNumber;
+    });
+    assert.ok(funRow > 0);
+    assert.equal(sheet.getCell(funRow + 1, 2).value, 1);
+    assert.equal(sheet.getCell(funRow + 1, 3).value, 0.2);
+  });
 });
