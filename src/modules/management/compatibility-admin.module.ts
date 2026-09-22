@@ -17,13 +17,14 @@ import {
   Put,
   Query,
   Req,
+  Res,
   UseGuards,
   VERSION_NEUTRAL,
 } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { ApiBearerAuth, ApiConsumes, ApiTags } from "@nestjs/swagger";
 import { Prisma, type OrderStatus } from "@prisma/client";
-import type { FastifyRequest } from "fastify";
+import type { FastifyReply, FastifyRequest } from "fastify";
 import AWS from "aws-sdk";
 import ExcelJS from "exceljs";
 import { randomUUID } from "node:crypto";
@@ -64,6 +65,15 @@ function jsonObject(value: unknown): JsonRecord {
 
 function inputJson(value: unknown): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+}
+
+function includesKia(items: Prisma.JsonValue): boolean {
+  const entries = Array.isArray(items) ? items : [items];
+  return entries.some((entry) => {
+    const item = jsonObject(entry);
+    const keys = jsonObject(item.keys);
+    return (item.productId ?? keys.productId) === "report-kia";
+  });
 }
 
 function objectBody(value: unknown): JsonRecord {
@@ -449,7 +459,19 @@ export class CompatibilityAdminService {
       }
       keys.add(row.key);
     }
+    const uploader = await this.prisma.user.findUnique({
+      where: { id: principal.sub },
+      select: { username: true },
+    });
     await this.prisma.$transaction([
+      this.prisma.keyImpactAnalysisUpload.create({
+        data: {
+          organizationProgramId: enrollment.id,
+          sourceFileName: file.filename,
+          rows: inputJson(report),
+          uploadedByUsername: uploader?.username ?? null,
+        },
+      }),
       this.prisma.keyImpactAnalysisRow.deleteMany({
         where: { organizationProgramId: enrollment.id },
       }),
@@ -728,18 +750,11 @@ export class CompatibilityAdminService {
         orders: {
           where: { status: "PAID" },
           orderBy: { updatedAt: "desc" },
+          include: { purchaser: { select: { username: true } } },
         },
       },
       orderBy: { updatedAt: "desc" },
     });
-    const includesKia = (items: Prisma.JsonValue): boolean => {
-      const entries = Array.isArray(items) ? items : [items];
-      return entries.some((entry) => {
-        const item = jsonObject(entry);
-        const keys = jsonObject(item.keys);
-        return (item.productId ?? keys.productId) === "report-kia";
-      });
-    };
     const data = enrollments.flatMap((enrollment) => {
       const access = jsonObject(enrollment.reportAccess);
       const metrics = jsonObject(enrollment.metrics);
@@ -764,11 +779,94 @@ export class CompatibilityAdminService {
           purchasedAt: (
             kiaOrder?.updatedAt ?? enrollment.updatedAt
           ).toISOString(),
+          purchasedByUsername: kiaOrder?.purchaser?.username ?? null,
           status: String(metrics.KIA_Order_Status ?? "Processing"),
         },
       ];
     });
     return { success: true, data };
+  }
+
+  async uploadedKeyImpactAnalyses(principal: Principal) {
+    this.assertPermission(principal, "uploadKeyImpactAnalysisAccess");
+    const uploads = await this.prisma.keyImpactAnalysisUpload.findMany({
+      include: {
+        organizationProgram: {
+          include: {
+            organization: true,
+            program: true,
+            project: true,
+            orders: {
+              where: { status: "PAID" },
+              orderBy: { updatedAt: "desc" },
+              include: { purchaser: { select: { username: true } } },
+            },
+          },
+        },
+      },
+      orderBy: { uploadedAt: "desc" },
+    });
+    return {
+      success: true,
+      data: uploads.map((upload) => {
+        const enrollment = upload.organizationProgram;
+        const kiaOrder = enrollment.orders.find((order) =>
+          includesKia(order.items),
+        );
+        return {
+          id: upload.id,
+          organizationId: enrollment.organizationId,
+          organizationName: enrollment.organization.name,
+          organizationProgramId: enrollment.id,
+          programId: enrollment.programId,
+          programName: enrollment.program.name,
+          programYear: enrollment.program.year,
+          projectId: enrollment.projectId,
+          projectName: enrollment.project.name,
+          purchasedAt: (
+            kiaOrder?.updatedAt ?? enrollment.createdAt
+          ).toISOString(),
+          purchasedByUsername: kiaOrder?.purchaser?.username ?? null,
+          status: "Uploaded",
+          uploadedByUsername: upload.uploadedByUsername,
+          uploadedAt: upload.uploadedAt.toISOString(),
+          sourceFileName: upload.sourceFileName,
+        };
+      }),
+    };
+  }
+
+  async downloadKeyImpactAnalysis(
+    principal: Principal,
+    id: string,
+    reply: FastifyReply,
+  ) {
+    this.assertPermission(principal, "uploadKeyImpactAnalysisAccess");
+    if (!isUuid(id)) throw new NotFoundException("KIA upload not found");
+    const upload = await this.prisma.keyImpactAnalysisUpload.findUnique({
+      where: { id },
+    });
+    if (!upload) throw new NotFoundException("KIA upload not found");
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet("KIA");
+    worksheet.addRow(["", "Label", "Key", "Value"]);
+    const rows = Array.isArray(upload.rows) ? upload.rows : [];
+    for (const entry of rows) {
+      const row = jsonObject(entry);
+      worksheet.addRow(["", row.label ?? "", row.key ?? "", row.value ?? ""]);
+    }
+    const buffer = await workbook.xlsx.writeBuffer();
+    const filename =
+      (upload.sourceFileName ?? "key-impact-analysis.xlsx")
+        .replace(/[^a-zA-Z0-9._-]/gu, "_")
+        .replace(/\.xlsx$/iu, "") + ".xlsx";
+    return reply
+      .header(
+        "Content-Type",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      )
+      .header("Content-Disposition", `attachment; filename="${filename}"`)
+      .send(Buffer.from(buffer));
   }
 
   async viewCounts(principal: Principal) {
@@ -1376,6 +1474,20 @@ export class CompatibilityAdminController {
   @Get("key-impact-analysis/pending")
   pendingKeyImpactAnalyses(@CurrentUser() principal: Principal) {
     return this.admin.pendingKeyImpactAnalyses(principal);
+  }
+
+  @Get("key-impact-analysis/uploaded")
+  uploadedKeyImpactAnalyses(@CurrentUser() principal: Principal) {
+    return this.admin.uploadedKeyImpactAnalyses(principal);
+  }
+
+  @Get("key-impact-analysis/uploaded/:id/download")
+  downloadKeyImpactAnalysis(
+    @CurrentUser() principal: Principal,
+    @Param("id") id: string,
+    @Res() reply: FastifyReply,
+  ) {
+    return this.admin.downloadKeyImpactAnalysis(principal, id, reply);
   }
 
   @Get("view-counts")

@@ -145,6 +145,7 @@ model OrganizationProgram {
   users               User[]
   orders              Order[]
   keyImpactAnalysisRows KeyImpactAnalysisRow[]
+  keyImpactAnalysisUploads KeyImpactAnalysisUpload[]
 
   @@unique([organizationId, programId])
   @@index([projectId])
@@ -165,6 +166,18 @@ model KeyImpactAnalysisRow {
 
   @@unique([organizationProgramId, position])
   @@index([organizationProgramId])
+}
+
+model KeyImpactAnalysisUpload {
+  id                    String              @id @default(uuid()) @db.Uuid
+  organizationProgramId String              @db.Uuid
+  sourceFileName        String?
+  rows                  Json
+  uploadedByUsername    String?
+  uploadedAt            DateTime            @default(now())
+  organizationProgram   OrganizationProgram @relation(fields: [organizationProgramId], references: [id], onDelete: Cascade)
+
+  @@index([organizationProgramId, uploadedAt])
 }
 
 model User {
