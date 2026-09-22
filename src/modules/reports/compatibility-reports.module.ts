@@ -68,7 +68,10 @@ import {
   defaultZohoCategoryOrder,
   normalizeZohoCategory,
 } from "../programs/program-zoho-category.js";
-import { definitionAnswer } from "../imports/survey-definition.js";
+import {
+  definitionAnswer,
+  rawSurveyAnswer,
+} from "../imports/survey-definition.js";
 
 const privacyThreshold = 5;
 const promotionalPreviewAccess = new Set([
@@ -1002,6 +1005,9 @@ function derivedResponse<
   if (!caption) return response;
   const likert = isLikertQuestion(response.question);
   const numeric = Number(option.Score ?? option.Id);
+  // Raw 6 and 99 are reserved N/A codes even when an imported definition
+  // assigns them a positive score or caption.
+  const rawCode = Number(rawSurveyAnswer(response.value));
   const score =
     likert && Number.isInteger(numeric) && numeric >= 1 && numeric <= 5
       ? new Prisma.Decimal(numeric)
@@ -1010,6 +1016,8 @@ function derivedResponse<
     likert &&
     (numeric === 6 ||
       numeric === 99 ||
+      rawCode === 6 ||
+      rawCode === 99 ||
       ["n/a", "not applicable"].includes(caption.toLowerCase()));
   const agreementCaption = likert
     ? excluded
@@ -4641,10 +4649,6 @@ export class CompatibilityReportsService {
         continue;
       counts.set(caption, (counts.get(caption) ?? 0) + 1);
     }
-    const denominator = [...counts.values()].reduce(
-      (sum, count) => sum + count,
-      0,
-    );
     const options = detailOptions(question).filter(
       ({ caption, score }) => caption !== "N/A" && score !== 6,
     );
@@ -4653,6 +4657,12 @@ export class CompatibilityReportsService {
       for (const caption of counts.keys())
         if (!known.has(caption)) options.push({ caption, score: null });
     }
+    // Only answers represented in the response rows contribute to the
+    // percentage denominator. Legacy out-of-range codes have no row.
+    const denominator = options.reduce(
+      (sum, { caption }) => sum + (counts.get(caption) ?? 0),
+      0,
+    );
     return options.map(({ caption: ResponseCaption, score }) => {
       const numberOfResponses = counts.get(ResponseCaption) ?? 0;
       return {
@@ -4760,17 +4770,24 @@ export class CompatibilityReportsService {
         response.agreementCaption ?? responseCaption(response.value)
       )?.toLowerCase();
       if (
-        caption === "n/a" ||
-        caption === "not applicable" ||
-        caption === "unmapped"
+        !caption ||
+        [
+          "n/a",
+          "na",
+          "not applicable",
+          "not applicable / prefer not to answer",
+          "unmapped",
+        ].includes(caption)
       )
         continue;
+      const numericCaption = /^-?\d+(?:\.\d+)?$/u.test(caption)
+        ? Number(caption)
+        : null;
+      if (numericCaption !== null && (numericCaption < 1 || numericCaption > 5))
+        continue;
       const score =
-        response.score === null
-          ? caption && /^-?\d+(?:\.\d+)?$/u.test(caption)
-            ? Number(caption)
-            : null
-          : Number(response.score);
+        response.score === null ? numericCaption : Number(response.score);
+      if (score !== null && (score < 1 || score > 5)) continue;
       denominator += 1;
       if (
         caption === "agree" ||

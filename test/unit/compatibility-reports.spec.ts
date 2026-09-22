@@ -386,8 +386,9 @@ describe("compatibility report categories", () => {
     );
   });
 
-  it("labels Likert ordinals, colors segments, and excludes 6/99 N/A", async () => {
+  it("uses displayed Likert counts as the denominator and excludes N/A and unmapped codes", async () => {
     const question = benchmarkQuestion("core", "Core Employee Experience", 1);
+    const values = [1, 2, 3, 4, 5, 6, 7, 99];
     const prisma = {
       program: {
         findFirst: () => ({
@@ -420,7 +421,7 @@ describe("compatibility report categories", () => {
       question: { findMany: () => [question] },
       respondent: {
         findMany: () =>
-          [1, 2, 3, 4, 5, 6, 99].map((value) => ({
+          values.map((value) => ({
             id: `respondent-${value}`,
             legacyId: null,
             externalId: null,
@@ -484,6 +485,75 @@ describe("compatibility report categories", () => {
           numberOfResponses: 1,
           percent: 20,
           colorCode: "#00a46a",
+        },
+      ],
+    );
+
+    question.metadata = {
+      categoryLabel: "Core Employee Experience",
+      surveyDefinitionAnswers: true,
+      QuestionResponses: [
+        { Id: 1, Score: 1, Caption: "Never" },
+        { Id: 2, Score: 2, Caption: "Rarely" },
+        { Id: 3, Score: 3, Caption: "Sometimes" },
+        { Id: 4, Score: 4, Caption: "Often" },
+        { Id: 5, Score: 5, Caption: "Always" },
+        { Id: 6, Score: 6, Caption: "N/A" },
+        { Id: 99, Score: 6, Caption: "N/A" },
+      ],
+    };
+    values.splice(0, values.length, 1, 2, 3, 4, 5, 6, 99);
+    const configured = await new CompatibilityReportsService(
+      prisma,
+    ).responseBreakdown(
+      {
+        sub: "admin-1",
+        organizationId: "organization-1",
+        roles: ["admin"],
+        permissions: [],
+      },
+      { selectedProgramId: "program-1", isDummy: false },
+      [question.id],
+    );
+    assert.deepEqual(
+      configured.data[0]?.responses.map(
+        ({ ResponseCaption, numberOfResponses, percent, agreementGroup }) => ({
+          ResponseCaption,
+          numberOfResponses,
+          percent,
+          agreementGroup,
+        }),
+      ),
+      [
+        {
+          ResponseCaption: "Never",
+          numberOfResponses: 1,
+          percent: 20,
+          agreementGroup: "Disagree",
+        },
+        {
+          ResponseCaption: "Rarely",
+          numberOfResponses: 1,
+          percent: 20,
+          agreementGroup: "Disagree",
+        },
+        {
+          ResponseCaption: "Sometimes",
+          numberOfResponses: 1,
+          percent: 20,
+          agreementGroup: "Neutral",
+        },
+        {
+          ResponseCaption: "Often",
+          numberOfResponses: 1,
+          percent: 20,
+          agreementGroup: "Agree",
+        },
+        {
+          ResponseCaption: "Always",
+          numberOfResponses: 1,
+          percent: 20,
+          agreementGroup: "Agree",
         },
       ],
     );
@@ -1302,6 +1372,158 @@ describe("compatibility report categories", () => {
       );
     });
   }
+
+  it("excludes raw N/A and unmapped answers from benchmark figures and the workbook", async () => {
+    const legacy = benchmarkQuestion("legacy", "Core Employee Experience", 1);
+    const configured = benchmarkQuestion(
+      "configured",
+      "Core Employee Experience",
+      2,
+    );
+    configured.metadata = {
+      categoryLabel: "Core Employee Experience",
+      surveyDefinitionAnswers: true,
+      QuestionResponses: [
+        { Id: 10, Score: 5, Caption: "Strongly Agree" },
+        { Id: 20, Score: 1, Caption: "Strongly Disagree" },
+        { Id: 6, Score: 6, Caption: "N/A" },
+        { Id: 99, Score: 6, Caption: "N/A" },
+      ],
+    };
+    const included = Array.from({ length: 5 }, (_, index) => `winner-${index}`);
+    const enrollments = [
+      ...included.map((organizationId) => ({
+        organizationId,
+        isIncluded: true,
+      })),
+      { organizationId: "excluded-winner", isIncluded: false },
+    ];
+    const answers = [
+      ...[1, 5, 6, 99, 7].map((value) => ({
+        questionId: legacy.id,
+        value,
+        score: value === 6 || value === 99 ? value : null,
+        respondent: { organizationId: included[0] },
+      })),
+      ...[10, 20, 6, 99, 7].map((value) => ({
+        questionId: configured.id,
+        value,
+        score: null,
+        respondent: { organizationId: included[0] },
+      })),
+      ...[legacy, configured].map((question) => ({
+        questionId: question.id,
+        value: question.id === legacy.id ? 5 : 10,
+        score: null,
+        respondent: { organizationId: "excluded-winner" },
+      })),
+    ];
+    const prisma = {
+      program: {
+        findFirst: () => ({
+          id: "program-1",
+          projectId: "project-1",
+          name: "Test program",
+          year: 2026,
+          startsAt: null,
+          metadata: {},
+          project: { id: "project-1", name: "Test project" },
+        }),
+      },
+      organizationProgram: {
+        findFirst: () => ({
+          id: "enrollment-1",
+          reportAccess: {},
+          metrics: {},
+          metadata: {},
+          organization: { name: "Test organization" },
+        }),
+        findMany: ({ where }: { where: { isIncluded: boolean } }) => {
+          assert.equal(where.isIncluded, true);
+          return enrollments
+            .filter(({ isIncluded }) => isIncluded)
+            .map((item) => ({
+              ...item,
+              isWinner: "Y",
+              currentZohoCategory: "Small",
+              benchmarkCategory: "Small",
+              metrics: {},
+              organization: { metadata: {} },
+            }));
+        },
+      },
+      survey: {
+        findFirst: () => ({
+          id: "survey-1",
+          title: "Test survey",
+          startsAt: null,
+          endsAt: null,
+        }),
+      },
+      question: { findMany: () => [legacy, configured] },
+      response: { findMany: () => answers },
+    } as unknown as PrismaService;
+    const service = new CompatibilityReportsService(prisma);
+    const principal = {
+      sub: "admin-1",
+      organizationId: included[0] ?? null,
+      roles: ["admin"],
+      permissions: [],
+    };
+    const query = { selectedProgramId: "program-1", isDummy: false };
+    const report = await service.workforceComparison(principal, query);
+    const winnerIndex = report.data.tableHeaders.findIndex(
+      ({ type }) => type === "All_Yes",
+    );
+    const category = report.data.data[0];
+    assert.equal(report.data.cohortOrganizationCount, 5);
+    assert.equal(
+      (category?.dataValues as Array<number | string>)[winnerIndex],
+      50,
+    );
+    assert.deepEqual(
+      (
+        category?.nestedData as Array<{ dataValues: Array<number | string> }>
+      ).map(({ dataValues }) => dataValues[winnerIndex]),
+      [50, 50],
+    );
+    assert.deepEqual(
+      report.data.surveyAverage.find(
+        ({ title }) => title === "All Size Categories",
+      )?.Yes,
+      { title: "Winners", value: 50 },
+    );
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(
+      (await service.benchmarkWorkbook(principal, query)) as never,
+    );
+    const sheet = workbook.getWorksheet("Workforce Benchmark Comparisons");
+    assert.ok(sheet);
+    assert.equal(sheet.getCell("B9").value, 50);
+    assert.equal(sheet.getCell("B10").value, 50);
+    assert.equal(sheet.getCell("B18").value, 50);
+
+    configured.metadata = {
+      categoryLabel: "Core Employee Experience",
+      surveyDefinitionAnswers: true,
+      QuestionResponses: [
+        { Id: 10, Score: 5, Caption: "Strongly Agree" },
+        { Id: 20, Score: 1, Caption: "Strongly Disagree" },
+        { Id: 6, Score: 5, Caption: "Strongly Agree" },
+        { Id: 99, Score: 5, Caption: "Strongly Agree" },
+      ],
+    };
+    const conflictingMapping = await service.workforceComparison(
+      principal,
+      query,
+    );
+    const mappedQuestion = (
+      conflictingMapping.data.data[0]?.nestedData as Array<{
+        dataValues: Array<number | string>;
+      }>
+    )[1];
+    assert.equal(mappedQuestion?.dataValues[winnerIndex], 50);
+  });
 
   it("suppresses benchmark cohorts below five in details, averages, and workbook", async () => {
     const question = benchmarkQuestion("q-core", "Core Employee Experience", 1);
