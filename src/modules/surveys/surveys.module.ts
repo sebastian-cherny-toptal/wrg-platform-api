@@ -1,5 +1,6 @@
 import {
   Controller,
+  ForbiddenException,
   Get,
   Inject,
   Module,
@@ -23,6 +24,9 @@ class SurveysController {
 
   @Get(":id")
   get(@Param("id") id: string, @CurrentUser() principal: Principal) {
+    if (principal.roles.includes("promotional")) {
+      throw new ForbiddenException("Promotional sessions may only access sample reports");
+    }
     return this.prisma.survey.findFirstOrThrow({
       where: {
         id,
@@ -45,6 +49,9 @@ class SurveysController {
 
   @Get(":id/summary")
   async summary(@Param("id") id: string, @CurrentUser() principal: Principal) {
+    if (principal.roles.includes("promotional")) {
+      throw new ForbiddenException("Promotional sessions may only access sample reports");
+    }
     const [survey, total, completed] = await Promise.all([
       this.prisma.survey.findFirstOrThrow({
         where: {

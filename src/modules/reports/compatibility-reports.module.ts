@@ -1142,6 +1142,13 @@ export class CompatibilityReportsService {
     query: ReportQuery,
     providedContext?: ReportContext,
   ): Promise<ReportWorkbookMetadata> {
+    if (query.isDummy) {
+      return {
+        organizationName: "Sample Organization",
+        programName: "Sample Report",
+        surveyDates: "Sample dates",
+      };
+    }
     const context = providedContext ?? (await this.context(principal, query));
     const formatDate = (value: Date | null) =>
       value?.toLocaleDateString("en-US", {
@@ -1258,7 +1265,7 @@ export class CompatibilityReportsService {
       cohortOrganizationCount: number;
     };
   }> {
-    const context = await this.context(principal, query);
+    const context = await this.context(principal, query, true);
     this.requiresDemo(principal, context, "WBC_Access");
     if (query.isDummy) {
       const cohorts = ["All Employers", "Similar Size Employers"];
@@ -1697,7 +1704,7 @@ export class CompatibilityReportsService {
   }
 
   async openResponseQuestions(principal: Principal, query: ReportQuery) {
-    const context = await this.context(principal, query);
+    const context = await this.context(principal, query, true);
     this.requiresDemo(principal, context, "EV_Access");
     if (query.isDummy) {
       return {
@@ -1730,7 +1737,7 @@ export class CompatibilityReportsService {
     questionReference: string,
     queryFilter?: Record<string, unknown>,
   ) {
-    const context = await this.context(principal, query);
+    const context = await this.context(principal, query, true);
     this.requiresDemo(principal, context, "EV_Access");
     if (query.isDummy) {
       const question =
@@ -1923,7 +1930,7 @@ export class CompatibilityReportsService {
       return {
         success: true,
         message:
-          "The information is not visible due to confidentiality reasons. The number of employee responses is less than 5.",
+          "The information is not visible to maintain confidentiality. The number of employee responses is fewer than 5.",
         isConfidential: true,
         data: [],
       };
@@ -1985,7 +1992,7 @@ export class CompatibilityReportsService {
       return {
         success: true,
         message:
-          "The information is not visible due to confidentiality reasons. The number of employee responses is less than 5.",
+          "The information is not visible to maintain confidentiality. The number of employee responses is fewer than 5.",
         isConfidential: true,
         data: [],
       };
@@ -2067,7 +2074,7 @@ export class CompatibilityReportsService {
   }
 
   async surveyFilters(principal: Principal, query: ReportQuery) {
-    const context = await this.context(principal, query);
+    const context = await this.context(principal, query, true);
     if (query.isDummy) {
       return {
         success: true,
@@ -2144,7 +2151,20 @@ export class CompatibilityReportsService {
   }
 
   async surveyResponseRate(principal: Principal, query: ReportQuery) {
-    const context = await this.context(principal, query);
+    const context = await this.context(principal, query, true);
+    if (query.isDummy) {
+      return {
+        success: true,
+        message: "Sample dashboard data",
+        data: {
+          sendSurvey: 120,
+          Total_Number_of_Program_EEs: 150,
+          completedSurvey: 90,
+          Total_Number_of_National_EEs: 0,
+          responseRate: 75,
+        },
+      };
+    }
     const [sent, completed] = await Promise.all([
       this.prisma.respondent.count({
         where: {
@@ -2220,7 +2240,22 @@ export class CompatibilityReportsService {
   }
 
   async averageAgreement(principal: Principal, query: ReportQuery) {
-    const context = await this.context(principal, query);
+    const context = await this.context(principal, query, true);
+    if (query.isDummy) {
+      return {
+        success: true,
+        message: "Sample dashboard data",
+        data: {
+          percentage: "72",
+          negativePercentage: "18",
+          totalRespondents: 90,
+          StartDate: null,
+          EndDateOld: null,
+          EndDate: null,
+          numberOfQuestions: 35,
+        },
+      };
+    }
     const questions = await this.benchmarkQuestions(context.survey.id);
     const responses = await this.agreementResponses(
       context.survey.id,
@@ -2288,7 +2323,27 @@ export class CompatibilityReportsService {
   }
 
   async topBottomStatements(principal: Principal, query: ReportQuery) {
-    const context = await this.context(principal, query);
+    const context = await this.context(principal, query, true);
+    if (query.isDummy) {
+      return {
+        success: true,
+        message: "Sample dashboard data",
+        data: {
+          top: [
+            { title: "I understand how my work contributes to our goals.", percentage: 88 },
+            { title: "My manager treats me with respect.", percentage: 84 },
+            { title: "I have the tools needed to do my job.", percentage: 81 },
+          ],
+          bottom: [
+            { title: "I see opportunities for career growth.", percentage: 55 },
+            { title: "Communication across teams is effective.", percentage: 58 },
+            { title: "I receive useful feedback on my work.", percentage: 61 },
+          ],
+          noteTop: "Sample statements from a fictional organization.",
+          noteBottom: "Sample statements from a fictional organization.",
+        },
+      };
+    }
     const questions = await this.benchmarkQuestions(context.survey.id);
     const respondents = await this.organizationRespondents(context);
     const noteTop =
@@ -2371,7 +2426,7 @@ export class CompatibilityReportsService {
     const highlightRanges =
       responsePatternRanges ??
       (Object.keys(legacyRanges).length ? legacyRanges : undefined);
-    const context = await this.context(principal, query);
+    const context = await this.context(principal, query, true);
     this.requiresDemo(
       principal,
       context,
@@ -2729,7 +2784,7 @@ export class CompatibilityReportsService {
   }
 
   async responseDetailSections(principal: Principal, query: ReportQuery) {
-    const context = await this.context(principal, query);
+    const context = await this.context(principal, query, true);
     this.requiresDemo(principal, context, "RD_Access");
     if (query.isDummy)
       return {
@@ -2767,7 +2822,7 @@ export class CompatibilityReportsService {
     filterReference: string,
     version = "1",
   ) {
-    const context = await this.context(principal, query);
+    const context = await this.context(principal, query, true);
     this.requiresDemo(principal, context, "RD_Access");
     if (query.isDummy)
       return {
@@ -2957,7 +3012,7 @@ export class CompatibilityReportsService {
   }
 
   async demographicResponseCounts(principal: Principal, query: ReportQuery) {
-    const context = await this.context(principal, query);
+    const context = await this.context(principal, query, true);
     this.requiresDemo(principal, context, "WFR_Access");
     if (query.isDummy) {
       return {
@@ -3057,7 +3112,7 @@ export class CompatibilityReportsService {
   }
 
   async employerBenchmark(principal: Principal, query: ReportQuery) {
-    const context = await this.context(principal, query);
+    const context = await this.context(principal, query, true);
     this.requiresDemo(principal, context, "BBP_Access");
     if (query.isDummy) {
       const tableHeaders = [
@@ -3171,7 +3226,7 @@ export class CompatibilityReportsService {
     query: ReportQuery,
   ): Promise<Buffer> {
     const [context, report] = await Promise.all([
-      this.context(principal, query),
+      this.context(principal, query, true),
       this.employerBenchmark(principal, query),
     ]);
     return createBenefitsWorkbook({
@@ -3182,7 +3237,7 @@ export class CompatibilityReportsService {
           .replace(/\s+employers$/iu, "");
         return `${size} ${header.subTitle}`;
       }),
-      programName: context.program.name,
+      programName: query.isDummy ? "Sample Report" : context.program.name,
       sections: report.data.tableData.map((section) => ({
         title: section.title,
         questions: section.nestedData.map((question) => ({
@@ -3334,7 +3389,7 @@ export class CompatibilityReportsService {
   }
 
   async keyImpactAnalysis(principal: Principal, query: ReportQuery) {
-    const context = await this.context(principal, query);
+    const context = await this.context(principal, query, true);
     this.requiresDemo(principal, context, "KIA_Access");
     if (query.isDummy) {
       return {
@@ -3601,7 +3656,7 @@ export class CompatibilityReportsService {
     query: ReportQuery,
     queryFilter?: Record<string, unknown>,
   ): Promise<Buffer> {
-    const context = await this.context(principal, query);
+    const context = await this.context(principal, query, true);
     this.requiresDemo(principal, context, "EV_Access");
     const purchasedFilter = this.purchasedVerbatimFilter(context);
     if (purchasedFilter) {
@@ -3742,7 +3797,14 @@ export class CompatibilityReportsService {
   private async context(
     principal: Principal,
     query: ReportQuery,
+    promotionalDemoSupported = false,
   ): Promise<ReportContext> {
+    if (
+      principal.roles.includes("promotional") &&
+      (!query.isDummy || !promotionalDemoSupported)
+    ) {
+      throw new ForbiddenException("Promotional sessions may only access sample reports");
+    }
     const programSelect = {
       id: true,
       projectId: true,
@@ -3777,7 +3839,11 @@ export class CompatibilityReportsService {
     if (!program) throw new NotFoundException("Program not found");
 
     let organizationId = principal.organizationId;
-    if (!principal.roles.includes("client") && query.organizationId) {
+    if (
+      (principal.roles.includes("admin") ||
+        principal.roles.includes("super_admin")) &&
+      query.organizationId
+    ) {
       const organization = await this.prisma.organization.findFirst({
         where: isUuid(query.organizationId)
           ? { id: query.organizationId }
@@ -5208,7 +5274,7 @@ export class CompatibilityReportsController {
   ) {
     return this.reports.surveyResponseRate(
       principal,
-      this.reportQuery(selectedProgramId, organizationId, isDummy),
+      this.reportQuery(selectedProgramId, organizationId, isDummy, false, true),
     );
   }
 
@@ -5236,7 +5302,7 @@ export class CompatibilityReportsController {
   ) {
     return this.reports.averageAgreement(
       principal,
-      this.reportQuery(selectedProgramId, organizationId, isDummy),
+      this.reportQuery(selectedProgramId, organizationId, isDummy, false, true),
     );
   }
 
@@ -5250,7 +5316,7 @@ export class CompatibilityReportsController {
   ) {
     return this.reports.topBottomStatements(
       principal,
-      this.reportQuery(selectedProgramId, organizationId, isDummy),
+      this.reportQuery(selectedProgramId, organizationId, isDummy, false, true),
     );
   }
 

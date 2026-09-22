@@ -1,5 +1,6 @@
 import {
   Controller,
+  ForbiddenException,
   Get,
   Inject,
   Module,
@@ -35,6 +36,7 @@ class ReportsController {
   @Get("wfr")
   @ApiQuery({ name: "surveyId", required: true })
   async workforceReport(
+    @CurrentUser() principal: Principal,
     @Param("organizationId") organizationId: string,
     @Query("surveyId") surveyId: string,
   ): Promise<{
@@ -48,6 +50,9 @@ class ReportsController {
       averageScore: number | null;
     }>;
   }> {
+    if (principal.roles.includes("promotional")) {
+      throw new ForbiddenException("Promotional sessions may only access sample reports");
+    }
     await this.prisma.organizationProgram.findFirstOrThrow({
       where: {
         isIncluded: true,

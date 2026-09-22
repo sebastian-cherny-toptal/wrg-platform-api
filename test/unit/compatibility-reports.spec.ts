@@ -27,6 +27,46 @@ function benchmarkQuestion(
 }
 
 describe("compatibility report categories", () => {
+  it("returns Elle's exact confidentiality message for filtered Detailed Results", async () => {
+    const question = benchmarkQuestion("core", "Core Employee Experience", 1);
+    const demographic = {
+      ...benchmarkQuestion("gender", "Demographics", 2),
+      type: "demographic",
+      metadata: { QuestionTypeId: 2 },
+    };
+    const prisma = {
+      program: { findFirst: () => ({ id: "program-1", projectId: "project-1", name: "Test", year: 2026, startsAt: null, metadata: {}, project: { id: "project-1", name: "Test" } }) },
+      organizationProgram: {
+        findFirst: () => ({ id: "enrollment-1", reportAccess: { WFR_Access: "yes" }, metrics: {}, metadata: {} }),
+        findMany: () => [],
+      },
+      survey: { findFirst: () => ({ id: "survey-1", title: "Employee Feedback Survey", startsAt: null, endsAt: null }) },
+      question: { findMany: () => [question] },
+      respondent: {
+        findMany: () => Array.from({ length: 4 }, (_, index) => ({
+          id: `respondent-${index}`,
+          legacyId: null,
+          externalId: null,
+          metadata: {},
+          responses: [
+            { questionId: question.id, value: 4, score: null, question },
+            { questionId: demographic.id, value: "Female", score: null, question: demographic },
+          ],
+        })),
+      },
+    } as unknown as PrismaService;
+    const service = new CompatibilityReportsService(prisma);
+    const principal = { sub: "client-1", organizationId: "organization-1", roles: ["client"], permissions: [] };
+    const query = { selectedProgramId: "program-1", isDummy: false };
+    const filter = { gender: ["Female"] };
+    const expected = "The information is not visible to maintain confidentiality. The number of employee responses is fewer than 5.";
+
+    const section = await service.responseBreakdownBySection(principal, query, filter);
+    const questionResult = await service.responseBreakdown(principal, query, [question.id], filter);
+    assert.deepEqual({ message: section.message, isConfidential: section.isConfidential, data: section.data }, { message: expected, isConfidential: true, data: [] });
+    assert.deepEqual({ message: questionResult.message, isConfidential: questionResult.isConfidential, data: questionResult.data }, { message: expected, isConfidential: true, data: [] });
+  });
+
   it("uses the employee survey when the employer assessment ends later", async () => {
     let surveyQuery: unknown;
     const prisma = {
