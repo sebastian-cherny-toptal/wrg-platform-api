@@ -40,6 +40,44 @@ const clientLoginStub = {
 class ClientLoginTestModule {}
 
 describe("client login endpoint", () => {
+  it("returns current KIA statuses only for the client's programs", async () => {
+    let enrollmentWhere: unknown;
+    const service = new ClientLoginService({
+      user: {
+        findUnique: () => Promise.resolve({
+          organizationId: "organization-id",
+          programs: [{ programId: "program-2026" }, { programId: "program-2025" }],
+        }),
+      },
+      organizationProgram: {
+        findMany: (args: { where: unknown }) => {
+          enrollmentWhere = args.where;
+          return Promise.resolve([
+            { programId: "program-2026", metrics: { KIA_Order_Status: "Delivered" } },
+            { programId: "program-2025", metrics: { KIA_Order_Status: "Processing" } },
+          ]);
+        },
+      },
+    } as never, {} as never);
+
+    const result = await service.reportStatuses({
+      sub: "client-id",
+      organizationId: "organization-id",
+      roles: ["client"],
+      permissions: [],
+    });
+
+    assert.deepEqual(enrollmentWhere, {
+      organizationId: "organization-id",
+      isIncluded: true,
+      programId: { in: ["program-2026", "program-2025"] },
+    });
+    assert.deepEqual(result.data, [
+      { programId: "program-2026", status: "Delivered" },
+      { programId: "program-2025", status: "Processing" },
+    ]);
+  });
+
   it("serves validated POST /user/login", async () => {
     const app = await NestFactory.create<NestFastifyApplication>(
       ClientLoginTestModule,
@@ -159,6 +197,7 @@ describe("client login endpoint", () => {
               paymentDetails: {},
               metrics: {
                 SEV_Filter: "department",
+                KIA_Order_Status: "Delivered",
                 Source_Organization_Name: "Advanced Office Systems",
               },
               metadata: {},
@@ -217,13 +256,14 @@ describe("client login endpoint", () => {
       .organizationProgram as Array<{
       programId: { _id: string };
       reportAccess: { BBP_Access: string };
-      metrics: { SEV_Filter: string };
+      metrics: { SEV_Filter: string; KIA_Order_Status: string };
     }>;
     const enrollment = organizationPrograms[0];
     assert.ok(enrollment);
     assert.equal(enrollment.programId._id, "legacy-program-id");
     assert.equal(enrollment.reportAccess.BBP_Access, "yes");
     assert.equal(enrollment.metrics.SEV_Filter, "department");
+    assert.equal(enrollment.metrics.KIA_Order_Status, "Delivered");
     assert.equal(organizationUpdates, 1);
     assert.equal(auditEntries, 1);
   });

@@ -425,6 +425,30 @@ export class CompatibilityAdminService {
     if (report.length === 0) {
       throw new BadRequestException("workbook has no data rows");
     }
+    const keys = new Set<string>();
+    for (const [index, row] of report.entries()) {
+      if (!row.label || !row.key || !row.value) {
+        throw new BadRequestException(
+          `workbook row ${index + 2} must have a label, key and value`,
+        );
+      }
+      const contribution = Number(row.value);
+      if (
+        !Number.isFinite(contribution) ||
+        contribution < 0 ||
+        contribution > 100
+      ) {
+        throw new BadRequestException(
+          `workbook row ${index + 2} has an invalid contribution value`,
+        );
+      }
+      if (keys.has(row.key)) {
+        throw new BadRequestException(
+          `workbook row ${index + 2} has a duplicate key`,
+        );
+      }
+      keys.add(row.key);
+    }
     await this.prisma.$transaction([
       this.prisma.keyImpactAnalysisRow.deleteMany({
         where: { organizationProgramId: enrollment.id },

@@ -883,10 +883,24 @@ export async function createVerbatimWorkbook(input: {
   workbook.eachSheet((sheet, sheetId) => {
     const responseCount = input.questions[sheetId - 1]?.responses.length ?? 0;
     const firstUnusedRow = Math.max(5, responseCount + 5);
-    if (firstUnusedRow <= sheet.rowCount) {
-      sheet.spliceRows(firstUnusedRow, sheet.rowCount - firstUnusedRow + 1);
+    // ExcelJS leaves styled tail rows behind when they are removed in one splice.
+    for (let row = sheet.rowCount; row >= firstUnusedRow; row -= 1) {
+      sheet.spliceRows(row, 1);
     }
     if (!includeDemographic) sheet.spliceColumns(2, 1);
+    if (responseCount === 0) {
+      sheet.removeConditionalFormatting(() => false);
+    } else {
+      const lastColumn = includeDemographic ? "B" : "A";
+      const formattings = (
+        sheet as ExcelJS.Worksheet & {
+          conditionalFormattings: ExcelJS.ConditionalFormattingOptions[];
+        }
+      ).conditionalFormattings;
+      for (const formatting of formattings) {
+        formatting.ref = `A5:${lastColumn}${responseCount + 4}`;
+      }
+    }
   });
   return workbookBuffer(workbook);
 }

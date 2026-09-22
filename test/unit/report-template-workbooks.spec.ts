@@ -9,6 +9,14 @@ import {
   createWorkforceFeedbackWorkbook,
 } from "../../src/modules/reports/report-template-workbooks.js";
 
+function conditionalFormattingRanges(sheet: ExcelJS.Worksheet): string[] {
+  return (
+    sheet as ExcelJS.Worksheet & {
+      conditionalFormattings: ExcelJS.ConditionalFormattingOptions[];
+    }
+  ).conditionalFormattings.map(({ ref }) => ref);
+}
+
 describe("response detail workbook generation", () => {
   const input = {
     metadata: {
@@ -227,10 +235,17 @@ describe("employee verbatim workbook generation", () => {
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.load(buffer as never);
     const sheet = workbook.getWorksheet("Verbatims Q1");
+    const emptySheet = workbook.getWorksheet("Verbatims Q2");
     assert.ok(sheet);
+    assert.ok(emptySheet);
     assert.equal(sheet.columnCount, 1);
+    assert.equal(sheet.rowCount, 6);
+    assert.deepEqual(conditionalFormattingRanges(sheet), ["A5:A6"]);
     assert.equal(sheet.getCell("A5").value, "Autonomy");
     assert.equal(sheet.getCell("A6").value, "People");
+    assert.equal(emptySheet.columnCount, 1);
+    assert.equal(emptySheet.rowCount, 4);
+    assert.deepEqual(conditionalFormattingRanges(emptySheet), []);
   });
 
   it("includes the sorting field and each respondent's displayed value", async () => {
@@ -259,6 +274,8 @@ describe("employee verbatim workbook generation", () => {
     const sheet = workbook.getWorksheet("Verbatims Q1");
     assert.ok(sheet);
     assert.equal(sheet.columnCount, 2);
+    assert.equal(sheet.rowCount, 6);
+    assert.deepEqual(conditionalFormattingRanges(sheet), ["A5:B6"]);
     assert.match(
       String(sheet.getCell("A3").value),
       /Actual Organization Name/u,
@@ -296,6 +313,10 @@ describe("employee verbatim workbook generation", () => {
     assert.equal(firstSheet.getCell("B141").value, "Group 137");
     assert.equal(secondSheet.getCell("A87").value, "Second answer 83");
     assert.equal(secondSheet.getCell("B87").value, "Group 83");
+    assert.equal(firstSheet.rowCount, 141);
+    assert.equal(secondSheet.rowCount, 87);
+    assert.deepEqual(conditionalFormattingRanges(firstSheet), ["A5:B141"]);
+    assert.deepEqual(conditionalFormattingRanges(secondSheet), ["A5:B87"]);
   });
 });
 

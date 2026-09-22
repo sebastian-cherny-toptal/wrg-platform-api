@@ -606,6 +606,9 @@ export class ClientLoginService {
             ...(typeof metrics.SEV_Filter === "string"
               ? { SEV_Filter: metrics.SEV_Filter }
               : {}),
+            ...(typeof metrics.KIA_Order_Status === "string"
+              ? { KIA_Order_Status: metrics.KIA_Order_Status }
+              : {}),
           },
           projectId: projectData(item.project),
           programId: programData(item.program),
@@ -627,6 +630,42 @@ export class ClientLoginService {
             }
           : [],
       },
+    };
+  }
+
+  async reportStatuses(principal: Principal) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: principal.sub },
+      select: {
+        organizationId: true,
+        programs: { select: { programId: true } },
+      },
+    });
+    if (!user?.organizationId || user.organizationId !== principal.organizationId) {
+      throw new ForbiddenException("Client organization is not available");
+    }
+    const allowedProgramIds = user.programs.map(({ programId }) => programId);
+    const enrollments = await this.prisma.organizationProgram.findMany({
+      where: {
+        organizationId: user.organizationId,
+        isIncluded: true,
+        programId: {
+          in: principal.impersonation
+            ? allowedProgramIds.filter((id) => id === principal.impersonation?.programId)
+            : allowedProgramIds,
+        },
+      },
+      select: { programId: true, metrics: true },
+    });
+    return {
+      success: true as const,
+      data: enrollments.map((enrollment) => {
+        const status = jsonObject(enrollment.metrics).KIA_Order_Status;
+        return {
+          programId: enrollment.programId,
+          status: typeof status === "string" ? status : null,
+        };
+      }),
     };
   }
 }
@@ -1498,6 +1537,13 @@ export class ClientLoginController {
     @Query("skipLastLogin") skipLastLogin?: string | string[],
   ): Promise<ClientLoginResponse> {
     return this.clientLogin.login(body, skipLastLogin);
+  }
+
+  @Get("report-statuses")
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  reportStatuses(@CurrentUser() principal: Principal) {
+    return this.clientLogin.reportStatuses(principal);
   }
 }
 

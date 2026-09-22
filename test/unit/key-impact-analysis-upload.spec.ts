@@ -4,6 +4,95 @@ import ExcelJS from "exceljs";
 import { CompatibilityAdminService } from "../../src/modules/management/compatibility-admin.module.js";
 
 describe("Key Impact Analysis upload", () => {
+  it("leaves delivery pending when the workbook has no report rows", async () => {
+    const workbook = new ExcelJS.Workbook();
+    workbook.addWorksheet("KIA").addRow(["Ignored", "Label", "Key", "Value"]);
+    const buffer = Buffer.from(await workbook.xlsx.writeBuffer());
+    let transactionCalls = 0;
+    const service = new CompatibilityAdminService({
+      organization: { findFirst: () => Promise.resolve({ id: "organization-id" }) },
+      project: { findFirst: () => Promise.resolve({ id: "project-id" }) },
+      program: { findFirst: () => Promise.resolve({ id: "program-id", projectId: "project-id" }) },
+      organizationProgram: {
+        findFirst: () => Promise.resolve({
+          id: "enrollment-id",
+          projectId: "project-id",
+          reportAccess: { KIA_Access: "yes" },
+          metrics: { KIA_Order_Status: "Processing" },
+        }),
+      },
+      $transaction: () => { transactionCalls += 1; },
+    } as never, {} as never, {} as never);
+    const request = {
+      isMultipart: () => true,
+      parts: function* () {
+        yield {
+          type: "file",
+          filename: "empty.xlsx",
+          mimetype: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          toBuffer: () => Promise.resolve(buffer),
+        };
+      },
+    };
+
+    await assert.rejects(service.uploadKeyImpactAnalysis({
+      sub: "admin-id", organizationId: null, roles: ["admin"], permissions: [],
+    }, request as never, {
+      orgId: "organization-id", programId: "program-id", projectId: "project-id", orgProgramId: "enrollment-id",
+    }), /workbook has no data rows/);
+    assert.equal(transactionCalls, 0);
+  });
+
+  it("rejects rows that cannot provide a unique label and contribution to both views", async () => {
+    for (const { rows, message } of [
+      { rows: [["", "", "leadership", "0.42"]], message: /must have a label, key and value/u },
+      { rows: [["", "Leadership", "leadership", "unknown"]], message: /invalid contribution value/u },
+      { rows: [["", "Leadership", "leadership", "-1"]], message: /invalid contribution value/u },
+      { rows: [["", "Leadership", "leadership", "101"]], message: /invalid contribution value/u },
+      {
+        rows: [
+          ["", "Leadership", "leadership", "0.42"],
+          ["", "Team", "leadership", "0.27"],
+        ],
+        message: /duplicate key/u,
+      },
+    ]) {
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet("KIA");
+      worksheet.addRow(["Ignored", "Label", "Key", "Value"]);
+      rows.forEach((row) => worksheet.addRow(row));
+      const buffer = Buffer.from(await workbook.xlsx.writeBuffer());
+      let transactionCalls = 0;
+      const service = new CompatibilityAdminService({
+        organization: { findFirst: () => Promise.resolve({ id: "organization-id" }) },
+        project: { findFirst: () => Promise.resolve({ id: "project-id" }) },
+        program: { findFirst: () => Promise.resolve({ id: "program-id", projectId: "project-id" }) },
+        organizationProgram: {
+          findFirst: () => Promise.resolve({ id: "enrollment-id", projectId: "project-id" }),
+        },
+        $transaction: () => { transactionCalls += 1; },
+      } as never, {} as never, {} as never);
+      const request = {
+        isMultipart: () => true,
+        parts: function* () {
+          yield {
+            type: "file",
+            filename: "invalid.xlsx",
+            mimetype: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            toBuffer: () => Promise.resolve(buffer),
+          };
+        },
+      };
+
+      await assert.rejects(service.uploadKeyImpactAnalysis({
+        sub: "admin-id", organizationId: null, roles: ["admin"], permissions: [],
+      }, request as never, {
+        orgId: "organization-id", programId: "program-id", projectId: "project-id", orgProgramId: "enrollment-id",
+      }), message);
+      assert.equal(transactionCalls, 0);
+    }
+  });
+
   it("stores every workbook data row in PostgreSQL without object storage", async () => {
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet("KIA");
