@@ -194,8 +194,14 @@ describe("list users endpoint", () => {
                 },
               ],
               programs: [
-                { programId: "program-2025" },
-                { programId: "program-2026" },
+                {
+                  programId: "program-2025",
+                  program: { name: "Workforce", year: 2025 },
+                },
+                {
+                  programId: "program-2026",
+                  program: { name: "Benefits", year: 2026 },
+                },
               ],
               projects: [
                 {
@@ -214,7 +220,7 @@ describe("list users endpoint", () => {
 
     const response = await service.list(
       "projects",
-      "fullName,role,projects,programs,organization,lastLogin,payments,totalPaid,lastPaymentDatetime",
+      "fullName,role,projects,programs,programDetails,organization,lastLogin,payments,totalPaid,lastPaymentDatetime",
     );
     const user = response.data[0];
     assert.ok(user);
@@ -222,6 +228,10 @@ describe("list users endpoint", () => {
     assert.equal(user.fullName, "Example Person");
     assert.equal(user.role, "manager");
     assert.deepEqual(user.programs, ["program-2025", "program-2026"]);
+    assert.deepEqual(user.programDetails, [
+      { id: "program-2025", name: "Workforce", year: 2025 },
+      { id: "program-2026", name: "Benefits", year: 2026 },
+    ]);
     assert.deepEqual(user.organization, {
       id: "organization-id",
       name: "Example Org",
@@ -262,5 +272,60 @@ describe("list users endpoint", () => {
       /unsupported user field/u,
     );
     await assert.rejects(service.list("roles"), /must be projects/u);
+  });
+
+  it("includes display details for zero and one program without another query", async () => {
+    let listQueries = 0;
+    const listedUser = (
+      id: string,
+      programs: Array<{
+        programId: string;
+        program: { name: string; year: number | null };
+      }>,
+    ) => ({
+      id,
+      legacyId: null,
+      email: `${id}@example.com`,
+      username: id,
+      fullName: id,
+      status: "ACTIVE",
+      metadata: {},
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+      organization: null,
+      sessions: [],
+      roles: [],
+      projects: [],
+      programs,
+    });
+    const prisma = {
+      user: {
+        findMany: (query: { select: { programs: unknown } }) => {
+          listQueries += 1;
+          assert.deepEqual(query.select.programs, {
+            select: {
+              programId: true,
+              program: { select: { name: true, year: true } },
+            },
+          });
+          return Promise.resolve([
+            listedUser("unassigned", []),
+            listedUser("assigned", [
+              {
+                programId: "program-2026",
+                program: { name: "Benefits", year: 2026 },
+              },
+            ]),
+          ]);
+        },
+      },
+    } as unknown as PrismaService;
+    const service = new UsersService(prisma, {} as UserInvitationMailer);
+    const response = await service.list("projects");
+    assert.equal(listQueries, 1);
+    assert.deepEqual(
+      response.data.map(({ programDetails }) => programDetails),
+      [[], [{ id: "program-2026", name: "Benefits", year: 2026 }]],
+    );
   });
 });

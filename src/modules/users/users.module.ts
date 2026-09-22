@@ -255,6 +255,7 @@ const listUserFields = new Set([
   "roleId",
   "projects",
   "programs",
+  "programDetails",
   "createAt",
   "updatedAt",
   "isActive",
@@ -1379,7 +1380,12 @@ export class UsersService {
             },
           },
         },
-        programs: { select: { programId: true } },
+        programs: {
+          select: {
+            programId: true,
+            program: { select: { name: true, year: true } },
+          },
+        },
         projects: {
           select: {
             project: {
@@ -1450,6 +1456,11 @@ export class UsersService {
           role: role?.key ?? null,
           roleId: role ? (role.legacyId ?? role.id) : null,
           programs: user.programs.map(({ programId }) => programId),
+          programDetails: user.programs.map(({ programId, program }) => ({
+            id: programId,
+            name: program.name,
+            year: program.year,
+          })),
           projects:
             expand === "projects"
               ? user.projects.map(({ project }) => ({
