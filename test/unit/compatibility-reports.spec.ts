@@ -49,7 +49,7 @@ describe("compatibility report categories", () => {
       organizationProgram: {
         findFirst: () => ({
           id: "enrollment-1",
-          reportAccess: { WFR_Access: "yes" },
+          reportAccess: { WFR_Access: "yes", RD_Access: "yes" },
           metrics: {},
           metadata: {},
         }),
@@ -130,6 +130,10 @@ describe("compatibility report categories", () => {
     assert.equal(unfiltered.isConfidential, false);
     assert.equal(unfiltered.message, "success");
     assert.equal(unfiltered.data.length, 1);
+    await assert.rejects(
+      service.responseDetailWorkbook(principal, query),
+      /number of employee responses is less than 5/u,
+    );
   });
 
   it("uses the employee survey when the employer assessment ends later", async () => {

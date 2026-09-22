@@ -149,7 +149,9 @@ function demographicCount(
   label: string,
   groupLabel?: string,
 ): number | undefined {
-  const normalizedGroupLabel = groupLabel?.trim().toLowerCase();
+  const normalizedGroupLabel = groupLabel
+    ? workbookHeaderValue(groupLabel).trim().toLowerCase()
+    : undefined;
   for (const demographic of demographics) {
     if (
       normalizedGroupLabel &&
@@ -157,7 +159,9 @@ function demographicCount(
     ) {
       continue;
     }
-    const option = demographic.options.find((item) => item.label === label);
+    const option = demographic.options.find(
+      (item) => item.label === workbookHeaderValue(label),
+    );
     if (option) return option.count;
   }
   return undefined;
@@ -172,6 +176,10 @@ function normalizedDemographicLabel(value: unknown): string {
   return typeof value === "string"
     ? value.toLowerCase().replace(/[^a-z0-9]+/gu, "")
     : "";
+}
+
+function workbookHeaderValue(value: string): string {
+  return /^'[=+\-@]/u.test(value) ? value.slice(1) : value;
 }
 
 function columnNumber(address: string): number {
@@ -258,6 +266,58 @@ export function filterResponseDetailColumns(
   for (const merge of mappedMerges) sheet.mergeCells(merge);
 }
 
+/** Replace the template's example demographic columns with this survey's fields. */
+function setResponseDetailDemographics(
+  workbook: ExcelJS.Workbook,
+  demographics: ReportWorkbookDemographic[],
+): void {
+  const sheet = workbook.worksheets[0];
+  if (!sheet) throw new Error("Response detail template has no worksheet");
+  const rowCount = sheet.rowCount;
+  const templateColumnCount = sheet.columnCount;
+  const example = Array.from({ length: rowCount }, (_, index) => {
+    const cell = sheet.getCell(index + 1, 7);
+    return { value: cell.value, style: cell.style };
+  });
+  const spacer = Array.from({ length: rowCount }, (_, index) => {
+    const cell = sheet.getCell(index + 1, 11);
+    return { value: cell.value, style: cell.style };
+  });
+  for (const merge of [...sheet.model.merges]) {
+    const match = /^([A-Z]+)2:/u.exec(merge);
+    if (match?.[1] && columnNumber(match[1]) >= 7) sheet.unMergeCells(merge);
+  }
+  sheet.spliceColumns(7, templateColumnCount - 6);
+  let column = 7;
+  for (const demographic of demographics) {
+    if (demographic.options.length === 0) continue;
+    const start = column;
+    for (const option of demographic.options) {
+      for (let row = 1; row <= rowCount; row += 1) {
+        const source = example[row - 1];
+        if (!source) continue;
+        const cell = sheet.getCell(row, column);
+        cell.value = source.value;
+        cell.style = source.style;
+      }
+      sheet.getCell(2, column).value = safeValue(demographic.title.toUpperCase());
+      sheet.getCell(3, column).value = safeValue(option.label);
+      column += 1;
+    }
+    if (column > start + 1) {
+      sheet.mergeCells(2, start, 2, column - 1);
+    }
+    for (let row = 1; row <= rowCount; row += 1) {
+      const source = spacer[row - 1];
+      if (!source) continue;
+      const cell = sheet.getCell(row, column);
+      cell.value = source.value;
+      cell.style = source.style;
+    }
+    column += 1;
+  }
+}
+
 function subgroupAgreement(
   demographicAgreement: Record<string, Record<string, number>> | undefined,
   groupLabel: string | undefined,
@@ -284,7 +344,7 @@ function subgroupResponsePercentage(
   const group = Object.entries(distributions).find(
     ([key]) => normalizedDemographicLabel(key) === normalizedGroupLabel,
   )?.[1];
-  return group?.[label]?.[responseIndex];
+  return group?.[workbookHeaderValue(label)]?.[responseIndex];
 }
 
 function demographicValue(
@@ -1033,6 +1093,7 @@ export async function createResponseDetailWorkbook(input: {
   filterGroupLabel?: string;
 }): Promise<Buffer> {
   const workbook = await loadTemplate("response-detail.xlsx");
+  setResponseDetailDemographics(workbook, input.demographics);
   const questions = input.sections.flatMap((section) => section.questions);
   fillTokens(workbook, (name, cell) => {
     if (name === "ORGANIZATION_NAME") return input.metadata.organizationName;

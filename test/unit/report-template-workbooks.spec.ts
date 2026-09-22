@@ -59,17 +59,16 @@ describe("response detail workbook generation", () => {
     totalResponses: 20,
   };
 
-  it("uses the supplied 2026 layout for a full report", async () => {
+  it("uses only this program's demographics in a full report", async () => {
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.load(
       (await createResponseDetailWorkbook(input)) as never,
     );
     const sheet = workbook.getWorksheet("Response Detail Report");
     assert.ok(sheet);
-    assert.equal(sheet.columnCount, 64);
+    assert.equal(sheet.columnCount, 11);
     assert.equal(sheet.getCell("G2").value, "GENDER");
-    assert.equal(sheet.getCell("S2").value, "RACE/ETHNICITY");
-    assert.equal(sheet.getCell("BG2").value, "FSLA STATUS");
+    assert.equal(sheet.getCell("L2").value, null);
     assert.match(String(sheet.getCell("B3").value), /Health organization/u);
     assert.equal(sheet.getCell("E7").value, 1);
     assert.equal(sheet.getCell("G7").value, 2);
@@ -89,6 +88,46 @@ describe("response detail workbook generation", () => {
     assert.equal(sheet.getCell("G2").value, "GENDER");
     assert.equal(sheet.getCell("J3").value, "Prefer not to answer");
     assert.equal(sheet.getCell("K2").value, null);
+  });
+
+  it("renders a custom field and filters its columns without template labels", async () => {
+    const demographics = [
+      ...input.demographics,
+      {
+        title: "Location",
+        groupLabel: "Location",
+        options: [
+          { label: "North", count: 12 },
+          { label: "South", count: 8 },
+        ],
+      },
+    ];
+    const full = new ExcelJS.Workbook();
+    await full.xlsx.load(
+      (await createResponseDetailWorkbook({ ...input, demographics })) as never,
+    );
+    const fullSheet = full.getWorksheet("Response Detail Report");
+    assert.ok(fullSheet);
+    assert.equal(fullSheet.getCell("L2").value, "LOCATION");
+    assert.equal(fullSheet.getCell("M3").value, "South");
+    assert.equal(fullSheet.getCell("O2").value, null);
+
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(
+      (await createResponseDetailWorkbook({
+        ...input,
+        demographics,
+        filterGroupLabel: "Location",
+      })) as never,
+    );
+    const sheet = workbook.getWorksheet("Response Detail Report");
+    assert.ok(sheet);
+    assert.equal(sheet.getCell("G2").value, "LOCATION");
+    assert.equal(sheet.getCell("G3").value, "North");
+    assert.equal(sheet.getCell("H3").value, "South");
+    assert.equal(sheet.getCell("G4").value, 12);
+    assert.equal(sheet.getCell("H4").value, 8);
+    assert.equal(sheet.getCell("J2").value, null);
   });
 });
 

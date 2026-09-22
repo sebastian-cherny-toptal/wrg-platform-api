@@ -2128,11 +2128,7 @@ export class CompatibilityReportsService {
       data: [...options.values()]
         .map(({ question, values }) => ({
           QuestionId: question.legacyId ?? question.externalId ?? question.id,
-          filterLabel:
-            metadataString(question.metadata, "filterLabel") ??
-            categoryFromDataLabel(question.dataLabel)
-              .replace(/^Demographics\s*/u, "")
-              .trim(),
+          filterLabel: this.demographicLabel(question),
           type: "Demographics",
           filterOption: [
             ...new Set([
@@ -2894,6 +2890,11 @@ export class CompatibilityReportsService {
       this.benchmarkQuestions(context.survey.id),
       this.organizationRespondents(context),
     ]);
+    if (respondents.length < privacyThreshold) {
+      throw new ForbiddenException(
+        "The information is not visible due to confidentiality reasons. The number of employee responses is less than 5.",
+      );
+    }
     let filterGroupLabel: string | undefined;
     if (filterReference) {
       const surveyQuestions = await this.prisma.question.findMany({
