@@ -24,8 +24,8 @@ export interface ZohoServiceOptions {
 /**
  * Zoho CRM client ported from the legacy API's helper/zoho.service.js.
  *
- * The old Mongo/Redis-specific addProgram and addOrganization methods do not
- * belong in this HTTP client. Token caching is kept in-process instead.
+ * Program and organization persistence belongs in platform services, not in
+ * this HTTP client. Token caching is kept in-process instead.
  */
 export class ZohoService {
   readonly org_module = "Accounts";

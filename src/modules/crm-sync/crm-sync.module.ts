@@ -81,11 +81,9 @@ class SyncProcessor extends WorkerHost {
       const output =
         job.data.provider === "zoho"
           ? await this.zoho.listRecords(job.data.kind)
-          : job.data.kind === "activate" && job.data.externalId
-            ? await this.checkMarket.activateWebhook(job.data.externalId)
-            : job.data.kind === "surveys" || !job.data.externalId
-              ? await this.checkMarket.listSurveys()
-              : await this.checkMarket.getSurvey(Number(job.data.externalId));
+          : job.data.kind === "surveys" || !job.data.externalId
+            ? await this.checkMarket.listSurveys()
+            : await this.checkMarket.getSurvey(Number(job.data.externalId));
       await this.prisma.syncJob.updateMany({
         where: { idempotencyKey },
         data: {

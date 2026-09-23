@@ -34,6 +34,7 @@ import expectedHeatMapTable from "../fixtures/compatibility-heatmap-2026.json" w
 
 const testJwtSecret = "test-secret-that-is-at-least-32-characters";
 const selectedProgramId = "c0cfe468-d239-5ffe-812e-45ac21f92e91";
+const privacyFixtureSize = 4;
 const organizationName = "Synthetic 06f796de0c9331b9";
 const sourceWorkbookName = "BR 2026 - EFS ORD.xlsx";
 const publishedWorkbookName = "BR 2026 - Workforce Benchmark Comparisons.xlsx";
@@ -123,7 +124,9 @@ async function publishedQuestions(): Promise<PublishedQuestion[]> {
   return questions;
 }
 
-async function fixturePrisma(): Promise<PrismaService> {
+async function fixturePrisma(
+  options: { respondentLimit?: number; wfrAccess?: "yes" | "no" } = {},
+): Promise<PrismaService> {
   assert.ok(existsSync(sourceWorkbook), `missing ${sourceWorkbook}`);
   assert.ok(existsSync(publishedWorkbook), `missing ${publishedWorkbook}`);
   const definition = await readXlsxSurveyDefinition({
@@ -204,7 +207,7 @@ async function fixturePrisma(): Promise<PrismaService> {
     organizationProgram: {
       findFirst: () => ({
         id: "enrollment-1",
-        reportAccess: { WFR_Access: "yes" },
+        reportAccess: { WFR_Access: options.wfrAccess ?? "yes" },
         metrics: {},
       }),
       findMany: () => [],
@@ -218,7 +221,12 @@ async function fixturePrisma(): Promise<PrismaService> {
       }),
     },
     question: { findMany: () => questions },
-    respondent: { findMany: () => respondents },
+    respondent: {
+      findMany: () =>
+        options.respondentLimit === undefined
+          ? respondents
+          : respondents.slice(0, options.respondentLimit),
+    },
   } as unknown as PrismaService;
 }
 
@@ -263,6 +271,73 @@ async function createTestApp(
 }
 
 describe("compatibility heat-map endpoint", () => {
+  it("keeps unfiltered low-response preview and download usable", async () => {
+    const app = await createTestApp(
+      await fixturePrisma({ respondentLimit: privacyFixtureSize }),
+    );
+    const token = app.get(JwtService).sign({
+      sub: "user-1",
+      organizationId: "organization-1",
+      roles: ["client"],
+      permissions: [],
+    });
+    const query = `selectedProgramId=${selectedProgramId}&patternMode=range&includePositive=true&includeNeutral=false&includeNegative=false&positiveMin=80&positiveMax=100`;
+    try {
+      const preview = await app.inject({
+        method: "GET",
+        url: `/client/generateHeatMap?${query}&isPreview=true`,
+        headers: { authorization: `Bearer ${token}` },
+      });
+      assert.equal(preview.statusCode, 200, preview.body);
+      const previewBody = preview.json<{
+        isConfidential: boolean;
+        data: { heatmapPreview: unknown[] };
+      }>();
+      assert.equal(previewBody.isConfidential, false);
+      assert.ok(previewBody.data.heatmapPreview.length > 0);
+
+      const download = await app.inject({
+        method: "GET",
+        url: `/client/generateHeatMap?${query}`,
+        headers: { authorization: `Bearer ${token}` },
+      });
+      assert.equal(download.statusCode, 200, download.body);
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.load(
+        download.rawPayload as unknown as Parameters<
+          typeof workbook.xlsx.load
+        >[0],
+      );
+      const sheet = workbook.getWorksheet("Workforce Feedback Results");
+      assert.ok(sheet);
+      assert.equal(typeof sheet.getCell("B6").value, "string");
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("rejects Response Patterns without Workforce Feedback access", async () => {
+    const app = await createTestApp(await fixturePrisma({ wfrAccess: "no" }));
+    const token = app.get(JwtService).sign({
+      sub: "user-1",
+      organizationId: "organization-1",
+      roles: ["client"],
+      permissions: [],
+    });
+    try {
+      for (const suffix of ["&isPreview=true", ""]) {
+        const response = await app.inject({
+          method: "GET",
+          url: `/client/generateHeatMap?selectedProgramId=${selectedProgramId}&patternMode=range&includePositive=true&includeNeutral=false&includeNegative=false&positiveMin=80&positiveMax=100${suffix}`,
+          headers: { authorization: `Bearer ${token}` },
+        });
+        assert.equal(response.statusCode, 403, response.body);
+      }
+    } finally {
+      await app.close();
+    }
+  });
+
   it("previews High Agreement with the legacy workbook-cell denominator", async () => {
     const app = await createTestApp(await fixturePrisma());
     const token = app.get(JwtService).sign({
@@ -406,6 +481,165 @@ describe("compatibility heat-map endpoint", () => {
         new Set(cells.map(({ row, col }) => `${row}:${col}`)).size,
         cells.length,
       );
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("keeps every pattern combination identical between preview and download", async () => {
+    const app = await createTestApp(await fixturePrisma());
+    const token = app.get(JwtService).sign({
+      sub: "user-1",
+      organizationId: "organization-1",
+      roles: ["admin"],
+      permissions: [],
+    });
+    const cases = [
+      {
+        name: "High Agreement",
+        query:
+          "includePositive=true&includeNeutral=false&includeNegative=false&positiveMin=80&positiveMax=100",
+        expected: [18.56, 0, 0],
+      },
+      {
+        name: "Moderate Agreement",
+        query:
+          "includePositive=false&includeNeutral=true&includeNegative=false&neutralMin=60&neutralMax=79",
+        expected: [0, 1.56, 0],
+      },
+      {
+        name: "High Disagreement",
+        query:
+          "includePositive=false&includeNeutral=false&includeNegative=true&negativeMin=10&negativeMax=20",
+        expected: [0, 0, 0.02],
+      },
+      {
+        name: "both agreement patterns",
+        query:
+          "includePositive=true&includeNeutral=true&includeNegative=false&positiveMin=80&positiveMax=100&neutralMin=60&neutralMax=79",
+        expected: [18.56, 1.56, 0],
+      },
+      {
+        name: "High Agreement and High Disagreement",
+        query:
+          "includePositive=true&includeNeutral=false&includeNegative=true&positiveMin=80&positiveMax=100&negativeMin=10&negativeMax=20",
+        expected: [18.56, 0, 0.02],
+      },
+      {
+        name: "Moderate Agreement and High Disagreement",
+        query:
+          "includePositive=false&includeNeutral=true&includeNegative=true&neutralMin=60&neutralMax=79&negativeMin=10&negativeMax=20",
+        expected: [0, 1.56, 0.02],
+      },
+      {
+        name: "all patterns",
+        query:
+          "includePositive=true&includeNeutral=true&includeNegative=true&positiveMin=80&positiveMax=100&neutralMin=60&neutralMax=79&negativeMin=10&negativeMax=20",
+        expected: [18.56, 1.56, 0.02],
+      },
+      {
+        name: "no matches",
+        query:
+          "includePositive=true&includeNeutral=true&includeNegative=true&positiveMin=99&positiveMax=99&neutralMin=98&neutralMax=98&negativeMin=99&negativeMax=99",
+        expected: [0, 0, 0],
+      },
+    ] as const;
+    const fillColors = {
+      "00FF00": "positive",
+      FFFF00: "neutral",
+      FF0000: "negative",
+    } as const;
+    try {
+      for (const testCase of cases) {
+        const baseUrl = `/client/generateHeatMap?selectedProgramId=${selectedProgramId}&patternMode=range&${testCase.query}`;
+        const previewResponse = await app.inject({
+          method: "GET",
+          url: `${baseUrl}&isPreview=true`,
+          headers: { authorization: `Bearer ${token}` },
+        });
+        assert.equal(
+          previewResponse.statusCode,
+          200,
+          `${testCase.name}: ${previewResponse.body}`,
+        );
+        const preview = previewResponse.json<{
+          data: {
+            heatmapPreview: Array<{
+              row: number;
+              col: number;
+              color: string;
+              value: number | string;
+            }>;
+            percentage: {
+              positivePercentage: number;
+              neutralPercentage: number;
+              negativePercentage: number;
+            };
+          };
+        }>().data;
+        assert.deepEqual(
+          [
+            preview.percentage.positivePercentage,
+            preview.percentage.neutralPercentage,
+            preview.percentage.negativePercentage,
+          ],
+          testCase.expected,
+          testCase.name,
+        );
+
+        const downloadResponse = await app.inject({
+          method: "GET",
+          url: baseUrl,
+          headers: { authorization: `Bearer ${token}` },
+        });
+        assert.equal(
+          downloadResponse.statusCode,
+          200,
+          `${testCase.name}: ${downloadResponse.body}`,
+        );
+        const workbook = new ExcelJS.Workbook();
+        await workbook.xlsx.load(
+          downloadResponse.rawPayload as unknown as Parameters<
+            typeof workbook.xlsx.load
+          >[0],
+        );
+        const sheet = workbook.getWorksheet("Workforce Feedback Results");
+        assert.ok(sheet);
+        const workbookHighlights: string[] = [];
+        sheet.eachRow((row, rowNumber) => {
+          row.eachCell((cell, columnNumber) => {
+            const fill = cell.fill as ExcelJS.Fill | undefined;
+            if (fill?.type !== "pattern") return;
+            const argb = fill.fgColor?.argb;
+            if (argb !== "00FF00" && argb !== "FFFF00" && argb !== "FF0000") {
+              return;
+            }
+            workbookHighlights.push(
+              `${rowNumber}:${columnNumber}:${fillColors[argb]}`,
+            );
+          });
+        });
+        const previewHighlights = preview.heatmapPreview
+          .filter(({ color }) => color !== "gray")
+          .map(({ row, col, color }) => `${row}:${col}:${color}`);
+        assert.deepEqual(previewHighlights, workbookHighlights, testCase.name);
+
+        if (testCase.name === "High Agreement") {
+          assert.ok(
+            preview.heatmapPreview.some(
+              ({ color, value }) => color === "gray" && value === "x",
+            ),
+          );
+          assert.ok(
+            preview.heatmapPreview.some(({ row }) => row === 15),
+            "category-average row is represented",
+          );
+          assert.ok(
+            preview.heatmapPreview.some(({ row }) => row === 101),
+            "survey-average row is represented",
+          );
+        }
+      }
     } finally {
       await app.close();
     }

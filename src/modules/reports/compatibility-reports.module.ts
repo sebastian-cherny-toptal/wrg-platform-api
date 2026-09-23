@@ -236,6 +236,7 @@ function randomPercentage(): number {
 }
 
 function dummyFeedbackSections(): FeedbackWorkbookSection[] {
+  const agreements = [88, 84, 81, 79, 74, 68, 90, 76, 62];
   return [
     "Core Employee Experience",
     "Your Job",
@@ -243,10 +244,11 @@ function dummyFeedbackSections(): FeedbackWorkbookSection[] {
   ].map((title, sectionIndex) => ({
     title,
     questions: Array.from({ length: 3 }, (_unused, questionIndex) => {
-      const agreement = randomInteger(55, 90);
-      const neutral = randomInteger(5, Math.min(25, 95 - agreement));
+      const index = sectionIndex * 3 + questionIndex;
+      const agreement = agreements[index] ?? 70;
+      const neutral = 6 + (index % 3) * 3;
       return {
-        text: `Sample survey statement ${sectionIndex * 3 + questionIndex + 1}`,
+        text: `Sample survey statement ${index + 1}`,
         agreement,
         neutral,
         disagreement: 100 - agreement - neutral,
@@ -256,14 +258,22 @@ function dummyFeedbackSections(): FeedbackWorkbookSection[] {
 }
 
 function dummyWorkbookDemographics(): ReportWorkbookDemographic[] {
-  return dummyDemographicOptions.map((demographic) => ({
+  return dummyDemographicOptions.map((demographic, demographicIndex) => ({
     title: demographic.label,
     groupLabel: demographic.category,
-    options: demographic.options.map((label) => ({
+    options: demographic.options.map((label, optionIndex) => ({
       label,
-      count: randomInteger(8, 45),
+      count: 12 + demographicIndex * 5 + optionIndex * 3,
     })),
   }));
+}
+
+function dummyFeedbackWorkbookData() {
+  return {
+    demographics: dummyWorkbookDemographics(),
+    sections: dummyFeedbackSections(),
+    totalResponses: 96,
+  };
 }
 const winnerColors = { Yes: "#00a46a", No: "#ffc955" } as const;
 const headerColors = { Yes: "#0f0", No: "#ff0" } as const;
@@ -2460,11 +2470,10 @@ export class CompatibilityReportsService {
       detailed ? "RD_Access" : "WFR_Access",
     );
     if (query.isDummy) {
+      const sample = dummyFeedbackWorkbookData();
       return createWorkforceFeedbackWorkbook({
         metadata: await this.reportWorkbookMetadata(principal, query, context),
-        demographics: dummyWorkbookDemographics(),
-        sections: dummyFeedbackSections(),
-        totalResponses: randomInteger(65, 180),
+        ...sample,
         ...(highlightRanges ? { responsePatternRanges: highlightRanges } : {}),
       });
     }
@@ -2508,24 +2517,34 @@ export class CompatibilityReportsService {
     query: ReportQuery,
     ranges: ResponsePatternRanges,
   ) {
-    const context = await this.context(principal, query);
+    const context = await this.context(principal, query, true);
     this.requiresDemo(principal, context, "WFR_Access");
-    const questions = await this.benchmarkQuestions(context.survey.id);
-    const respondents = await this.organizationRespondents(context);
-    const isConfidential = respondents.length < privacyThreshold;
-    const sections = isConfidential
+    const sample = query.isDummy ? dummyFeedbackWorkbookData() : undefined;
+    const questions = sample
       ? []
-      : this.feedbackSections(questions, respondents, context.program.year);
+      : await this.benchmarkQuestions(context.survey.id);
+    const respondents = sample
+      ? []
+      : await this.organizationRespondents(context);
+    // Response Patterns has no demographic filter. The legacy flow allowed
+    // unfiltered reports below five total respondents while suppressing any
+    // small demographic cohorts inside the workbook.
+    const isConfidential = false;
+    const sections =
+      sample?.sections ??
+      this.feedbackSections(questions, respondents, context.program.year);
     const isFallback = false;
 
     const workbookBuffer = await createWorkforceFeedbackWorkbook({
       metadata: await this.reportWorkbookMetadata(principal, query, context),
-      demographics: this.workbookDemographicsFromRespondents(
-        respondents,
-        context.program.year,
-      ),
+      demographics:
+        sample?.demographics ??
+        this.workbookDemographicsFromRespondents(
+          respondents,
+          context.program.year,
+        ),
       sections,
-      totalResponses: respondents.length,
+      totalResponses: sample?.totalResponses ?? respondents.length,
       responsePatternRanges: ranges,
     });
     const workbook = new ExcelJS.Workbook();
@@ -5510,6 +5529,8 @@ export class CompatibilityReportsController {
       selectedProgramId,
       organizationId,
       isDummy,
+      false,
+      true,
     );
     const ranges = this.parseResponsePatternRanges({
       patternMode,

@@ -400,29 +400,6 @@ export class CheckMarketAdapter {
     });
   }
 
-  async activateWebhook(id: string): Promise<{ activated: true }> {
-    if (this.config.get("INTEGRATIONS_MOCK", { infer: true })) {
-      return { activated: true };
-    }
-    return withRetry(async () => {
-      const response = await request(
-        `${this.config.get("CHECKMARKET_BASE_URL", { infer: true })}/hooks/${encodeURIComponent(id)}/activate`,
-        {
-          method: "POST",
-          headers: {
-            authorization: `Bearer ${this.config.get("CHECKMARKET_API_KEY", { infer: true })}`,
-          },
-        },
-      );
-      if (response.statusCode >= 500 || response.statusCode === 429) {
-        throw new Error(`CheckMarket transient error ${response.statusCode}`);
-      }
-      if (response.statusCode >= 400) {
-        throw new Error(`CheckMarket request failed ${response.statusCode}`);
-      }
-      return { activated: true };
-    });
-  }
 }
 
 @Module({

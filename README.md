@@ -1,12 +1,12 @@
 # WRG Platform API
 
-Strict TypeScript/NestJS service that **replaces** the legacy Express/Mongoose backend (`wrg-platform-be`).
+Strict TypeScript/NestJS service backed by PostgreSQL and Prisma.
 
 It serves two surfaces on one port:
 
 | Surface                               | Paths                                                                                           | Stack                                  |
 | ------------------------------------- | ----------------------------------------------------------------------------------------------- | -------------------------------------- |
-| **Native compatibility** (FE drop-in) | `/user`, `/client`, `/admin`, `/webhook`, `/payment`, `/zoho`, `/dashboard`, `/ping`, `/health` | NestJS / Fastify / PostgreSQL / Prisma |
+| **Native compatibility** (FE drop-in) | `/user`, `/client`, `/admin`, `/payment`, `/zoho`, `/dashboard`, `/ping`, `/health`, `/webhook/stripe/payment` | NestJS / Fastify / PostgreSQL / Prisma |
 | **Platform API**                      | `/api/v1/*`, `/docs`, `/openapi.json`                                                           | NestJS / Fastify / PostgreSQL / Prisma |
 
 Point `REACT_APP_API_ENDPOINT` at this service the same way you pointed it at `wrg-platform-be`.
@@ -105,22 +105,44 @@ The seed creates a client user with access to every imported Baton Rouge program
 ## Safety
 
 - Integration reads return no fabricated provider records while `INTEGRATIONS_MOCK=true`.
-- ETL only reads MongoDB unless both `ETL_ALLOW_WRITE=true` and `--apply` are supplied.
 - No production credentials belong in this repository.
 - To provision the first production administrator, set `ADMIN_USERNAME` (a valid
   email address) and `ADMIN_PASSWORD` on the API service. On startup the API
   creates an active administrator when that email/username is unused. When it
   already exists, the API updates its password only if the configured password
   differs, allowing credential rotation through a variable change and redeploy.
-- Stripe webhooks use Stripe raw-body verification. Canonical Zoho/CheckMarket webhooks use `x-wrg-timestamp` + `x-wrg-signature`. Compatibility callbacks are recorded as unverified during provider URL migration; manual `/webhook/*` sync controls require an administrator/operations JWT.
+- Stripe payment webhooks use Stripe raw-body verification. Zoho and CheckMarket webhook receivers and legacy `/webhook/*` synchronization controls are not part of this service.
 
 ## Commands
 
 `npm run lint`, `npm run typecheck`, `npm test`, `npm run openapi:generate`, and `npm run client:generate` are suitable for CI. `scripts/start-local.sh` starts dependencies and the API; `scripts/reset-local.sh` destructively resets only the configured local PostgreSQL database.
 
-## Cutover from wrg-platform-be
+## Fresh production database launch
 
-1. Run the Mongo-to-Postgres ETL and reconciliation against a production snapshot.
-2. Deploy this service with PostgreSQL, Redis, Stripe, Zoho, and CheckMarket credentials.
-3. Switch the frontend API origin to the new host.
-4. Switch Stripe to `/webhook/stripe/payment` (or `/api/v1/webhooks/stripe`) and move Zoho/CheckMarket to the signed canonical `/api/v1/webhooks/*` routes when those providers can supply the shared-signature headers.
+This service does not import or synchronize data from the previous application.
+Production starts from a new PostgreSQL database, and all organizations, users,
+projects, programs, surveys, entitlements, and orders must be created in this
+platform.
+
+1. Provision an empty PostgreSQL database and Redis instance.
+2. Configure the production environment without `BR_SEED_SOURCE` unless the
+   explicitly committed Baton Rouge dataset is intentionally required.
+3. Run `npm run db:deploy` to create the schema from the committed Prisma
+   migrations.
+4. Run `npm run db:seed` once to create the platform roles and permissions.
+5. Create the required production administrators and business records through
+   the supported application workflows.
+6. Validate authentication, authorization, reports, payments, queues, and
+   integrations on the Railway temporary URLs.
+7. Take a PostgreSQL backup, then switch the frontend API origin and public
+   domains to the new services.
+8. Switch Stripe to `/webhook/stripe/payment` (or
+   `/api/v1/webhooks/stripe`). Configure any Zoho or CheckMarket automation
+   outside this service; it does not expose webhook receivers for those
+   providers.
+
+The previous application remains a separate historical system. There is no
+dual-write, reconciliation, or automatic rollback of data between the two
+applications. After customer writes begin here, rollback means restoring this
+PostgreSQL database or deploying a forward fix—not routing writes back to the
+previous application.

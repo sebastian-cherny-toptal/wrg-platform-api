@@ -19,10 +19,8 @@ const validEnvironment = {
   ZOHO_BASE_URL: "http://localhost:3000/mock/zoho",
   ZOHO_CLIENT_ID: "local-mock",
   ZOHO_CLIENT_SECRET: "local-mock",
-  ZOHO_WEBHOOK_SECRET: "change-me-zoho-webhook",
   CHECKMARKET_BASE_URL: "http://localhost:3000/mock/checkmarket",
   CHECKMARKET_API_KEY: "local-mock",
-  CHECKMARKET_WEBHOOK_SECRET: "change-me-checkmarket-webhook",
 };
 
 describe("login authentication configuration", () => {

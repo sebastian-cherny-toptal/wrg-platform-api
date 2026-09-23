@@ -33,9 +33,7 @@
     "fixture:baton-rouge": "tsx src/cli/prepare-baton-rouge-test-fixture.ts",
     "db:reset": "prisma migrate reset --force",
     "openapi:generate": "tsx scripts/generate-openapi.ts",
-    "client:generate": "openapi-typescript openapi.json -o generated/api.ts",
-    "etl:dry-run": "tsx scripts/etl/mongo-to-postgres.ts",
-    "reconcile": "tsx scripts/etl/reconcile.ts"
+    "client:generate": "openapi-typescript openapi.json -o generated/api.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
@@ -71,7 +69,6 @@
     "fastify": "^5.10.0",
     "find-my-way": "9.7.0",
     "ioredis": "^5.11.1",
-    "mongodb": "^7.5.0",
     "nestjs-pino": "^4.6.1",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",

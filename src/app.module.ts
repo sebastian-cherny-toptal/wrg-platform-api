@@ -17,13 +17,12 @@ import { AuthModule } from "./modules/auth/auth.module.js";
 import { ImpersonationModule } from "./modules/auth/impersonation.module.js";
 import { CommerceModule } from "./modules/commerce/commerce.module.js";
 import { CompatibilityPaymentModule } from "./modules/commerce/compatibility-payment.module.js";
+import { StripeWebhooksModule } from "./modules/commerce/stripe-webhooks.module.js";
 import { ContentModule } from "./modules/content/content.module.js";
 import { CrmSyncModule } from "./modules/crm-sync/crm-sync.module.js";
 import { CompatibilityZohoModule } from "./modules/crm-sync/compatibility-zoho.module.js";
 import { HealthModule } from "./modules/health/health.module.js";
 import { IntegrationsModule } from "./modules/integrations/integrations.module.js";
-import { WebhooksModule } from "./modules/integrations/webhooks.module.js";
-import { CompatibilityWebhooksModule } from "./modules/integrations/compatibility-webhooks.module.js";
 import { OpsModule } from "./modules/ops/ops.module.js";
 import { ReportsModule } from "./modules/reports/reports.module.js";
 import { ReportCatalogAdminModule } from "./modules/reports/report-catalog-admin.module.js";
@@ -117,13 +116,12 @@ import { BootstrapAdminService } from "./bootstrap-admin.service.js";
     HistoricalImportModule,
     CommerceModule,
     CompatibilityPaymentModule,
+    StripeWebhooksModule,
     IntegrationsModule,
     CrmSyncModule,
     CompatibilityZohoModule,
     ContentModule,
     OpsModule,
-    WebhooksModule,
-    CompatibilityWebhooksModule,
     HealthModule,
   ],
   providers: [BootstrapAdminService],

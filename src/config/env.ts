@@ -30,19 +30,13 @@ const schema = z
     ZOHO_REFRESH_TOKEN: z.string().min(1).optional(),
     ZOHO_ACCOUNTS_URL: z.string().url().optional(),
     ZOHO_API_VERSION: z.string().default("v8"),
-    ZOHO_WEBHOOK_SECRET: z.string().min(16),
     CHECKMARKET_BASE_URL: z.string().url(),
     CHECKMARKET_API_KEY: z.string().min(1),
-    CHECKMARKET_WEBHOOK_SECRET: z.string().min(16),
     INTEGRATIONS_MOCK: z
       .string()
       .default("false")
       .transform((value) => value === "true"),
     LOG_LEVEL: z.string().default("info"),
-    ETL_ALLOW_WRITE: z
-      .string()
-      .default("false")
-      .transform((value) => value === "true"),
   })
   .superRefine((env, context) => {
     if (Boolean(env.ADMIN_USERNAME) === Boolean(env.ADMIN_PASSWORD)) return;
