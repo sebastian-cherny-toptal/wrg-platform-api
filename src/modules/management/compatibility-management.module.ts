@@ -36,6 +36,7 @@ import {
   RESPONSE_DETAIL_ID,
   SORTED_VERBATIMS_ID,
 } from "../reports/report-catalog.js";
+import { sortedVerbatimsEntitlementData } from "../reports/sorted-verbatims-entitlement.js";
 import {
   benchmarkCategoryNames,
   usesDefaultBenchmarkCategory,
@@ -142,7 +143,8 @@ export type ProgramZohoResyncField =
   | "overallRank"
   | "categoryRank"
   | "reportCategory"
-  | "currentZohoCategory";
+  | "currentZohoCategory"
+  | "purchasedEvSortingFilter";
 
 export type ProgramZohoResyncValue = string | number | null;
 
@@ -182,6 +184,9 @@ interface ResyncEnrollment {
   overallRank: string | null;
   categoryRank: string | null;
   currentZohoCategory: string | null;
+  purchasedEvSortingFilter: string | null;
+  reportAccess: Prisma.JsonValue;
+  paymentDetails: Prisma.JsonValue;
   metrics: Prisma.JsonValue;
   organization: { name: string };
 }
@@ -201,6 +206,7 @@ const resyncFields: ProgramZohoResyncField[] = [
   "categoryRank",
   "reportCategory",
   "currentZohoCategory",
+  "purchasedEvSortingFilter",
 ];
 
 function normalizedOrganizationIdentity(value: unknown): string {
@@ -228,6 +234,7 @@ function resyncValues(
       categoryRank: zoho.categoryRank,
       reportCategory: zoho.reportCategory,
       currentZohoCategory: zoho.currentZohoCategory,
+      purchasedEvSortingFilter: zoho.purchasedEvSortingFilter,
     };
   }
   return {
@@ -244,6 +251,7 @@ function resyncValues(
       metadataString(enrollment.metrics, "Report_Category", "reportCategory") ??
       null,
     currentZohoCategory: enrollment.currentZohoCategory,
+    purchasedEvSortingFilter: enrollment.purchasedEvSortingFilter,
   };
 }
 
@@ -287,6 +295,20 @@ export class ProgramZohoResyncService {
     await this.prisma.$transaction(async (transaction) => {
       for (const { enrollment, zoho } of matches) {
         const metrics = jsonObject(enrollment.metrics);
+        const entitlement = sortedVerbatimsEntitlementData(
+          zoho.purchasedEvSortingFilter,
+          {
+            reportAccess: enrollment.reportAccess,
+            metrics: {
+              ...metrics,
+              Source_Organization_Name: zoho.organizationName,
+              Surveys_Sent: zoho.surveysSent,
+              Report_Category: zoho.reportCategory,
+              Current_Year_Category: zoho.currentZohoCategory,
+            } as Prisma.JsonValue,
+            paymentDetails: enrollment.paymentDetails,
+          },
+        );
         const result = await transaction.organizationProgram.updateMany({
           where: {
             id: enrollment.id,
@@ -300,13 +322,7 @@ export class ProgramZohoResyncService {
             overallRank: zoho.overallRank,
             categoryRank: zoho.categoryRank,
             currentZohoCategory: zoho.currentZohoCategory,
-            metrics: {
-              ...metrics,
-              Source_Organization_Name: zoho.organizationName,
-              Surveys_Sent: zoho.surveysSent,
-              Report_Category: zoho.reportCategory,
-              Current_Year_Category: zoho.currentZohoCategory,
-            } as Prisma.InputJsonValue,
+            ...entitlement,
             updatedAt: syncedAt,
           },
         });
@@ -352,6 +368,9 @@ export class ProgramZohoResyncService {
             overallRank: true,
             categoryRank: true,
             currentZohoCategory: true,
+            purchasedEvSortingFilter: true,
+            reportAccess: true,
+            paymentDetails: true,
             metrics: true,
             organization: { select: { name: true } },
           },

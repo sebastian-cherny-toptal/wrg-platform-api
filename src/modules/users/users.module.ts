@@ -54,6 +54,7 @@ import {
   JwtAuthGuard,
   type Principal,
 } from "../auth/auth.module.js";
+import { sortedVerbatimsEntitlementData } from "../reports/sorted-verbatims-entitlement.js";
 
 class ClientLoginDto {
   @ApiProperty({ type: String })
@@ -317,6 +318,19 @@ function basicClientReportAccess(
     WBC_Access: "yes",
     BBP_Access: "yes",
   };
+}
+
+function clientEnrollmentEntitlementData(enrollment: {
+  purchasedEvSortingFilter: string | null;
+  reportAccess: Prisma.JsonValue;
+  metrics: Prisma.JsonValue;
+  paymentDetails: Prisma.JsonValue;
+}) {
+  return sortedVerbatimsEntitlementData(enrollment.purchasedEvSortingFilter, {
+    reportAccess: basicClientReportAccess(enrollment.reportAccess),
+    metrics: enrollment.metrics,
+    paymentDetails: enrollment.paymentDetails,
+  });
 }
 
 @Injectable()
@@ -651,7 +665,10 @@ export class ClientLoginService {
         programs: { select: { programId: true } },
       },
     });
-    if (!user?.organizationId || user.organizationId !== principal.organizationId) {
+    if (
+      !user?.organizationId ||
+      user.organizationId !== principal.organizationId
+    ) {
       throw new ForbiddenException("Client organization is not available");
     }
     const allowedProgramIds = user.programs.map(({ programId }) => programId);
@@ -661,7 +678,9 @@ export class ClientLoginService {
         isIncluded: true,
         programId: {
           in: principal.impersonation
-            ? allowedProgramIds.filter((id) => id === principal.impersonation?.programId)
+            ? allowedProgramIds.filter(
+                (id) => id === principal.impersonation?.programId,
+              )
             : allowedProgramIds,
         },
       },
@@ -893,6 +912,9 @@ export class UsersService {
             programId: true,
             projectId: true,
             reportAccess: true,
+            metrics: true,
+            paymentDetails: true,
+            purchasedEvSortingFilter: true,
             project: { select: { id: true, name: true } },
           },
         })
@@ -1043,11 +1065,7 @@ export class UsersService {
               selectedEnrollments.map((enrollment) =>
                 transaction.organizationProgram.update({
                   where: { id: enrollment.id },
-                  data: {
-                    reportAccess: basicClientReportAccess(
-                      enrollment.reportAccess,
-                    ),
-                  },
+                  data: clientEnrollmentEntitlementData(enrollment),
                 }),
               ),
             );
@@ -1271,7 +1289,15 @@ export class UsersService {
           programId: { in: effectiveProgramIds },
           isIncluded: true,
         },
-        select: { id: true, programId: true, projectId: true },
+        select: {
+          id: true,
+          programId: true,
+          projectId: true,
+          purchasedEvSortingFilter: true,
+          reportAccess: true,
+          metrics: true,
+          paymentDetails: true,
+        },
       });
       if (
         new Set(enrollments.map(({ programId }) => programId)).size !==
@@ -1286,6 +1312,14 @@ export class UsersService {
       clientProjectIds = [
         ...new Set(enrollments.map(({ projectId }) => projectId)),
       ];
+      await Promise.all(
+        enrollments.map((enrollment) =>
+          this.prisma.organizationProgram.update({
+            where: { id: enrollment.id },
+            data: clientEnrollmentEntitlementData(enrollment),
+          }),
+        ),
+      );
     } else if (dto.organizationId !== undefined) {
       throw new BadRequestException(
         "Organization can only be assigned to client users",
@@ -1530,11 +1564,15 @@ export class UsersService {
           );
         }
         const payments = (user.organization?.orders ?? []).flatMap((order) => {
-          const rawItems = Array.isArray(order.items) ? order.items : [order.items];
+          const rawItems = Array.isArray(order.items)
+            ? order.items
+            : [order.items];
           return rawItems.map((entry) => {
             const item = jsonObject(entry);
             const keys = jsonObject(item.keys ?? {});
-            const productId = String(item.productId ?? keys.productId ?? "").trim();
+            const productId = String(
+              item.productId ?? keys.productId ?? "",
+            ).trim();
             const productName = String(
               item.title ?? (productId || "Order"),
             ).trim();

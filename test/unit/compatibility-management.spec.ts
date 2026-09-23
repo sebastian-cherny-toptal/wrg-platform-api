@@ -119,6 +119,9 @@ describe("native management compatibility endpoints", () => {
                 overallRank: "8",
                 categoryRank: "3",
                 currentZohoCategory: "Small",
+                purchasedEvSortingFilter: null,
+                reportAccess: {},
+                paymentDetails: {},
                 metrics: {
                   Source_Organization_ID: "49",
                   Source_Organization_Name: "Acme Health",
@@ -158,6 +161,7 @@ describe("native management compatibility endpoints", () => {
             reportCategory: "50-99",
             overallRank: "4",
             categoryRank: "1",
+            purchasedEvSortingFilter: "Department",
           },
           {
             organizationId: "99",
@@ -171,6 +175,7 @@ describe("native management compatibility endpoints", () => {
             reportCategory: "15-24",
             overallRank: null,
             categoryRank: null,
+            purchasedEvSortingFilter: null,
           },
         ]);
       },
@@ -209,6 +214,11 @@ describe("native management compatibility endpoints", () => {
         { field: "categoryRank", previous: "3", next: "1" },
         { field: "reportCategory", previous: "25-99", next: "50-99" },
         { field: "currentZohoCategory", previous: "Small", next: "Community" },
+        {
+          field: "purchasedEvSortingFilter",
+          previous: null,
+          next: "Department",
+        },
       ],
     );
     assert.deepEqual(preview.unmatchedZoho, [
@@ -228,6 +238,9 @@ describe("native management compatibility endpoints", () => {
       overallRank: "8",
       categoryRank: "3",
       currentZohoCategory: "Small",
+      purchasedEvSortingFilter: null,
+      reportAccess: { EV_Access: "yes" },
+      paymentDetails: {},
       metrics: {
         Source_Organization_ID: "49",
         Source_Organization_Name: "Acme Health",
@@ -286,6 +299,7 @@ describe("native management compatibility endpoints", () => {
             reportCategory: null,
             overallRank: null,
             categoryRank: null,
+            purchasedEvSortingFilter: "Department",
           },
         ]),
     };
@@ -325,6 +339,9 @@ describe("native management compatibility endpoints", () => {
         overallRank: null,
         categoryRank: null,
         currentZohoCategory: "Community",
+        purchasedEvSortingFilter: "Department",
+        reportAccess: { EV_Access: "yes", SEV_Access: "yes" },
+        paymentDetails: { EV_Sorting_Payment_Type: "Zoho" },
         metrics: {
           Source_Organization_ID: "49",
           Source_Organization_Name: "Acme Health Group",
@@ -333,6 +350,7 @@ describe("native management compatibility endpoints", () => {
           Report_Category: null,
           Current_Year_Category: "Community",
           Existing_Value: "preserved",
+          SEV_Filter: "Department",
         },
         updatedAt: "timestamp",
       },

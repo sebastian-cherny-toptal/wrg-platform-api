@@ -34,6 +34,7 @@ import {
   parsePublishedReportValues,
 } from "../reports/benefits-best-practices-workbook.js";
 import type { BenchmarkQuestion } from "../reports/compatibility-reports.module.js";
+import { sortedVerbatimsEntitlementData } from "../reports/sorted-verbatims-entitlement.js";
 import {
   effectiveSurveyDefinition,
   surveyDefinitionWorkbook,
@@ -134,6 +135,7 @@ export interface HistoricalImportMetadata {
     reportCategory?: string;
     overallRank?: string;
     categoryRank?: string;
+    purchasedEvSortingFilter?: string;
   }>;
   organizationPrograms?: Array<{
     organizationProgramId?: string;
@@ -151,6 +153,7 @@ export interface HistoricalImportMetadata {
     benchmarkCategory?: string;
     overallRank?: string;
     categoryRank?: string;
+    purchasedEvSortingFilter?: string;
   }>;
   reportCatalog?: ReportCatalogProduct[];
   benchmarkCategories?: string[];
@@ -489,6 +492,10 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
           const reportCategory = optionalString(entry, "reportCategory");
           const overallRank = optionalString(entry, "overallRank");
           const categoryRank = optionalString(entry, "categoryRank");
+          const purchasedEvSortingFilter = optionalString(
+            entry,
+            "purchasedEvSortingFilter",
+          );
           const surveysSent = Number(entry.surveysSent);
           const rawCompanySize = entry.companySize;
           const companySize =
@@ -533,6 +540,7 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
             ...(reportCategory ? { reportCategory } : {}),
             ...(overallRank ? { overallRank } : {}),
             ...(categoryRank ? { categoryRank } : {}),
+            ...(purchasedEvSortingFilter ? { purchasedEvSortingFilter } : {}),
           };
         });
   const organizationPrograms =
@@ -578,6 +586,10 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
           }
           const overallRank = optionalString(entry, "overallRank");
           const categoryRank = optionalString(entry, "categoryRank");
+          const purchasedEvSortingFilter = optionalString(
+            entry,
+            "purchasedEvSortingFilter",
+          );
           const isWinner = winnerStatusFromExternalValue(entry.isWinner);
           const isIncluded = entry.isIncluded !== false;
           const rawCompanySize = entry.companySize;
@@ -621,6 +633,7 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
             ...(benchmarkCategory ? { benchmarkCategory } : {}),
             ...(overallRank ? { overallRank } : {}),
             ...(categoryRank ? { categoryRank } : {}),
+            ...(purchasedEvSortingFilter ? { purchasedEvSortingFilter } : {}),
             surveysSent,
             isWinner,
             isIncluded,
@@ -1902,6 +1915,9 @@ export class HistoricalImportService {
         ...(existing?.categoryRank
           ? { categoryRank: existing.categoryRank }
           : {}),
+        ...(existing?.purchasedEvSortingFilter
+          ? { purchasedEvSortingFilter: existing.purchasedEvSortingFilter }
+          : {}),
         ...(usesDefaultBenchmarkCategory(draft.benchmarkCategories)
           ? { currentZohoCategory: "Default", benchmarkCategory: "Default" }
           : ranking?.category
@@ -2665,6 +2681,21 @@ export class HistoricalImportService {
           : [],
       ),
     );
+    const configuredPurchasedEvSortingFilters = new Map(
+      (draft.organizationPrograms ?? [])
+        .filter(
+          (
+            entry,
+          ): entry is typeof entry & {
+            organizationKey: string;
+            purchasedEvSortingFilter: string;
+          } => Boolean(entry.organizationKey && entry.purchasedEvSortingFilter),
+        )
+        .map(({ organizationKey, purchasedEvSortingFilter }) => [
+          organizationKey,
+          purchasedEvSortingFilter,
+        ]),
+    );
     const configuredSent = new Map(
       (draft.organizationPrograms ?? [])
         .filter((entry): entry is typeof entry & { organizationKey: string } =>
@@ -2730,7 +2761,13 @@ export class HistoricalImportService {
     const existingEnrollments = draft.programId
       ? await prisma.organizationProgram.findMany({
           where: { programId },
-          select: { id: true, organizationId: true, metrics: true },
+          select: {
+            id: true,
+            organizationId: true,
+            metrics: true,
+            reportAccess: true,
+            paymentDetails: true,
+          },
         })
       : [];
     const existingOrganizations = await prisma.organization.findMany({
@@ -2749,6 +2786,8 @@ export class HistoricalImportService {
       const employeesCount = configuredEmployeesCounts.get(key);
       const overallRank = configuredOverallRanks.get(key);
       const categoryRank = configuredCategoryRanks.get(key);
+      const purchasedSortingFilter =
+        configuredPurchasedEvSortingFilters.get(key) ?? null;
       const defaultCategory = usesDefaultBenchmarkCategory(
         draft.benchmarkCategories,
       );
@@ -2808,17 +2847,10 @@ export class HistoricalImportService {
       }
       if (matched) {
         const metrics = objectBody(matched.metrics);
-        await prisma.organizationProgram.update({
-          where: { id: matched.id },
-          data: {
-            isIncluded,
-            isWinner,
-            stage,
-            employeesCount: employeesCount ?? null,
-            overallRank: overallRank ?? null,
-            categoryRank: categoryRank ?? null,
-            currentZohoCategory: currentZohoCategory ?? null,
-            benchmarkCategory: benchmarkCategory ?? null,
+        const entitlement = sortedVerbatimsEntitlementData(
+          purchasedSortingFilter,
+          {
+            reportAccess: matched.reportAccess,
             metrics: {
               ...metrics,
               Surveys_Sent: surveysSent,
@@ -2846,7 +2878,22 @@ export class HistoricalImportService {
               ...(categoryRank
                 ? { Current_Year_Category_Rank: categoryRank }
                 : {}),
-            },
+            } as Prisma.JsonValue,
+            paymentDetails: matched.paymentDetails,
+          },
+        );
+        await prisma.organizationProgram.update({
+          where: { id: matched.id },
+          data: {
+            isIncluded,
+            isWinner,
+            stage,
+            employeesCount: employeesCount ?? null,
+            overallRank: overallRank ?? null,
+            categoryRank: categoryRank ?? null,
+            currentZohoCategory: currentZohoCategory ?? null,
+            benchmarkCategory: benchmarkCategory ?? null,
+            ...entitlement,
           },
         });
         continue;
@@ -2867,35 +2914,42 @@ export class HistoricalImportService {
           categoryRank: categoryRank ?? null,
           currentZohoCategory: currentZohoCategory ?? null,
           benchmarkCategory: benchmarkCategory ?? null,
-          reportAccess: {
-            WFR_Access: "no",
-            WBC_Access: "no",
-            BBP_Access: "no",
-            EV_Access: "no",
-            RD_Access: "no",
-            KIA_Access: "no",
-            CR_Access: "no",
-          },
-          metrics: {
-            Surveys_Sent: surveysSent,
-            Source_Organization_ID: details.workbookOrganizationId ?? null,
-            Source_Organization_Name: details.displayName,
-            ...(companySize !== undefined ? { Company_Size: companySize } : {}),
-            ...(currentZohoCategory
-              ? { Current_Year_Category: currentZohoCategory }
-              : {}),
-            ...(reportCategory ? { Report_Category: reportCategory } : {}),
-            ...(benchmarkCategory
-              ? { Benchmark_Category: benchmarkCategory }
-              : {}),
-            ...(employeesCount !== undefined
-              ? { Total_Number_of_Program_EEs: employeesCount }
-              : {}),
-            ...(overallRank ? { Current_Year_Overall_Rank: overallRank } : {}),
-            ...(categoryRank
-              ? { Current_Year_Category_Rank: categoryRank }
-              : {}),
-          },
+          ...sortedVerbatimsEntitlementData(purchasedSortingFilter, {
+            reportAccess: {
+              WFR_Access: "no",
+              WBC_Access: "no",
+              BBP_Access: "no",
+              EV_Access: "no",
+              RD_Access: "no",
+              KIA_Access: "no",
+              CR_Access: "no",
+            },
+            paymentDetails: {},
+            metrics: {
+              Surveys_Sent: surveysSent,
+              Source_Organization_ID: details.workbookOrganizationId ?? null,
+              Source_Organization_Name: details.displayName,
+              ...(companySize !== undefined
+                ? { Company_Size: companySize }
+                : {}),
+              ...(currentZohoCategory
+                ? { Current_Year_Category: currentZohoCategory }
+                : {}),
+              ...(reportCategory ? { Report_Category: reportCategory } : {}),
+              ...(benchmarkCategory
+                ? { Benchmark_Category: benchmarkCategory }
+                : {}),
+              ...(employeesCount !== undefined
+                ? { Total_Number_of_Program_EEs: employeesCount }
+                : {}),
+              ...(overallRank
+                ? { Current_Year_Overall_Rank: overallRank }
+                : {}),
+              ...(categoryRank
+                ? { Current_Year_Category_Rank: categoryRank }
+                : {}),
+            },
+          }),
         },
         create: {
           organizationId,
@@ -2910,35 +2964,42 @@ export class HistoricalImportService {
           categoryRank: categoryRank ?? null,
           currentZohoCategory: currentZohoCategory ?? null,
           benchmarkCategory: benchmarkCategory ?? null,
-          reportAccess: {
-            WFR_Access: "no",
-            WBC_Access: "no",
-            BBP_Access: "no",
-            EV_Access: "no",
-            RD_Access: "no",
-            KIA_Access: "no",
-            CR_Access: "no",
-          },
-          metrics: {
-            Surveys_Sent: surveysSent,
-            Source_Organization_ID: details.workbookOrganizationId ?? null,
-            Source_Organization_Name: details.displayName,
-            ...(companySize !== undefined ? { Company_Size: companySize } : {}),
-            ...(currentZohoCategory
-              ? { Current_Year_Category: currentZohoCategory }
-              : {}),
-            ...(reportCategory ? { Report_Category: reportCategory } : {}),
-            ...(benchmarkCategory
-              ? { Benchmark_Category: benchmarkCategory }
-              : {}),
-            ...(employeesCount !== undefined
-              ? { Total_Number_of_Program_EEs: employeesCount }
-              : {}),
-            ...(overallRank ? { Current_Year_Overall_Rank: overallRank } : {}),
-            ...(categoryRank
-              ? { Current_Year_Category_Rank: categoryRank }
-              : {}),
-          },
+          ...sortedVerbatimsEntitlementData(purchasedSortingFilter, {
+            reportAccess: {
+              WFR_Access: "no",
+              WBC_Access: "no",
+              BBP_Access: "no",
+              EV_Access: "no",
+              RD_Access: "no",
+              KIA_Access: "no",
+              CR_Access: "no",
+            },
+            paymentDetails: {},
+            metrics: {
+              Surveys_Sent: surveysSent,
+              Source_Organization_ID: details.workbookOrganizationId ?? null,
+              Source_Organization_Name: details.displayName,
+              ...(companySize !== undefined
+                ? { Company_Size: companySize }
+                : {}),
+              ...(currentZohoCategory
+                ? { Current_Year_Category: currentZohoCategory }
+                : {}),
+              ...(reportCategory ? { Report_Category: reportCategory } : {}),
+              ...(benchmarkCategory
+                ? { Benchmark_Category: benchmarkCategory }
+                : {}),
+              ...(employeesCount !== undefined
+                ? { Total_Number_of_Program_EEs: employeesCount }
+                : {}),
+              ...(overallRank
+                ? { Current_Year_Overall_Rank: overallRank }
+                : {}),
+              ...(categoryRank
+                ? { Current_Year_Category_Rank: categoryRank }
+                : {}),
+            },
+          }),
         },
       });
     }
@@ -2973,6 +3034,9 @@ export class HistoricalImportService {
         categoryRank: true,
         currentZohoCategory: true,
         benchmarkCategory: true,
+        purchasedEvSortingFilter: true,
+        reportAccess: true,
+        paymentDetails: true,
         metrics: true,
       },
     });
@@ -2992,6 +3056,7 @@ export class HistoricalImportService {
           employeesCount,
           overallRank,
           categoryRank,
+          purchasedEvSortingFilter,
         }) => {
           const enrollment = byId.get(organizationProgramId);
           if (!enrollment)
@@ -3035,9 +3100,38 @@ export class HistoricalImportService {
             (employeesCount === undefined ||
               enrollment.employeesCount === employeesCount) &&
             (!overallRank || enrollment.overallRank === overallRank) &&
-            (!categoryRank || enrollment.categoryRank === categoryRank)
+            (!categoryRank || enrollment.categoryRank === categoryRank) &&
+            (purchasedEvSortingFilter === undefined ||
+              enrollment.purchasedEvSortingFilter === purchasedEvSortingFilter)
           )
             return;
+          const nextMetrics = {
+            ...metrics,
+            Surveys_Sent: surveysSent,
+            ...(companySize !== undefined ? { Company_Size: companySize } : {}),
+            ...(currentZohoCategory
+              ? { Current_Year_Category: currentZohoCategory }
+              : {}),
+            ...(reportCategory ? { Report_Category: reportCategory } : {}),
+            ...(benchmarkCategory
+              ? { Benchmark_Category: benchmarkCategory }
+              : {}),
+            ...(employeesCount !== undefined
+              ? { Total_Number_of_Program_EEs: employeesCount }
+              : {}),
+            ...(overallRank ? { Current_Year_Overall_Rank: overallRank } : {}),
+            ...(categoryRank
+              ? { Current_Year_Category_Rank: categoryRank }
+              : {}),
+          };
+          const entitlement =
+            purchasedEvSortingFilter === undefined
+              ? { metrics: nextMetrics as Prisma.InputJsonValue }
+              : sortedVerbatimsEntitlementData(purchasedEvSortingFilter, {
+                  reportAccess: enrollment.reportAccess,
+                  metrics: nextMetrics as Prisma.JsonValue,
+                  paymentDetails: enrollment.paymentDetails,
+                });
           await prisma.organizationProgram.update({
             where: { id: organizationProgramId },
             data: {
@@ -3049,29 +3143,7 @@ export class HistoricalImportService {
               ...(categoryRank ? { categoryRank } : {}),
               ...(currentZohoCategory ? { currentZohoCategory } : {}),
               ...(benchmarkCategory ? { benchmarkCategory } : {}),
-              metrics: {
-                ...metrics,
-                Surveys_Sent: surveysSent,
-                ...(companySize !== undefined
-                  ? { Company_Size: companySize }
-                  : {}),
-                ...(currentZohoCategory
-                  ? { Current_Year_Category: currentZohoCategory }
-                  : {}),
-                ...(reportCategory ? { Report_Category: reportCategory } : {}),
-                ...(benchmarkCategory
-                  ? { Benchmark_Category: benchmarkCategory }
-                  : {}),
-                ...(employeesCount !== undefined
-                  ? { Total_Number_of_Program_EEs: employeesCount }
-                  : {}),
-                ...(overallRank
-                  ? { Current_Year_Overall_Rank: overallRank }
-                  : {}),
-                ...(categoryRank
-                  ? { Current_Year_Category_Rank: categoryRank }
-                  : {}),
-              },
+              ...entitlement,
             },
           });
         },

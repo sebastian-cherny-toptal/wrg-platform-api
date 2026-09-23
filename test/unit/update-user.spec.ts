@@ -284,6 +284,7 @@ describe("admin program assignments", () => {
 describe("bulk-compatible client updates", () => {
   it("updates organization, Programs, Projects, role, and mobile together", async () => {
     let saved: Record<string, unknown> | undefined;
+    const enrollmentUpdates: Array<Record<string, unknown>> = [];
     const prisma = {
       user: {
         findFirst: (args: { where: Record<string, unknown> }) =>
@@ -342,13 +343,25 @@ describe("bulk-compatible client updates", () => {
               id: "enrollment-1",
               programId: "program-1",
               projectId: "project-1",
+              purchasedEvSortingFilter: "Department",
+              reportAccess: { EV_Access: "yes" },
+              metrics: {},
+              paymentDetails: {},
             },
             {
               id: "enrollment-2",
               programId: "program-2",
               projectId: "project-1",
+              purchasedEvSortingFilter: null,
+              reportAccess: { EV_Access: "yes" },
+              metrics: {},
+              paymentDetails: {},
             },
           ]),
+        update: ({ data }: { data: Record<string, unknown> }) => {
+          enrollmentUpdates.push(data);
+          return Promise.resolve({ id: "enrollment" });
+        },
       },
     } as unknown as PrismaService;
     const service = new UsersService(prisma, {} as UserInvitationMailer);
@@ -380,6 +393,18 @@ describe("bulk-compatible client updates", () => {
     assert.deepEqual(saved.programs, {
       deleteMany: {},
       create: [{ programId: "program-1" }, { programId: "program-2" }],
+    });
+    assert.deepEqual(enrollmentUpdates[0], {
+      purchasedEvSortingFilter: "Department",
+      reportAccess: {
+        EV_Access: "yes",
+        WFR_Access: "yes",
+        WBC_Access: "yes",
+        BBP_Access: "yes",
+        SEV_Access: "yes",
+      },
+      metrics: { SEV_Filter: "Department" },
+      paymentDetails: { EV_Sorting_Payment_Type: "Zoho" },
     });
     assert.deepEqual(saved.projects, {
       deleteMany: {},

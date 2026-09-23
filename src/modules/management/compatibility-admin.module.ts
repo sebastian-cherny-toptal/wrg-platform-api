@@ -699,6 +699,8 @@ export class CompatibilityAdminService {
                 )
                   ? "Default"
                   : enrollment.benchmarkCategory,
+                purchased_ev_sorting_filter:
+                  enrollment.purchasedEvSortingFilter,
                 Created_Time: enrollment.createdAt,
                 Last_time_deal_synced: enrollment.updatedAt,
                 _id: enrollment.legacyId ?? enrollment.id,

@@ -76,6 +76,25 @@ const programFields = [
   "Category_1000_Fee",
 ];
 
+const dealFields = [
+  "id",
+  "Program",
+  "Account_Name",
+  "Deal_Organization_ID",
+  "Alias_Name",
+  "Surveys_Sent",
+  "Company_Size",
+  "Program_EE_Count",
+  "Total_Number_of_Program_EEs",
+  "Stage",
+  "Current_Year_Winner",
+  "Current_Year_Category",
+  "Category_Online",
+  "Current_Year_Overall_Rank",
+  "Current_Year_Category_Rank",
+  "EV_Sorting_Filter",
+];
+
 export interface ProgramOrganization {
   [key: string]: unknown;
   organizationId: string;
@@ -89,6 +108,7 @@ export interface ProgramOrganization {
   reportCategory: string | null;
   overallRank: string | null;
   categoryRank: string | null;
+  purchasedEvSortingFilter: string | null;
 }
 
 export function zohoOrganizationName(
@@ -210,6 +230,7 @@ export class CompatibilityZohoService {
     const deals = await this.zoho.searchAllRecords(
       "Deals",
       `(Program:equals:${normalizedProgramId})`,
+      dealFields,
     );
     return this.organizationsByProgram(deals).get(normalizedProgramId) ?? [];
   }
@@ -282,6 +303,7 @@ export class CompatibilityZohoService {
           reportCategory: normalizeZohoReportCategory(deal.Category_Online),
           overallRank: text(deal, "Current_Year_Overall_Rank"),
           categoryRank: text(deal, "Current_Year_Category_Rank"),
+          purchasedEvSortingFilter: text(deal, "EV_Sorting_Filter"),
         });
       }
       organizationsByProgram.set(program.id, organizations);
