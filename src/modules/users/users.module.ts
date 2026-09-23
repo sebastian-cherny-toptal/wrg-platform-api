@@ -121,7 +121,7 @@ class CreateUserDto {
   @ApiPropertyOptional({
     type: String,
     description:
-      "Required for client users. A native or migrated organization ID.",
+      "A native or migrated organization ID. For client users this may be derived from organization-program references.",
   })
   @IsOptional()
   @IsString()
@@ -130,7 +130,7 @@ class CreateUserDto {
   @ApiPropertyOptional({
     type: [String],
     description:
-      "Required for client users. Programs enrolled to the selected organization.",
+      "Required for client users. Program IDs or organization-program references.",
   })
   @IsOptional()
   @IsArray()
@@ -792,14 +792,9 @@ export class UsersService {
       throw new ForbiddenException("Super Admin user already exists");
     }
 
-    const isClient = role.key === "client" || role.key === "promotional";
+    const isClient = role.key === "client";
     const projectReferences = dto.projects ?? [];
     const programReferences = dto.programs ?? [];
-    if (isClient && !dto.organizationId) {
-      throw new BadRequestException(
-        "Organization is required for client users",
-      );
-    }
     if (isClient && programReferences.length === 0) {
       throw new BadRequestException(
         "At least one program is required for client users",
@@ -858,7 +853,7 @@ export class UsersService {
       throw new NotFoundException("Organization not found");
     }
 
-    const selectedPrograms =
+    const directlySelectedPrograms =
       programReferences.length === 0
         ? []
         : await this.prisma.program.findMany({
@@ -871,10 +866,88 @@ export class UsersService {
                     },
               ),
             },
-            select: { id: true, name: true, projectId: true },
+            select: {
+              id: true,
+              legacyId: true,
+              externalId: true,
+              name: true,
+              projectId: true,
+            },
           });
-    if (selectedPrograms.length !== programReferences.length) {
+    const directProgramFor = (reference: string) =>
+      directlySelectedPrograms.find(
+        (program) =>
+          program.id === reference ||
+          program.legacyId === reference ||
+          program.externalId === reference,
+      );
+    const unresolvedProgramReferences = programReferences.filter(
+      (reference) => !directProgramFor(reference),
+    );
+    const referencedEnrollments =
+      unresolvedProgramReferences.length === 0
+        ? []
+        : await this.prisma.organizationProgram.findMany({
+            where: {
+              isIncluded: true,
+              OR: unresolvedProgramReferences.map((reference) =>
+                isUuid(reference)
+                  ? { id: reference }
+                  : {
+                      OR: [{ legacyId: reference }, { externalId: reference }],
+                    },
+              ),
+            },
+            select: {
+              id: true,
+              legacyId: true,
+              externalId: true,
+              organization: {
+                select: {
+                  id: true,
+                  name: true,
+                  metadata: true,
+                  programs: { select: { metrics: true } },
+                },
+              },
+              program: {
+                select: {
+                  id: true,
+                  legacyId: true,
+                  externalId: true,
+                  name: true,
+                  projectId: true,
+                },
+              },
+            },
+          });
+    const enrollmentFor = (reference: string) =>
+      referencedEnrollments.find(
+        (enrollment) =>
+          enrollment.id === reference ||
+          enrollment.legacyId === reference ||
+          enrollment.externalId === reference,
+      );
+    const selectedPrograms = programReferences.flatMap((reference) => {
+      const program =
+        directProgramFor(reference) ?? enrollmentFor(reference)?.program;
+      return program ? [program] : [];
+    });
+    if (
+      selectedPrograms.length !== programReferences.length ||
+      new Set(selectedPrograms.map(({ id }) => id)).size !==
+        selectedPrograms.length
+    ) {
       throw new NotFoundException("One or more programs were not found");
+    }
+
+    if (!organization && isClient) {
+      organization = referencedEnrollments[0]?.organization ?? null;
+    }
+    if (isClient && !organization) {
+      throw new BadRequestException(
+        "Organization could not be derived from the selected programs",
+      );
     }
 
     const identityKeys = organization
@@ -1174,8 +1247,7 @@ export class UsersService {
       throw new ForbiddenException("The Super Admin role cannot be reassigned");
     }
     const effectiveRoleKey = role?.key ?? target.roles[0]?.role.key;
-    const isClientRole =
-      effectiveRoleKey === "client" || effectiveRoleKey === "promotional";
+    const isClientRole = effectiveRoleKey === "client";
 
     const projectReferences = dto.projects;
     const projects =

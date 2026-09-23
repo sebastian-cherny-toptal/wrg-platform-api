@@ -254,6 +254,47 @@ describe("create user endpoint", () => {
     assert.equal("password" in response.data, false);
   });
 
+  it("creates promotional users without organization or program access", async () => {
+    let createdData: Record<string, unknown> | undefined;
+    const prisma = {
+      user: {
+        findUnique: () => Promise.resolve(null),
+        create: ({ data }: { data: Record<string, unknown> }) => {
+          createdData = data;
+          return Promise.resolve({ id: "promotional-user-id" });
+        },
+        update: () =>
+          Promise.resolve({
+            id: "promotional-user-id",
+            email: "promo@example.com",
+            username: "promo.user",
+            fullName: "Promo User",
+            createdAt: new Date("2026-01-01T00:00:00.000Z"),
+          }),
+      },
+      role: {
+        findFirst: () =>
+          Promise.resolve({
+            id: "promotional-role-id",
+            key: "promotional",
+            name: "Promotional",
+          }),
+      },
+    } as unknown as PrismaService;
+
+    await new UsersService(prisma, {} as UserInvitationMailer).create({
+      email: "promo@example.com",
+      fullName: "Promo User",
+      username: "promo.user",
+      roleId: "promotional",
+    });
+
+    assert.ok(createdData);
+    assert.equal("organizationId" in createdData, false);
+    assert.equal("organizationProgramId" in createdData, false);
+    assert.equal("programs" in createdData, false);
+  });
+
   it("creates client users with organization and enrolled program access", async () => {
     let createdData: Record<string, unknown> | undefined;
     let updatedReportAccess: unknown;
@@ -300,6 +341,8 @@ describe("create user endpoint", () => {
           Promise.resolve([
             {
               id: "program-id",
+              legacyId: "program-reference",
+              externalId: null,
               name: "2026 Program",
               projectId: "project-id",
             },
@@ -370,6 +413,92 @@ describe("create user endpoint", () => {
     });
     assert.deepEqual(response.data.projects, [
       { id: "project-id", name: "Feedback Project" },
+    ]);
+  });
+
+  it("derives the organization and every program from enrollment references", async () => {
+    let createdData: Record<string, unknown> | undefined;
+    const entitlementUpdates: string[] = [];
+    const enrollments = [2025, 2026].map((year) => ({
+      id: `enrollment-${year}`,
+      legacyId: null,
+      externalId: null,
+      organizationId: "artemis-id",
+      programId: `program-${year}`,
+      projectId: "project-id",
+      purchasedEvSortingFilter: null,
+      reportAccess: {},
+      metrics: {},
+      paymentDetails: {},
+      project: { id: "project-id", name: "Workforce" },
+      program: {
+        id: `program-${year}`,
+        name: `Awards ${year}`,
+        projectId: "project-id",
+      },
+      organization: {
+        id: "artemis-id",
+        name: "Artemis",
+        metadata: {},
+        programs: [],
+      },
+    }));
+    const artemisOrganization = enrollments[0]?.organization;
+    assert.ok(artemisOrganization);
+    const prisma = {
+      $transaction: (operation: (transaction: unknown) => unknown) =>
+        operation(prisma),
+      user: {
+        findUnique: () => Promise.resolve(null),
+        create: ({ data }: { data: Record<string, unknown> }) => {
+          createdData = data;
+          return Promise.resolve({ id: "client-user-id" });
+        },
+        update: () =>
+          Promise.resolve({
+            id: "client-user-id",
+            email: "client@example.com",
+            username: "client.user",
+            fullName: "Client User",
+            createdAt: new Date("2026-01-01T00:00:00.000Z"),
+          }),
+        updateMany: () => Promise.resolve({ count: 0 }),
+      },
+      role: {
+        findFirst: () =>
+          Promise.resolve({ id: "client-role", key: "client", name: "Client" }),
+      },
+      program: { findMany: () => Promise.resolve([]) },
+      organization: {
+        findMany: () => Promise.resolve([artemisOrganization]),
+      },
+      organizationProgram: {
+        findMany: (args: { where: Record<string, unknown> }) =>
+          Promise.resolve("OR" in args.where ? enrollments : enrollments),
+        update: ({ where }: { where: { id: string } }) => {
+          entitlementUpdates.push(where.id);
+          return Promise.resolve({ id: where.id });
+        },
+      },
+    } as unknown as PrismaService;
+
+    await new UsersService(prisma, {} as UserInvitationMailer).create({
+      email: "client@example.com",
+      fullName: "Client User",
+      username: "client.user",
+      roleId: "client",
+      programs: ["enrollment-2025", "enrollment-2026"],
+    });
+
+    assert.ok(createdData);
+    assert.equal(createdData.organizationId, "artemis-id");
+    assert.equal(createdData.organizationProgramId, "enrollment-2025");
+    assert.deepEqual(createdData.programs, {
+      create: [{ programId: "program-2025" }, { programId: "program-2026" }],
+    });
+    assert.deepEqual(entitlementUpdates, [
+      "enrollment-2025",
+      "enrollment-2026",
     ]);
   });
 });
