@@ -191,6 +191,100 @@ describe("annual trends workbook generation", () => {
 });
 
 describe("workforce feedback workbook generation", () => {
+  it("limits High Agreement highlights to legacy agreement cells", async () => {
+    const buffer = await createWorkforceFeedbackWorkbook({
+      metadata: {
+        organizationName: "Test organization",
+        programName: "Test program",
+        surveyDates: "2026",
+      },
+      demographics: [],
+      sections: [
+        {
+          title: "Test section",
+          questions: [
+            {
+              text: "Test question",
+              agreement: 80,
+              neutral: 10,
+              disagreement: 20,
+              responseCount: 10,
+            },
+          ],
+        },
+      ],
+      totalResponses: 10,
+      responsePatternRanges: { positive: [80, 100] },
+    });
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer as never);
+    const sheet = workbook.getWorksheet("Workforce Feedback Results");
+    assert.ok(sheet);
+    assert.deepEqual(sheet.getCell("D6").fill, {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "00FF00" },
+      bgColor: { argb: "00FF00" },
+    });
+    assert.notDeepEqual(sheet.getCell("E6").fill, sheet.getCell("D6").fill);
+  });
+
+  it("applies overlap precedence and isolates disagreement highlights", async () => {
+    const buffer = await createWorkforceFeedbackWorkbook({
+      metadata: {
+        organizationName: "Test organization",
+        programName: "Test program",
+        surveyDates: "2026",
+      },
+      demographics: [
+        {
+          title: "Gender",
+          groupLabel: "Gender",
+          options: [{ label: "Female", count: 10 }],
+        },
+      ],
+      sections: [
+        {
+          title: "Test section",
+          questions: [
+            {
+              text: "Overlapping agreement question",
+              agreement: 80,
+              neutral: 0,
+              disagreement: 20,
+              responseCount: 10,
+              demographicAgreement: { Gender: { Female: 75 } },
+              demographicResponseCount: { Gender: { Female: 10 } },
+            },
+          ],
+        },
+      ],
+      totalResponses: 10,
+      responsePatternRanges: {
+        positive: [80, 100],
+        neutral: [60, 80],
+        negative: [20, 20],
+      },
+    });
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer as never);
+    const sheet = workbook.getWorksheet("Workforce Feedback Results");
+    assert.ok(sheet);
+
+    assert.equal(
+      (sheet.getCell("D6").fill as ExcelJS.FillPattern).fgColor?.argb,
+      "00FF00",
+    );
+    assert.equal(
+      (sheet.getCell("E6").fill as ExcelJS.FillPattern).fgColor?.argb,
+      "FF0000",
+    );
+    assert.equal(
+      (sheet.getCell("G6").fill as ExcelJS.FillPattern).fgColor?.argb,
+      "FFFF00",
+    );
+  });
+
   it("rotates demographic headers in row 3", async () => {
     const buffer = await createWorkforceFeedbackWorkbook({
       metadata: {

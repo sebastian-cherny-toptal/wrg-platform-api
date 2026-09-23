@@ -263,6 +263,154 @@ async function createTestApp(
 }
 
 describe("compatibility heat-map endpoint", () => {
+  it("previews High Agreement with the legacy workbook-cell denominator", async () => {
+    const app = await createTestApp(await fixturePrisma());
+    const token = app.get(JwtService).sign({
+      sub: "user-1",
+      organizationId: "organization-1",
+      roles: ["admin"],
+      permissions: [],
+    });
+    try {
+      const response = await app.inject({
+        method: "GET",
+        url: `/client/generateHeatMap?selectedProgramId=${selectedProgramId}&patternMode=range&includePositive=true&includeNeutral=false&includeNegative=false&positiveMin=80&positiveMax=100&isPreview=true`,
+        headers: { authorization: `Bearer ${token}` },
+      });
+      assert.equal(response.statusCode, 200, response.body);
+      const body = response.json<{
+        data: {
+          heatmapPreview: Array<{
+            row: number;
+            col: number;
+            color: string;
+            value: number | string;
+          }>;
+          percentage: {
+            positivePercentage: number;
+            greenPercentage: number;
+          };
+        };
+      }>();
+
+      assert.equal(body.data.percentage.positivePercentage, 18.56);
+      assert.equal(
+        body.data.percentage.greenPercentage,
+        body.data.percentage.positivePercentage,
+      );
+      assert.ok(
+        body.data.heatmapPreview.some(
+          ({ color, value }) => color === "positive" && Number(value) >= 80,
+        ),
+      );
+      assert.equal(
+        body.data.heatmapPreview.some(({ col }) => col === 5),
+        false,
+      );
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("previews all response patterns with shared-denominator percentages", async () => {
+    const app = await createTestApp(await fixturePrisma());
+    const token = app.get(JwtService).sign({
+      sub: "user-1",
+      organizationId: "organization-1",
+      roles: ["admin"],
+      permissions: [],
+    });
+    try {
+      const response = await app.inject({
+        method: "GET",
+        url: `/client/generateHeatMap?selectedProgramId=${selectedProgramId}&patternMode=range&includePositive=true&includeNeutral=true&includeNegative=true&positiveMin=75&positiveMax=100&neutralMin=60&neutralMax=80&negativeMin=10&negativeMax=20&isPreview=true`,
+        headers: { authorization: `Bearer ${token}` },
+      });
+      assert.equal(response.statusCode, 200, response.body);
+      const body = response.json<{
+        data: {
+          heatmapPreview: Array<{
+            row: number;
+            col: number;
+            color: "positive" | "neutral" | "negative" | "gray";
+            value: number | string;
+          }>;
+          percentage: {
+            positivePercentage: number;
+            neutralPercentage: number;
+            negativePercentage: number;
+            greenPercentage: number;
+            bluePercentage: number;
+            redPercentage: number;
+          };
+        };
+      }>();
+      const cells = body.data.heatmapPreview;
+      const counts = {
+        positive: cells.filter(({ color }) => color === "positive").length,
+        neutral: cells.filter(({ color }) => color === "neutral").length,
+        negative: cells.filter(({ color }) => color === "negative").length,
+      };
+      const percentages = body.data.percentage;
+      const roundsTo = (count: number, denominator: number, value: number) =>
+        Math.round(((count * 100) / denominator + Number.EPSILON) * 100) /
+          100 ===
+        value;
+      const possibleSharedDenominators = Array.from(
+        { length: 10_000 },
+        (_, index) => index + 1,
+      ).filter(
+        (denominator) =>
+          roundsTo(
+            counts.positive,
+            denominator,
+            percentages.positivePercentage,
+          ) &&
+          roundsTo(
+            counts.neutral,
+            denominator,
+            percentages.neutralPercentage,
+          ) &&
+          roundsTo(
+            counts.negative,
+            denominator,
+            percentages.negativePercentage,
+          ),
+      );
+
+      assert.ok(possibleSharedDenominators.length > 0);
+      assert.equal(percentages.greenPercentage, percentages.positivePercentage);
+      assert.equal(percentages.bluePercentage, percentages.neutralPercentage);
+      assert.equal(percentages.redPercentage, percentages.negativePercentage);
+      assert.ok(counts.positive > 0);
+      assert.ok(counts.neutral > 0);
+      assert.ok(counts.negative > 0);
+      assert.equal(
+        cells.some(
+          ({ col, color }) =>
+            col === 5 && (color === "positive" || color === "neutral"),
+        ),
+        false,
+      );
+      assert.equal(
+        cells.some(({ col, color }) => col !== 5 && color === "negative"),
+        false,
+      );
+      assert.equal(
+        cells.some(
+          ({ color, value }) => color === "neutral" && Number(value) >= 75,
+        ),
+        false,
+      );
+      assert.equal(
+        new Set(cells.map(({ row, col }) => `${row}:${col}`)).size,
+        cells.length,
+      );
+    } finally {
+      await app.close();
+    }
+  });
+
   it("downloads the complete 2026 sample organization heat-map table", async () => {
     const app = await createTestApp(await fixturePrisma());
     const token = app.get(JwtService).sign({

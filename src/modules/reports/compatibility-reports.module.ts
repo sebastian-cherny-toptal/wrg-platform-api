@@ -64,6 +64,10 @@ import {
   type ResponsePatternRanges,
 } from "./report-template-workbooks.js";
 import {
+  classifyResponsePatternCells,
+  projectResponsePatternCells,
+} from "./response-pattern-cells.js";
+import {
   usesDefaultBenchmarkCategory,
   defaultZohoCategoryOrder,
   normalizeZohoCategory,
@@ -2514,60 +2518,29 @@ export class CompatibilityReportsService {
       : this.feedbackSections(questions, respondents, context.program.year);
     const isFallback = false;
 
-    const cells: Array<{
-      row: number;
-      col: number;
-      color: "positive" | "neutral" | "negative" | "gray";
-      value: number;
-    }> = [];
-    let total = 0;
-    let positive = 0;
-    let neutral = 0;
-    let negative = 0;
-    let row = 5;
-
-    for (const question of sections.flatMap((section) => section.questions)) {
-      if (ranges.positive || ranges.neutral) {
-        total += 1;
-        let color: "positive" | "neutral" | "gray" = "gray";
-        if (
-          ranges.positive &&
-          question.agreement >= ranges.positive[0] &&
-          question.agreement <= ranges.positive[1]
-        ) {
-          color = "positive";
-          positive += 1;
-        } else if (
-          ranges.neutral &&
-          question.agreement >= ranges.neutral[0] &&
-          question.agreement <= ranges.neutral[1]
-        ) {
-          color = "neutral";
-          neutral += 1;
-        }
-        cells.push({ row, col: 4, color, value: question.agreement });
-      }
-      if (ranges.negative) {
-        total += 1;
-        const matches =
-          question.disagreement >= ranges.negative[0] &&
-          question.disagreement <= ranges.negative[1];
-        if (matches) negative += 1;
-        cells.push({
-          row,
-          col: 5,
-          color: matches ? "negative" : "gray",
-          value: question.disagreement,
-        });
-      }
-      row += 1;
+    const workbookBuffer = await createWorkforceFeedbackWorkbook({
+      metadata: await this.reportWorkbookMetadata(principal, query, context),
+      demographics: this.workbookDemographicsFromRespondents(
+        respondents,
+        context.program.year,
+      ),
+      sections,
+      totalResponses: respondents.length,
+      responsePatternRanges: ranges,
+    });
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(workbookBuffer as never);
+    const worksheet = workbook.getWorksheet("Workforce Feedback Results");
+    if (!worksheet) {
+      throw new Error("Workforce Feedback worksheet is missing");
     }
-
-    const percentage = (count: number) =>
-      total === 0 ? 0 : (count * 100) / total;
-    const positivePercentage = percentage(positive);
-    const neutralPercentage = percentage(neutral);
-    const negativePercentage = percentage(negative);
+    const classification = classifyResponsePatternCells(
+      projectResponsePatternCells(worksheet),
+      ranges,
+    );
+    const positivePercentage = classification.percentages.positive;
+    const neutralPercentage = classification.percentages.neutral;
+    const negativePercentage = classification.percentages.negative;
 
     return {
       success: true as const,
@@ -2575,7 +2548,14 @@ export class CompatibilityReportsService {
       isConfidential,
       isFallback,
       data: {
-        heatmapPreview: cells,
+        heatmapPreview: classification.cells.map(
+          ({ row, column, color, value }) => ({
+            row,
+            col: column,
+            color,
+            value,
+          }),
+        ),
         percentage: {
           positivePercentage,
           neutralPercentage,

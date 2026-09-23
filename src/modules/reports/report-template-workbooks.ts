@@ -1,5 +1,9 @@
 import ExcelJS from "exceljs";
 import { fileURLToPath } from "node:url";
+import {
+  classifyResponsePatternCells,
+  projectResponsePatternCells,
+} from "./response-pattern-cells.js";
 
 export interface ReportWorkbookMetadata {
   organizationName: string;
@@ -446,51 +450,18 @@ function applyResponsePatternFills(
     return;
   }
   workbook.eachSheet((sheet) => {
-    const lastRow = sheet.rowCount;
-    const agreementRules: ExcelJS.ConditionalFormattingRule[] = [];
-    if (ranges.positive) {
-      agreementRules.push({
-        type: "cellIs",
-        operator: "between",
-        formulae: ranges.positive,
-        priority: 1,
-        style: { fill: responsePatternFills.positive },
-      });
-    }
-    if (ranges.neutral) {
-      agreementRules.push({
-        type: "cellIs",
-        operator: "between",
-        formulae: ranges.neutral,
-        priority: 2,
-        style: { fill: responsePatternFills.neutral },
-      });
-    }
-    if (agreementRules.length) {
-      sheet.addConditionalFormatting({
-        ref: `D5:D${lastRow}`,
-        rules: agreementRules,
-      });
-      if (sheet.columnCount >= 6) {
-        sheet.addConditionalFormatting({
-          ref: `F5:${sheet.getColumn(sheet.columnCount).letter}${lastRow}`,
-          rules: agreementRules,
-        });
+    const classification = classifyResponsePatternCells(
+      projectResponsePatternCells(sheet),
+      ranges,
+    );
+    for (const { row, column, color } of classification.cells) {
+      if (color !== "gray") {
+        const cell = sheet.getCell(row, column);
+        cell.style = {
+          ...cell.style,
+          fill: structuredClone(responsePatternFills[color]),
+        };
       }
-    }
-    if (ranges.negative) {
-      sheet.addConditionalFormatting({
-        ref: `E5:E${lastRow}`,
-        rules: [
-          {
-            type: "cellIs",
-            operator: "between",
-            formulae: ranges.negative,
-            priority: 3,
-            style: { fill: responsePatternFills.negative },
-          },
-        ],
-      });
     }
   });
 }
