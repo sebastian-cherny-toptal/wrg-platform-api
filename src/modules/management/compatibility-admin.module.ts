@@ -37,6 +37,10 @@ import {
   type Principal,
 } from "../auth/auth.module.js";
 import { CrmSyncModule, SyncQueue } from "../crm-sync/crm-sync.module.js";
+import {
+  CompatibilityPaymentModule,
+  CompatibilityPaymentService,
+} from "../commerce/compatibility-payment.module.js";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -1395,6 +1399,8 @@ export class CompatibilityAdminController {
   constructor(
     @Inject(CompatibilityAdminService)
     private readonly admin: CompatibilityAdminService,
+    @Inject(CompatibilityPaymentService)
+    private readonly payments: CompatibilityPaymentService,
   ) {}
 
   @Post("addrole")
@@ -1505,6 +1511,15 @@ export class CompatibilityAdminController {
     return this.admin.orderLogs(principal, page, perPage, sortBy);
   }
 
+  @Post("orders/:orderId/validate-ach")
+  @HttpCode(200)
+  validateAchOrder(
+    @CurrentUser() principal: Principal,
+    @Param("orderId") orderId: string,
+  ) {
+    return this.payments.validateAchOrder(principal, orderId);
+  }
+
   @Get("system/log")
   systemLogs(
     @CurrentUser() principal: Principal,
@@ -1552,7 +1567,7 @@ export class CompatibilityDashboardController {
 }
 
 @Module({
-  imports: [AuthModule, CrmSyncModule],
+  imports: [AuthModule, CrmSyncModule, CompatibilityPaymentModule],
   providers: [CompatibilityAdminService, CompatibilityAssetStorage],
   controllers: [CompatibilityAdminController, CompatibilityDashboardController],
 })

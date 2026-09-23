@@ -574,6 +574,87 @@ export class CompatibilityPaymentService {
     return { success: true, status: "paid" };
   }
 
+  async validateAchOrder(
+    principal: Principal,
+    orderReference: string,
+  ): Promise<{ success: true; status: "paid"; alreadyPaid: boolean }> {
+    const authorized =
+      principal.roles.includes("admin") ||
+      principal.roles.includes("super_admin") ||
+      principal.permissions.includes("ops.manage") ||
+      principal.permissions.includes("orderLogAccess");
+    if (!authorized) throw new ForbiddenException("Order Log access required");
+    const order = await this.prisma.order.findFirst({
+      where: isUuid(orderReference)
+        ? { id: orderReference }
+        : { legacyId: orderReference },
+      select: {
+        id: true,
+        legacyId: true,
+        status: true,
+        paymentMethod: true,
+        paymentIntentId: true,
+      },
+    });
+    if (!order) throw new NotFoundException("Order not found");
+    if (order.paymentMethod?.trim().toLowerCase() !== "paid via ach") {
+      throw new BadRequestException(
+        "Only ACH orders can be validated manually",
+      );
+    }
+    if (order.status === "PAID") {
+      return { success: true, status: "paid", alreadyPaid: true };
+    }
+    if (order.status !== "REQUIRES_PAYMENT") {
+      throw new ConflictException("This ACH order is not awaiting payment");
+    }
+    if (!order.paymentIntentId) {
+      throw new ConflictException("This ACH order has no payment reference");
+    }
+    const claimed = await this.prisma.order.updateMany({
+      where: {
+        id: order.id,
+        status: "REQUIRES_PAYMENT",
+        paymentMethod: "Paid via ACH",
+      },
+      data: { status: "PENDING" },
+    });
+    if (claimed.count !== 1) {
+      const current = await this.prisma.order.findUnique({
+        where: { id: order.id },
+        select: { status: true },
+      });
+      if (current?.status === "PAID") {
+        return { success: true, status: "paid", alreadyPaid: true };
+      }
+      throw new ConflictException("This ACH order is already being validated");
+    }
+    try {
+      await this.fulfillPaidOrder(order.paymentIntentId);
+    } catch (error) {
+      await this.prisma.order.updateMany({
+        where: { id: order.id, status: "PENDING" },
+        data: { status: "REQUIRES_PAYMENT" },
+      });
+      throw error;
+    }
+    await this.prisma.auditLog.create({
+      data: {
+        actorUserId: principal.sub,
+        action: "order.ach_payment_validated",
+        resourceType: "Order",
+        resourceId: order.id,
+        before: { status: order.status, paymentMethod: order.paymentMethod },
+        after: {
+          status: "PAID",
+          paymentMethod: "Paid via ACH",
+          validation: "manual_admin_confirmation",
+        },
+      },
+    });
+    return { success: true, status: "paid", alreadyPaid: false };
+  }
+
   async reconcilePaidOrders(
     principal: Principal,
     programReference?: string,

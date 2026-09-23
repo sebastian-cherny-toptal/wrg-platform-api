@@ -78,6 +78,7 @@ const paymentStub = {
   checkout: () => mark("checkout"),
   confirmPaidOrder: () => mark("confirmPaidOrder"),
   reconcilePaidOrders: () => mark("reconcilePaidOrders"),
+  validateAchOrder: () => mark("validateAchOrder"),
 };
 
 const zohoStub = {
@@ -477,6 +478,66 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
       });
     });
   }
+
+  it("manually validates an ACH order and records the administrator", async () => {
+    let orderUpdate: Record<string, unknown> | undefined;
+    let audit: Record<string, unknown> | undefined;
+    const service = new CompatibilityPaymentService(
+      {
+        order: {
+          findFirst: () =>
+            Promise.resolve({
+              id: "79f90f66-4501-4b12-ac13-19cf797d3c44",
+              legacyId: null,
+              status: "REQUIRES_PAYMENT",
+              paymentMethod: "Paid via ACH",
+              paymentIntentId: "pi_ach_manual",
+            }),
+          findUnique: () =>
+            Promise.resolve({
+              id: "79f90f66-4501-4b12-ac13-19cf797d3c44",
+              organizationProgram: null,
+            }),
+          update: ({ data }: { data: Record<string, unknown> }) => {
+            orderUpdate = data;
+            return Promise.resolve({});
+          },
+          updateMany: () => Promise.resolve({ count: 1 }),
+        },
+        auditLog: {
+          create: ({ data }: { data: Record<string, unknown> }) => {
+            audit = data;
+            return Promise.resolve({});
+          },
+        },
+      } as never,
+      {
+        get: (key: string) =>
+          key === "INTEGRATIONS_MOCK" ? false : "sk_test_example",
+      } as never,
+      {} as never,
+    );
+
+    const result = await service.validateAchOrder(
+      {
+        sub: "admin-1",
+        organizationId: null,
+        roles: [],
+        permissions: ["orderLogAccess"],
+      },
+      "79f90f66-4501-4b12-ac13-19cf797d3c44",
+    );
+
+    assert.deepEqual(result, {
+      success: true,
+      status: "paid",
+      alreadyPaid: false,
+    });
+    assert.deepEqual(orderUpdate, { status: "PAID" });
+    assert.ok(audit);
+    assert.equal(audit.actorUserId, "admin-1");
+    assert.equal(audit.action, "order.ach_payment_validated");
+  });
 
   it("persists KIA ownership while the purchased report is awaiting upload", async () => {
     let enrollmentUpdate: Record<string, unknown> | undefined;
@@ -1052,6 +1113,11 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
           headers,
         }),
         app.inject({ method: "GET", url: "/admin/order/log", headers }),
+        app.inject({
+          method: "POST",
+          url: "/admin/orders/order-1/validate-ach",
+          headers,
+        }),
         app.inject({ method: "GET", url: "/admin/system/log", headers }),
         app.inject({ method: "GET", url: "/admin/loginSession/log", headers }),
         app.inject({
@@ -1132,6 +1198,7 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
         organizations: 1,
         organization: 1,
         orderLogs: 1,
+        validateAchOrder: 1,
         systemLogs: 1,
         loginSessions: 1,
         resortOrganization: 1,

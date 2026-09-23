@@ -1358,15 +1358,21 @@ describe("compatibility report categories", () => {
         { selectedProgramId: "program-1", isDummy: false },
       );
 
-      assert.deepEqual(result.data.data[0]?.dataValues, [100, 0, 100, 0]);
+      const usesCustomCategory = categories?.[0] === "Small/Medium";
+      assert.deepEqual(
+        result.data.data[0]?.dataValues,
+        usesCustomCategory ? [100, 0, 100, 0] : [100, 0],
+      );
       assert.equal(result.data.cohortOrganizationCount, 10);
-      assert.ok(
+      assert.equal(
         result.data.tableHeaders.some(
-          ({ title }) =>
-            title ===
-            (categories?.[0] === "Small/Medium"
-              ? "Small/Medium Employers"
-              : "Default Employers"),
+          ({ title }) => title === "Small/Medium Employers",
+        ),
+        usesCustomCategory,
+      );
+      assert.ok(
+        result.data.tableHeaders.every(
+          ({ title }) => title !== "Default Employers",
         ),
       );
       assert.ok(

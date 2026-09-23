@@ -280,3 +280,129 @@ describe("admin program assignments", () => {
     assert.equal(saved(), undefined);
   });
 });
+
+describe("bulk-compatible client updates", () => {
+  it("updates organization, Programs, Projects, role, and mobile together", async () => {
+    let saved: Record<string, unknown> | undefined;
+    const prisma = {
+      user: {
+        findFirst: (args: { where: Record<string, unknown> }) =>
+          "email" in args.where
+            ? Promise.resolve(null)
+            : Promise.resolve({
+                id: "user-1",
+                organizationId: "org-1",
+                organizationProgramId: "enrollment-old",
+                metadata: { mobile: "111" },
+                projects: [{ projectId: "project-1" }],
+                programs: [{ programId: "program-1" }],
+                roles: [{ role: { id: "client-role", key: "client" } }],
+              }),
+        update: ({ data }: { data: Record<string, unknown> }) => {
+          saved = data;
+          return Promise.resolve({
+            id: "user-1",
+            email: "alex@example.com",
+            username: "alex",
+            fullName: "Alex Updated",
+            status: "ACTIVE",
+            metadata: { mobile: "222", mfa: "email" },
+            createdAt: new Date(),
+            roles: [
+              { role: { id: "client-role", key: "client", name: "Client" } },
+            ],
+            projects: [{ project: { id: "project-1", name: "Workforce" } }],
+          });
+        },
+      },
+      role: {
+        findFirst: () =>
+          Promise.resolve({ id: "client-role", key: "client", name: "Client" }),
+      },
+      program: {
+        findMany: (args: {
+          where: { OR: Array<{ id?: string; legacyId?: string }> };
+        }) =>
+          Promise.resolve(
+            args.where.OR.flatMap((reference) => {
+              const id = reference.id ?? reference.legacyId ?? "";
+              return id === "missing-program"
+                ? []
+                : [{ id, projectId: "project-1" }];
+            }),
+          ),
+      },
+      organization: {
+        findFirst: () => Promise.resolve({ id: "org-2" }),
+      },
+      organizationProgram: {
+        findMany: () =>
+          Promise.resolve([
+            {
+              id: "enrollment-1",
+              programId: "program-1",
+              projectId: "project-1",
+            },
+            {
+              id: "enrollment-2",
+              programId: "program-2",
+              projectId: "project-1",
+            },
+          ]),
+      },
+    } as unknown as PrismaService;
+    const service = new UsersService(prisma, {} as UserInvitationMailer);
+
+    await service.update(
+      "user-1",
+      {
+        fullName: "Alex Updated",
+        email: "alex@example.com",
+        username: "alex",
+        mobile: "222",
+        roleId: "client-role",
+        organizationId: "org-2",
+        programs: ["program-1", "program-2"],
+      },
+      {
+        sub: "admin-1",
+        organizationId: null,
+        roles: ["admin"],
+        permissions: [],
+      },
+    );
+
+    assert.ok(saved);
+    assert.deepEqual(saved.organization, { connect: { id: "org-2" } });
+    assert.deepEqual(saved.organizationProgram, {
+      connect: { id: "enrollment-1" },
+    });
+    assert.deepEqual(saved.programs, {
+      deleteMany: {},
+      create: [{ programId: "program-1" }, { programId: "program-2" }],
+    });
+    assert.deepEqual(saved.projects, {
+      deleteMany: {},
+      create: [{ projectId: "project-1" }],
+    });
+    assert.deepEqual(saved.metadata, { mobile: "222" });
+
+    await assert.rejects(
+      service.update(
+        "user-1",
+        {
+          roleId: "client-role",
+          organizationId: "org-2",
+          programs: ["missing-program"],
+        },
+        {
+          sub: "admin-1",
+          organizationId: null,
+          roles: ["admin"],
+          permissions: [],
+        },
+      ),
+      /programs were not found/u,
+    );
+  });
+});

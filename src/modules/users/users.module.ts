@@ -161,6 +161,15 @@ class UpdateUserDto {
   @IsString()
   mobile?: string;
 
+  @ApiPropertyOptional({
+    type: String,
+    description:
+      "A native or migrated organization reference for client users.",
+  })
+  @IsOptional()
+  @IsString()
+  organizationId?: string;
+
   @ApiPropertyOptional({ type: String, enum: ["mobile", "email"] })
   @IsOptional()
   @IsIn(["mobile", "email"])
@@ -1082,7 +1091,10 @@ export class UsersService {
       select: {
         id: true,
         metadata: true,
+        organizationId: true,
+        organizationProgramId: true,
         projects: { select: { projectId: true } },
+        programs: { select: { programId: true } },
         roles: { select: { role: { select: { id: true, key: true } } } },
       },
     });
@@ -1096,7 +1108,8 @@ export class UsersService {
       !isAdmin &&
       (dto.roleId !== undefined ||
         dto.projects !== undefined ||
-        dto.programs !== undefined)
+        dto.programs !== undefined ||
+        dto.organizationId !== undefined)
     ) {
       throw new ForbiddenException("Only administrators can assign access");
     }
@@ -1142,6 +1155,9 @@ export class UsersService {
     ) {
       throw new ForbiddenException("The Super Admin role cannot be reassigned");
     }
+    const effectiveRoleKey = role?.key ?? target.roles[0]?.role.key;
+    const isClientRole =
+      effectiveRoleKey === "client" || effectiveRoleKey === "promotional";
 
     const projectReferences = dto.projects;
     const projects =
@@ -1182,10 +1198,10 @@ export class UsersService {
               },
               select: { id: true, projectId: true },
             });
-    if (programs !== undefined) {
-      if (programs.length !== dto.programs?.length) {
-        throw new NotFoundException("One or more programs were not found");
-      }
+    if (programs !== undefined && programs.length !== dto.programs?.length) {
+      throw new NotFoundException("One or more programs were not found");
+    }
+    if (programs !== undefined && !isClientRole) {
       const assignedProjectIds = new Set(
         projects !== undefined
           ? projects.map(({ id }) => id)
@@ -1198,6 +1214,82 @@ export class UsersService {
           "Programs must belong to the user's assigned projects",
         );
       }
+    }
+
+    let selectedOrganizationId: string | undefined;
+    let primaryOrganizationProgramId: string | null | undefined;
+    let clientProjectIds: string[] | undefined;
+    if (isClientRole) {
+      let organizationId = target.organizationId ?? undefined;
+      if (dto.organizationId !== undefined) {
+        const organization = await this.prisma.organization.findFirst({
+          where: isUuid(dto.organizationId)
+            ? { id: dto.organizationId }
+            : {
+                OR: [
+                  { legacyId: dto.organizationId },
+                  { externalId: dto.organizationId },
+                ],
+              },
+          select: { id: true },
+        });
+        const enrollment = organization
+          ? null
+          : await this.prisma.organizationProgram.findFirst({
+              where: isUuid(dto.organizationId)
+                ? { id: dto.organizationId, isIncluded: true }
+                : {
+                    isIncluded: true,
+                    OR: [
+                      { legacyId: dto.organizationId },
+                      { externalId: dto.organizationId },
+                    ],
+                  },
+              select: { organizationId: true },
+            });
+        organizationId = organization?.id ?? enrollment?.organizationId;
+        if (!organizationId) {
+          throw new NotFoundException("Organization not found");
+        }
+      }
+      if (!organizationId) {
+        throw new BadRequestException(
+          "Organization is required for client users",
+        );
+      }
+      const effectiveProgramIds =
+        programs?.map(({ id }) => id) ??
+        target.programs.map(({ programId }) => programId);
+      if (effectiveProgramIds.length === 0) {
+        throw new BadRequestException(
+          "At least one program is required for client users",
+        );
+      }
+      const enrollments = await this.prisma.organizationProgram.findMany({
+        where: {
+          organizationId,
+          programId: { in: effectiveProgramIds },
+          isIncluded: true,
+        },
+        select: { id: true, programId: true, projectId: true },
+      });
+      if (
+        new Set(enrollments.map(({ programId }) => programId)).size !==
+        effectiveProgramIds.length
+      ) {
+        throw new BadRequestException(
+          "One or more programs are not available to the selected organization",
+        );
+      }
+      selectedOrganizationId = organizationId;
+      primaryOrganizationProgramId = enrollments[0]?.id ?? null;
+      clientProjectIds = [
+        ...new Set(enrollments.map(({ projectId }) => projectId)),
+      ];
+    } else if (dto.organizationId !== undefined) {
+      throw new BadRequestException(
+        "Organization can only be assigned to client users",
+      );
     }
 
     const currentMetadata = jsonObject(target.metadata);
@@ -1224,6 +1316,19 @@ export class UsersService {
           ...(dto.mobile !== undefined || dto.mfa !== undefined
             ? { metadata }
             : {}),
+          ...(selectedOrganizationId !== undefined
+            ? {
+                organization: { connect: { id: selectedOrganizationId } },
+                organizationProgram: primaryOrganizationProgramId
+                  ? { connect: { id: primaryOrganizationProgramId } }
+                  : { disconnect: true },
+              }
+            : role && !isClientRole
+              ? {
+                  organization: { disconnect: true },
+                  organizationProgram: { disconnect: true },
+                }
+              : {}),
           ...(role
             ? {
                 roles: {
@@ -1240,16 +1345,24 @@ export class UsersService {
                 },
               }
             : {}),
-          ...(projects !== undefined
+          ...(clientProjectIds !== undefined &&
+          (programs !== undefined || dto.organizationId !== undefined)
             ? {
                 projects: {
                   deleteMany: {},
-                  create: projects.map((project) => ({
-                    projectId: project.id,
-                  })),
+                  create: clientProjectIds.map((projectId) => ({ projectId })),
                 },
               }
-            : {}),
+            : projects !== undefined
+              ? {
+                  projects: {
+                    deleteMany: {},
+                    create: projects.map((project) => ({
+                      projectId: project.id,
+                    })),
+                  },
+                }
+              : {}),
         },
         select: {
           id: true,

@@ -220,12 +220,13 @@ describe("list users endpoint", () => {
 
     const response = await service.list(
       "projects",
-      "fullName,role,projects,programs,programDetails,organization,lastLogin,payments,totalPaid,lastPaymentDatetime",
+      "fullName,mobile,role,projects,programs,programDetails,organization,lastLogin,payments,totalPaid,lastPaymentDatetime",
     );
     const user = response.data[0];
     assert.ok(user);
     assert.equal(user._id, "legacy-user-id");
     assert.equal(user.fullName, "Example Person");
+    assert.equal(user.mobile, "123");
     assert.equal(user.role, "manager");
     assert.deepEqual(user.programs, ["program-2025", "program-2026"]);
     assert.deepEqual(user.programDetails, [

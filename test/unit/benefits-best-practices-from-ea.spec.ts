@@ -11,8 +11,7 @@ import { CompatibilityReportsService } from "../../src/modules/reports/compatibi
 import { createBenefitsWorkbook } from "../../src/modules/reports/report-template-workbooks.js";
 import type { BenefitsBestPracticesSnapshot } from "../../src/modules/reports/benefits-best-practices-workbook.js";
 
-const funQuestion =
-  'Does your organization coordinate “Fun” activities?';
+const funQuestion = "Does your organization coordinate “Fun” activities?";
 const recognitionQuestion =
   "Does your organization have a structured system for recognizing achievements, attendance, or safety goals?";
 
@@ -105,6 +104,82 @@ const nonWinnerCohort = {
 const cohorts = [winnerCohort, nonWinnerCohort];
 
 describe("Benefits & Best Practices generation from EA", () => {
+  it("removes duplicate Default columns from a published fallback-category report", async () => {
+    const published = {
+      sourceFile: "published.xlsx",
+      headers: [
+        { title: "All Size Categories", type: "All_Yes" },
+        { title: "All Size Categories", type: "All_No" },
+        { title: "Default Employers", type: "DefaultYes" },
+        { title: "Default Employers", type: "DefaultNo" },
+      ],
+      sections: [
+        {
+          title: "Benefits",
+          questions: [
+            {
+              text: "Medical insurance",
+              responses: [
+                {
+                  label: "Yes",
+                  format: "percent",
+                  dataValues: [80, 60, 80, 60],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    } satisfies BenefitsBestPracticesSnapshot;
+    const prisma = {
+      program: {
+        findFirst: () => ({
+          id: "program-1",
+          projectId: "project-1",
+          name: "Default Program",
+          year: 2026,
+          startsAt: null,
+          metadata: { benchmarkCategories: ["Default"] },
+          project: { id: "project-1", name: "Project" },
+        }),
+      },
+      organizationProgram: {
+        findFirst: () => ({
+          id: "enrollment-1",
+          reportAccess: { BBP_Access: "yes" },
+          metrics: {},
+          metadata: {
+            publishedReports: { benefitsBestPractices: published },
+          },
+          organization: { name: "Acme" },
+        }),
+        findMany: () => [],
+      },
+      survey: { findFirst: () => null },
+    } as unknown as PrismaService;
+
+    const report = await new CompatibilityReportsService(
+      prisma,
+    ).employerBenchmark(
+      {
+        sub: "client-1",
+        organizationId: "organization-1",
+        roles: ["client"],
+        permissions: [],
+      },
+      { selectedProgramId: "program-1", isDummy: false },
+    );
+
+    assert.deepEqual(
+      report.data.tableHeaders.map(({ type }) => type),
+      ["All_Yes", "All_No"],
+    );
+    assert.deepEqual(
+      report.data.tableData[0]?.nestedData[0]?.nestedData[0]?.dataValues,
+      [80, 60],
+    );
+  });
+
   it("averages yes/no EA columns onto the matching template questions", () => {
     const snapshot = generateBenefitsBestPracticesFromEa({
       template: templateSnapshot(),
@@ -254,7 +329,8 @@ describe("Benefits & Best Practices generation from EA", () => {
     assert.deepEqual(screening[0]?.dataValues, [40, 0]);
     assert.deepEqual(screening[1]?.dataValues, [100, 100]);
 
-    const holidays = snapshot.sections[2]?.questions[0]?.responses[0]?.dataValues;
+    const holidays =
+      snapshot.sections[2]?.questions[0]?.responses[0]?.dataValues;
     assert.deepEqual(holidays, [12, 8]);
 
     const timeOff = snapshot.sections[2]?.questions[1]?.responses ?? [];
@@ -325,10 +401,7 @@ describe("Benefits & Best Practices generation from EA", () => {
     await workbook.xlsx.load(buffer as never);
     const sheet = workbook.getWorksheet("Benefits & Best Practices");
     assert.ok(sheet);
-    assert.equal(
-      sheet.getCell("A6").value,
-      "PROGRAM: Baton Rouge 2026",
-    );
+    assert.equal(sheet.getCell("A6").value, "PROGRAM: Baton Rouge 2026");
     let funRow = 0;
     sheet.eachRow((row, rowNumber) => {
       if (String(row.getCell(1).value ?? "").includes("Fun")) {
@@ -522,6 +595,10 @@ describe("Benefits & Best Practices generation from EA", () => {
     const query = { selectedProgramId: "ea-only-program", isDummy: false };
 
     const report = await service.employerBenchmark(principal, query);
+    assert.deepEqual(
+      report.data.tableHeaders.map(({ type }) => type),
+      ["All_Yes", "All_No"],
+    );
     const fun = report.data.tableData
       .flatMap((section) => section.nestedData)
       .find(({ title }) => title.includes("Fun"));

@@ -490,6 +490,15 @@ interface PublishedWorkforceSnapshot {
   surveyAverage: Array<number | string>;
 }
 
+function isDefaultPublishedHeader(header: PublishedReportHeader): boolean {
+  const type = header.type.replace(/[^a-z0-9]/giu, "").toLowerCase();
+  const title = header.title
+    .replace(/\s+employers?$/iu, "")
+    .trim()
+    .toLowerCase();
+  return type.startsWith("default") || title === "default";
+}
+
 function isUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(
     value,
@@ -4126,6 +4135,9 @@ export class CompatibilityReportsService {
   }
 
   private groups(context: BaseReportContext): BenchmarkGroup[] {
+    const defaultCategories = usesDefaultBenchmarkCategory(
+      jsonObject(context.program.metadata).benchmarkCategories,
+    );
     const categorized = context.organizationPrograms.flatMap((enrollment) => {
       const winner =
         enrollment.isWinner === "Y"
@@ -4134,9 +4146,7 @@ export class CompatibilityReportsService {
             ? ("No" as const)
             : null;
       if (winner === null) return [];
-      const category = usesDefaultBenchmarkCategory(
-        jsonObject(context.program.metadata).benchmarkCategories,
-      )
+      const category = defaultCategories
         ? "Default"
         : normalizeZohoCategory(
             enrollment.currentZohoCategory ??
@@ -4178,23 +4188,24 @@ export class CompatibilityReportsService {
         left.localeCompare(right)
       );
     });
-    return ["All", ...observedSizes].flatMap((size) =>
-      (["Yes", "No"] as const).map((winner) => {
-        const organizationIds = categorized
-          .filter(
-            (entry) =>
-              entry.winner === winner &&
-              (size === "All" || entry.category === size),
-          )
-          .map(({ organizationId }) => organizationId);
-        return {
-          key: `${size.replace(/\s+/gu, "")}${winner}`,
-          size,
-          winner,
-          organizationIds,
-          hidden: organizationIds.length < privacyThreshold,
-        };
-      }),
+    return ["All", ...(defaultCategories ? [] : observedSizes)].flatMap(
+      (size) =>
+        (["Yes", "No"] as const).map((winner) => {
+          const organizationIds = categorized
+            .filter(
+              (entry) =>
+                entry.winner === winner &&
+                (size === "All" || entry.category === size),
+            )
+            .map(({ organizationId }) => organizationId);
+          return {
+            key: `${size.replace(/\s+/gu, "")}${winner}`,
+            size,
+            winner,
+            organizationIds,
+            hidden: organizationIds.length < privacyThreshold,
+          };
+        }),
     );
   }
 
@@ -4876,16 +4887,72 @@ export class CompatibilityReportsService {
       return null;
     }
     const candidate = snapshot as unknown as PublishedWorkforceSnapshot;
-    return Array.isArray(candidate.headers) &&
-      Array.isArray(candidate.categories)
-      ? candidate
-      : null;
+    if (
+      !Array.isArray(candidate.headers) ||
+      !Array.isArray(candidate.categories)
+    ) {
+      return null;
+    }
+    if (
+      !usesDefaultBenchmarkCategory(
+        jsonObject(context.program.metadata).benchmarkCategories,
+      )
+    ) {
+      return candidate;
+    }
+    const indexes = candidate.headers.flatMap((header, index) =>
+      isDefaultPublishedHeader(header) ? [] : [index],
+    );
+    const values = (items: Array<number | string>) =>
+      indexes.map((index) => items[index] ?? "x");
+    return {
+      ...candidate,
+      headers: candidate.headers.filter((_, index) => indexes.includes(index)),
+      surveyAverage: values(candidate.surveyAverage),
+      categories: candidate.categories.map((category) => ({
+        ...category,
+        dataValues: values(category.dataValues),
+        questions: category.questions.map((question) => ({
+          ...question,
+          dataValues: values(question.dataValues),
+        })),
+      })),
+    };
   }
 
   private publishedBenefits(
     context: BaseReportContext,
   ): BenefitsBestPracticesSnapshot | null {
-    return publishedBenefitsBestPracticesSnapshot(context.enrollmentMetadata);
+    const snapshot = publishedBenefitsBestPracticesSnapshot(
+      context.enrollmentMetadata,
+    );
+    if (
+      !snapshot ||
+      !usesDefaultBenchmarkCategory(
+        jsonObject(context.program.metadata).benchmarkCategories,
+      )
+    ) {
+      return snapshot;
+    }
+    const indexes = snapshot.headers.flatMap((header, index) =>
+      isDefaultPublishedHeader(header) ? [] : [index],
+    );
+    return {
+      ...snapshot,
+      headers: snapshot.headers.filter((_, index) => indexes.includes(index)),
+      sections: snapshot.sections.map((section) => ({
+        ...section,
+        questions: section.questions.map((question) => ({
+          ...question,
+          responses: question.responses.map((response) => ({
+            ...response,
+            dataValues: indexes.map(
+              (index) => response.dataValues[index] ?? "x",
+            ),
+          })),
+        })),
+      })),
+    };
   }
 
   private async generatedBenefitsFromEa(
