@@ -1,5 +1,16 @@
 import { z } from "zod";
 
+const corsOriginsSchema = z.preprocess(
+  (value) =>
+    typeof value === "string"
+      ? value
+          .split(",")
+          .map((origin) => origin.trim())
+          .filter(Boolean)
+      : value,
+  z.array(z.url()).default([]),
+);
+
 const schema = z
   .object({
     NODE_ENV: z
@@ -22,6 +33,7 @@ const schema = z
     SENDGRID_DOMAIN: z.string().email().optional(),
     FRONTEND_URL: z.string().url().optional(),
     ADMIN_FRONTEND_URL: z.string().url().optional(),
+    CORS_ALLOWED_ORIGINS: corsOriginsSchema,
     ADMIN_USERNAME: z.string().trim().toLowerCase().email().optional(),
     ADMIN_PASSWORD: z.string().min(8).optional(),
     ZOHO_BASE_URL: z.string().url(),
@@ -39,12 +51,26 @@ const schema = z
     LOG_LEVEL: z.string().default("info"),
   })
   .superRefine((env, context) => {
-    if (Boolean(env.ADMIN_USERNAME) === Boolean(env.ADMIN_PASSWORD)) return;
-    context.addIssue({
-      code: "custom",
-      path: [env.ADMIN_USERNAME ? "ADMIN_PASSWORD" : "ADMIN_USERNAME"],
-      message: "ADMIN_USERNAME and ADMIN_PASSWORD must be set together",
-    });
+    if (Boolean(env.ADMIN_USERNAME) !== Boolean(env.ADMIN_PASSWORD)) {
+      context.addIssue({
+        code: "custom",
+        path: [env.ADMIN_USERNAME ? "ADMIN_PASSWORD" : "ADMIN_USERNAME"],
+        message: "ADMIN_USERNAME and ADMIN_PASSWORD must be set together",
+      });
+    }
+    if (
+      env.NODE_ENV === "production" &&
+      env.CORS_ALLOWED_ORIGINS.length === 0 &&
+      !env.FRONTEND_URL &&
+      !env.ADMIN_FRONTEND_URL
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["CORS_ALLOWED_ORIGINS"],
+        message:
+          "Production requires FRONTEND_URL, ADMIN_FRONTEND_URL, or CORS_ALLOWED_ORIGINS",
+      });
+    }
   });
 
 export type Env = z.infer<typeof schema>;

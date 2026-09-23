@@ -15,6 +15,10 @@ import { Logger } from "nestjs-pino";
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage } from "node:http";
 import type { Env } from "./config/env.js";
+import {
+  corsAllowedOrigins,
+  isCorsOriginAllowed,
+} from "./config/cors.js";
 import { AppModule } from "./app.module.js";
 import { ServerErrorLoggingFilter } from "./common/http/server-error-exception.filter.js";
 import { requestLogPropsForRequest } from "./common/logging/request-logging.js";
@@ -84,12 +88,21 @@ export async function createApp(): Promise<NestFastifyApplication> {
     },
   );
   app.useLogger(app.get(Logger));
+  const config = app.get<ConfigService<Env, true>>(ConfigService);
+  const allowedOrigins = corsAllowedOrigins({
+    NODE_ENV: config.get("NODE_ENV", { infer: true }),
+    CORS_ALLOWED_ORIGINS: config.get("CORS_ALLOWED_ORIGINS", { infer: true }),
+    FRONTEND_URL: config.get("FRONTEND_URL", { infer: true }),
+    ADMIN_FRONTEND_URL: config.get("ADMIN_FRONTEND_URL", { infer: true }),
+  });
   await app.register(helmet);
   await app.register(multipart, {
     limits: { fileSize: 100 * 1024 * 1024, files: 20 },
   });
   await app.register(cors, {
-    origin: true,
+    origin: (origin, callback) => {
+      callback(null, isCorsOriginAllowed(origin, allowedOrigins));
+    },
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],

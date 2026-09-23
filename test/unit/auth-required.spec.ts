@@ -39,6 +39,7 @@ describe("login authentication configuration", () => {
         validateEnv({
           ...validEnvironment,
           NODE_ENV: "production",
+          FRONTEND_URL: "https://feedbackdatadashboard.com",
           BYPASS_LOGIN_AUTH: "true",
         }),
       /BYPASS_LOGIN_AUTH cannot be enabled in production/,

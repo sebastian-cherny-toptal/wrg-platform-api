@@ -127,6 +127,9 @@ platform.
 1. Provision an empty PostgreSQL database and Redis instance.
 2. Configure the production environment without `BR_SEED_SOURCE` unless the
    explicitly committed Baton Rouge dataset is intentionally required.
+   Set `FRONTEND_URL` and `ADMIN_FRONTEND_URL` to the public application
+   origins, and list any additional Railway testing origins in the
+   comma-separated `CORS_ALLOWED_ORIGINS` variable.
 3. Run `npm run db:deploy` to create the schema from the committed Prisma
    migrations.
 4. Run `npm run db:seed` once to create the platform roles and permissions.
