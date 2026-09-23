@@ -32,6 +32,22 @@ test("default survey definition workbook contains both sheets and effective answ
     2026,
     [{ questionId: "question-1", value: 4 }],
   );
+  definition.push(
+    {
+      dataLabel: "126. Company Size",
+      caption: "Company Size",
+      type: "demographic",
+      position: 126,
+      options: [{ Id: "1", Caption: "1–49", Position: 1 }],
+    },
+    {
+      dataLabel: "127. Sample size",
+      caption: "Sample size",
+      type: "demographic",
+      position: 127,
+      options: [{ Id: "1", Caption: "1–49", Position: 1 }],
+    },
+  );
   const bytes = await surveyDefinitionWorkbook(definition);
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(bytes as unknown as ExcelJS.Buffer);
@@ -46,4 +62,10 @@ test("default survey definition workbook contains both sheets and effective answ
   );
   assert.equal(workbook.getWorksheet("Answers")?.rowCount, 8);
   assert.equal(workbook.getWorksheet("Answers")?.getCell("C5").value, "Agree");
+  for (const sheetName of ["Questions", "Answers"]) {
+    const keys = workbook.getWorksheet(sheetName)?.getColumn(1).values;
+    assert.ok(keys);
+    assert.equal(keys.includes("126. Company Size"), false);
+    assert.equal(keys.includes("127. Sample size"), false);
+  }
 });

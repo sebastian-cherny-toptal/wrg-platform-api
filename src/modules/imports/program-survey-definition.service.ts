@@ -37,6 +37,11 @@ const employeeSurvey: Prisma.SurveyWhereInput = {
   ],
 };
 
+const excludedSurveyDefinitionKeys = new Set([
+  "126. Company Size",
+  "127. Sample size",
+]);
+
 function object(value: Prisma.JsonValue | undefined): Prisma.JsonObject {
   return value && typeof value === "object" && !Array.isArray(value)
     ? value
@@ -204,6 +209,7 @@ export async function surveyDefinitionWorkbook(
     "score",
   ]);
   for (const question of definition) {
+    if (excludedSurveyDefinitionKeys.has(question.dataLabel)) continue;
     questions.addRow([
       question.dataLabel,
       question.caption,
