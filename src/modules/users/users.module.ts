@@ -121,7 +121,7 @@ class CreateUserDto {
   @ApiPropertyOptional({
     type: String,
     description:
-      "A native or migrated organization ID. For client users this may be derived from organization-program references.",
+      "A native or migrated organization ID. Required for client users and optional for promotional users; it may be derived from organization-program references.",
   })
   @IsOptional()
   @IsString()
@@ -130,7 +130,7 @@ class CreateUserDto {
   @ApiPropertyOptional({
     type: [String],
     description:
-      "Required for client users. Program IDs or organization-program references.",
+      "Required for client users and optional for promotional users. Program IDs or organization-program references.",
   })
   @IsOptional()
   @IsArray()
@@ -165,7 +165,7 @@ class UpdateUserDto {
   @ApiPropertyOptional({
     type: String,
     description:
-      "A native or migrated organization reference for client users.",
+      "A native or migrated organization reference for client or promotional users.",
   })
   @IsOptional()
   @IsString()
@@ -793,6 +793,8 @@ export class UsersService {
     }
 
     const isClient = role.key === "client";
+    const isPromotional = role.key === "promotional";
+    const supportsOrganizationPrograms = isClient || isPromotional;
     const projectReferences = dto.projects ?? [];
     const programReferences = dto.programs ?? [];
     if (isClient && programReferences.length === 0) {
@@ -800,9 +802,12 @@ export class UsersService {
         "At least one program is required for client users",
       );
     }
-    if (!isClient && (dto.organizationId || programReferences.length > 0)) {
+    if (
+      !supportsOrganizationPrograms &&
+      (dto.organizationId || programReferences.length > 0)
+    ) {
       throw new BadRequestException(
-        "Organization and programs can only be assigned to client users",
+        "Organization and programs can only be assigned to client or promotional users",
       );
     }
 
@@ -941,7 +946,7 @@ export class UsersService {
       throw new NotFoundException("One or more programs were not found");
     }
 
-    if (!organization && isClient) {
+    if (!organization && supportsOrganizationPrograms) {
       organization = referencedEnrollments[0]?.organization ?? null;
     }
     if (isClient && !organization) {
@@ -1005,7 +1010,10 @@ export class UsersService {
       .filter((enrollment): enrollment is (typeof enrollments)[number] =>
         Boolean(enrollment),
       );
-    if (isClient && selectedEnrollments.length !== selectedPrograms.length) {
+    if (
+      (isClient || (isPromotional && organization)) &&
+      selectedEnrollments.length !== selectedPrograms.length
+    ) {
       throw new BadRequestException(
         "One or more programs are not available to the selected organization",
       );
@@ -1029,13 +1037,25 @@ export class UsersService {
     if (managementProjects.length !== projectReferences.length) {
       throw new NotFoundException("One or more projects were not found");
     }
+    const enrollmentProjects = selectedEnrollments.map(
+      ({ project }) => project,
+    );
     const projects = isClient
       ? [
           ...new Map(
-            selectedEnrollments.map(({ project }) => [project.id, project]),
+            enrollmentProjects.map((project) => [project.id, project]),
           ).values(),
         ]
-      : managementProjects;
+      : isPromotional
+        ? [
+            ...new Map(
+              [...managementProjects, ...enrollmentProjects].map((project) => [
+                project.id,
+                project,
+              ]),
+            ).values(),
+          ]
+        : managementProjects;
     const primaryEnrollment = selectedEnrollments[0] ?? null;
 
     const password = dto.password ?? randomBytes(18).toString("base64url");
@@ -1241,6 +1261,8 @@ export class UsersService {
     }
     const effectiveRoleKey = role?.key ?? target.roles[0]?.role.key;
     const isClientRole = effectiveRoleKey === "client";
+    const isPromotionalRole = effectiveRoleKey === "promotional";
+    const supportsOrganizationPrograms = isClientRole || isPromotionalRole;
 
     const projectReferences = dto.projects;
     const projects =
@@ -1284,7 +1306,11 @@ export class UsersService {
     if (programs !== undefined && programs.length !== dto.programs?.length) {
       throw new NotFoundException("One or more programs were not found");
     }
-    if (programs !== undefined && !isClientRole) {
+    if (
+      programs !== undefined &&
+      !isClientRole &&
+      !(isPromotionalRole && (dto.organizationId || target.organizationId))
+    ) {
       const assignedProjectIds = new Set(
         projects !== undefined
           ? projects.map(({ id }) => id)
@@ -1301,8 +1327,10 @@ export class UsersService {
 
     let selectedOrganizationId: string | undefined;
     let primaryOrganizationProgramId: string | null | undefined;
-    let clientProjectIds: string[] | undefined;
-    if (isClientRole) {
+    let assignmentProjectIds: string[] | undefined;
+    const assignmentsChanged =
+      dto.organizationId !== undefined || programs !== undefined;
+    if (isClientRole || (isPromotionalRole && assignmentsChanged)) {
       let organizationId = target.organizationId ?? undefined;
       if (dto.organizationId !== undefined) {
         const organization = await this.prisma.organization.findFirst({
@@ -1335,7 +1363,7 @@ export class UsersService {
           throw new NotFoundException("Organization not found");
         }
       }
-      if (!organizationId) {
+      if (isClientRole && !organizationId) {
         throw new BadRequestException(
           "Organization is required for client users",
         );
@@ -1343,51 +1371,55 @@ export class UsersService {
       const effectiveProgramIds =
         programs?.map(({ id }) => id) ??
         target.programs.map(({ programId }) => programId);
-      if (effectiveProgramIds.length === 0) {
+      if (isClientRole && effectiveProgramIds.length === 0) {
         throw new BadRequestException(
           "At least one program is required for client users",
         );
       }
-      const enrollments = await this.prisma.organizationProgram.findMany({
-        where: {
-          organizationId,
-          programId: { in: effectiveProgramIds },
-          isIncluded: true,
-        },
-        select: {
-          id: true,
-          programId: true,
-          projectId: true,
-          purchasedEvSortingFilter: true,
-          reportAccess: true,
-          metrics: true,
-          paymentDetails: true,
-        },
-      });
-      if (
-        new Set(enrollments.map(({ programId }) => programId)).size !==
-        effectiveProgramIds.length
-      ) {
-        throw new BadRequestException(
-          "One or more programs are not available to the selected organization",
-        );
+      if (organizationId) {
+        const enrollments = await this.prisma.organizationProgram.findMany({
+          where: {
+            organizationId,
+            programId: { in: effectiveProgramIds },
+            isIncluded: true,
+          },
+          select: {
+            id: true,
+            programId: true,
+            projectId: true,
+            purchasedEvSortingFilter: true,
+            reportAccess: true,
+            metrics: true,
+            paymentDetails: true,
+          },
+        });
+        if (
+          new Set(enrollments.map(({ programId }) => programId)).size !==
+          effectiveProgramIds.length
+        ) {
+          throw new BadRequestException(
+            "One or more programs are not available to the selected organization",
+          );
+        }
+        selectedOrganizationId = organizationId;
+        primaryOrganizationProgramId = enrollments[0]?.id ?? null;
+        assignmentProjectIds = [
+          ...new Set(enrollments.map(({ projectId }) => projectId)),
+        ];
+        if (isClientRole) {
+          await Promise.all(
+            enrollments.map((enrollment) =>
+              this.prisma.organizationProgram.update({
+                where: { id: enrollment.id },
+                data: clientEnrollmentEntitlementData(enrollment),
+              }),
+            ),
+          );
+        }
       }
-      selectedOrganizationId = organizationId;
-      primaryOrganizationProgramId = enrollments[0]?.id ?? null;
-      clientProjectIds = [
-        ...new Set(enrollments.map(({ projectId }) => projectId)),
-      ];
-      await Promise.all(
-        enrollments.map((enrollment) =>
-          this.prisma.organizationProgram.update({
-            where: { id: enrollment.id },
-            data: clientEnrollmentEntitlementData(enrollment),
-          }),
-        ),
-      );
     } else if (dto.organizationId !== undefined) {
       throw new BadRequestException(
-        "Organization can only be assigned to client users",
+        "Organization can only be assigned to client or promotional users",
       );
     }
 
@@ -1422,7 +1454,7 @@ export class UsersService {
                   ? { connect: { id: primaryOrganizationProgramId } }
                   : { disconnect: true },
               }
-            : role && !isClientRole
+            : role && !supportsOrganizationPrograms
               ? {
                   organization: { disconnect: true },
                   organizationProgram: { disconnect: true },
@@ -1444,12 +1476,15 @@ export class UsersService {
                 },
               }
             : {}),
-          ...(clientProjectIds !== undefined &&
+          ...(assignmentProjectIds !== undefined &&
+          assignmentProjectIds.length > 0 &&
           (programs !== undefined || dto.organizationId !== undefined)
             ? {
                 projects: {
                   deleteMany: {},
-                  create: clientProjectIds.map((projectId) => ({ projectId })),
+                  create: assignmentProjectIds.map((projectId) => ({
+                    projectId,
+                  })),
                 },
               }
             : projects !== undefined

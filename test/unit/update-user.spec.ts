@@ -334,6 +334,13 @@ describe("admin program assignments", () => {
 });
 
 describe("bulk-compatible client updates", () => {
+  const admin: Principal = {
+    sub: "admin-1",
+    organizationId: null,
+    roles: ["admin"],
+    permissions: [],
+  };
+
   it("updates organization, Programs, Projects, role, and mobile together", async () => {
     let saved: Record<string, unknown> | undefined;
     const enrollmentUpdates: Array<Record<string, unknown>> = [];
@@ -481,5 +488,245 @@ describe("bulk-compatible client updates", () => {
       ),
       /programs were not found/u,
     );
+  });
+
+  it("stores optional promotional assignments without granting client entitlements", async () => {
+    let saved: Record<string, unknown> | undefined;
+    let entitlementUpdates = 0;
+    const prisma = {
+      user: {
+        findFirst: () =>
+          Promise.resolve({
+            id: "user-1",
+            organizationId: null,
+            organizationProgramId: null,
+            metadata: {},
+            projects: [],
+            programs: [],
+            roles: [{ role: { id: "promotional-role", key: "promotional" } }],
+          }),
+        update: ({ data }: { data: Record<string, unknown> }) => {
+          saved = data;
+          return Promise.resolve({
+            id: "user-1",
+            email: "promo@example.com",
+            username: "promo",
+            fullName: "Promo User",
+            status: "ACTIVE",
+            metadata: {},
+            createdAt: new Date(),
+            roles: [
+              {
+                role: {
+                  id: "promotional-role",
+                  key: "promotional",
+                  name: "Promotional",
+                },
+              },
+            ],
+            projects: [{ project: { id: "project-1", name: "Ad Age" } }],
+          });
+        },
+      },
+      role: {
+        findFirst: () =>
+          Promise.resolve({
+            id: "promotional-role",
+            key: "promotional",
+            name: "Promotional",
+          }),
+      },
+      project: {
+        findMany: () => Promise.resolve([{ id: "project-1", name: "Ad Age" }]),
+      },
+      program: {
+        findMany: () =>
+          Promise.resolve([{ id: "program-1", projectId: "project-1" }]),
+      },
+      organization: {
+        findFirst: () => Promise.resolve({ id: "organization-1" }),
+      },
+      organizationProgram: {
+        findMany: () =>
+          Promise.resolve([
+            {
+              id: "enrollment-1",
+              programId: "program-1",
+              projectId: "project-1",
+              purchasedEvSortingFilter: null,
+              reportAccess: {},
+              metrics: {},
+              paymentDetails: {},
+            },
+          ]),
+        update: () => {
+          entitlementUpdates += 1;
+          return Promise.resolve({ id: "enrollment-1" });
+        },
+      },
+    } as unknown as PrismaService;
+
+    await new UsersService(prisma, {} as UserInvitationMailer).update(
+      "user-1",
+      {
+        roleId: "promotional-role",
+        projects: ["project-1"],
+        organizationId: "organization-1",
+        programs: ["program-1"],
+      },
+      admin,
+    );
+
+    assert.ok(saved);
+    assert.deepEqual(saved.organization, {
+      connect: { id: "organization-1" },
+    });
+    assert.deepEqual(saved.organizationProgram, {
+      connect: { id: "enrollment-1" },
+    });
+    assert.deepEqual(saved.programs, {
+      deleteMany: {},
+      create: [{ programId: "program-1" }],
+    });
+    assert.deepEqual(saved.projects, {
+      deleteMany: {},
+      create: [{ projectId: "project-1" }],
+    });
+    assert.equal(entitlementUpdates, 0);
+  });
+
+  it("updates promotional users when Organization and Program remain empty", async () => {
+    let saved: Record<string, unknown> | undefined;
+    const prisma = {
+      user: {
+        findFirst: () =>
+          Promise.resolve({
+            id: "user-1",
+            organizationId: null,
+            organizationProgramId: null,
+            metadata: {},
+            projects: [],
+            programs: [],
+            roles: [{ role: { id: "promotional-role", key: "promotional" } }],
+          }),
+        update: ({ data }: { data: Record<string, unknown> }) => {
+          saved = data;
+          return Promise.resolve({
+            id: "user-1",
+            email: "promo@example.com",
+            username: "promo",
+            fullName: "Updated Promo User",
+            status: "ACTIVE",
+            metadata: {},
+            createdAt: new Date(),
+            roles: [
+              {
+                role: {
+                  id: "promotional-role",
+                  key: "promotional",
+                  name: "Promotional",
+                },
+              },
+            ],
+            projects: [],
+          });
+        },
+      },
+      role: {
+        findFirst: () =>
+          Promise.resolve({
+            id: "promotional-role",
+            key: "promotional",
+            name: "Promotional",
+          }),
+      },
+    } as unknown as PrismaService;
+
+    await new UsersService(prisma, {} as UserInvitationMailer).update(
+      "user-1",
+      {
+        fullName: "Updated Promo User",
+        roleId: "promotional-role",
+        projects: [],
+        programs: [],
+      },
+      admin,
+    );
+
+    assert.ok(saved);
+    assert.deepEqual(saved.programs, { deleteMany: {}, create: [] });
+    assert.equal("organization" in saved, false);
+  });
+
+  it("activates stored promotional assignments when changing the role to Client", async () => {
+    let saved: Record<string, unknown> | undefined;
+    let entitlementUpdates = 0;
+    const prisma = {
+      user: {
+        findFirst: () =>
+          Promise.resolve({
+            id: "user-1",
+            organizationId: "organization-1",
+            organizationProgramId: "enrollment-1",
+            metadata: {},
+            projects: [{ projectId: "project-1" }],
+            programs: [{ programId: "program-1" }],
+            roles: [{ role: { id: "promotional-role", key: "promotional" } }],
+          }),
+        update: ({ data }: { data: Record<string, unknown> }) => {
+          saved = data;
+          return Promise.resolve({
+            id: "user-1",
+            email: "promo@example.com",
+            username: "promo",
+            fullName: "Promo User",
+            status: "ACTIVE",
+            metadata: {},
+            createdAt: new Date(),
+            roles: [
+              { role: { id: "client-role", key: "client", name: "Client" } },
+            ],
+            projects: [{ project: { id: "project-1", name: "Ad Age" } }],
+          });
+        },
+      },
+      role: {
+        findFirst: () =>
+          Promise.resolve({ id: "client-role", key: "client", name: "Client" }),
+      },
+      organizationProgram: {
+        findMany: () =>
+          Promise.resolve([
+            {
+              id: "enrollment-1",
+              programId: "program-1",
+              projectId: "project-1",
+              purchasedEvSortingFilter: null,
+              reportAccess: {},
+              metrics: {},
+              paymentDetails: {},
+            },
+          ]),
+        update: () => {
+          entitlementUpdates += 1;
+          return Promise.resolve({ id: "enrollment-1" });
+        },
+      },
+    } as unknown as PrismaService;
+
+    await new UsersService(prisma, {} as UserInvitationMailer).update(
+      "user-1",
+      { roleId: "client-role" },
+      admin,
+    );
+
+    assert.ok(saved);
+    assert.equal(entitlementUpdates, 1);
+    assert.deepEqual(saved.organization, {
+      connect: { id: "organization-1" },
+    });
+    assert.deepEqual(saved.organizationProgram, {
+      connect: { id: "enrollment-1" },
+    });
   });
 });
