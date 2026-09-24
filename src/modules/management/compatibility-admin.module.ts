@@ -24,8 +24,8 @@ import {
 import { ConfigService } from "@nestjs/config";
 import { ApiBearerAuth, ApiConsumes, ApiTags } from "@nestjs/swagger";
 import { Prisma, type OrderStatus } from "@prisma/client";
+import { DeleteObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import type { FastifyReply, FastifyRequest } from "fastify";
-import AWS from "aws-sdk";
 import ExcelJS from "exceljs";
 import { randomUUID } from "node:crypto";
 import type { Env } from "../../config/env.js";
@@ -241,7 +241,7 @@ async function multipartPayload(
 
 @Injectable()
 class CompatibilityAssetStorage {
-  private readonly s3 = new AWS.S3();
+  private readonly s3 = new S3Client();
 
   constructor(
     @Inject(ConfigService) private readonly config: ConfigService<Env, true>,
@@ -249,7 +249,7 @@ class CompatibilityAssetStorage {
 
   async remove(bucket: string, key: string): Promise<void> {
     if (this.config.get("INTEGRATIONS_MOCK", { infer: true })) return;
-    await this.s3.deleteObject({ Bucket: bucket, Key: key }).promise();
+    await this.s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
   }
 }
 
