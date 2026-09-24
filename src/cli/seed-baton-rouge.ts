@@ -741,7 +741,7 @@ async function verifyImportedData(
   }
   const [reportUser, programCount] = await Promise.all([
     prisma.user.findUniqueOrThrow({
-      where: { email: testUserEmail },
+      where: { username: testUsername },
       select: {
         _count: { select: { programs: true } },
         organization: { select: { name: true } },

@@ -68,6 +68,97 @@
         ]
       }
     },
+    "/admin/impersonations/eligible-users": {
+      "get": {
+        "operationId": "AdminImpersonationController_eligibleUsers",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "admin impersonation"
+        ]
+      }
+    },
+    "/admin/impersonations": {
+      "post": {
+        "operationId": "AdminImpersonationController_start",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartImpersonationDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "admin impersonation"
+        ]
+      }
+    },
+    "/api/auth/impersonations/exchange": {
+      "post": {
+        "operationId": "ImpersonationExchangeController_exchange",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExchangeImpersonationDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "auth impersonation"
+        ]
+      }
+    },
+    "/api/auth/impersonations/current": {
+      "delete": {
+        "operationId": "ImpersonationExchangeController_revoke",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "auth impersonation"
+        ]
+      }
+    },
     "/user/create": {
       "post": {
         "operationId": "UsersController_create",
@@ -230,6 +321,25 @@
             "description": "The client user was authenticated."
           }
         },
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/user/report-statuses": {
+      "get": {
+        "operationId": "ClientLoginController_reportStatuses",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
         "tags": [
           "auth"
         ]
@@ -652,6 +762,135 @@
         ],
         "tags": [
           "reports"
+        ]
+      }
+    },
+    "/api/v1/reports/catalog": {
+      "get": {
+        "operationId": "ReportCatalogController_catalog_v1",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "reports"
+        ]
+      }
+    },
+    "/admin/report-product-templates": {
+      "get": {
+        "operationId": "ReportCatalogAdminController_templates",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "administration report catalog"
+        ]
+      }
+    },
+    "/admin/programs/{programId}/report-catalog": {
+      "get": {
+        "operationId": "ReportCatalogAdminController_programCatalog",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "administration report catalog"
+        ]
+      },
+      "put": {
+        "operationId": "ReportCatalogAdminController_updateProgramCatalog",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "administration report catalog"
+        ]
+      }
+    },
+    "/admin/programs/{programId}/category-prices": {
+      "put": {
+        "operationId": "ReportCatalogAdminController_updateProgramCategoryPrices",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "administration report catalog"
+        ]
+      }
+    },
+    "/admin/organization-programs/{organizationProgramId}/report-catalog": {
+      "get": {
+        "operationId": "ReportCatalogAdminController_organizationCatalog",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "administration report catalog"
+        ]
+      },
+      "put": {
+        "operationId": "ReportCatalogAdminController_updateOrganizationCatalog",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "administration report catalog"
         ]
       }
     },
@@ -1295,6 +1534,25 @@
         ]
       }
     },
+    "/client/responseDetailReportExcel": {
+      "get": {
+        "operationId": "CompatibilityReportsController_responseDetailWorkbook",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "reports"
+        ]
+      }
+    },
     "/client/responseCountByDemographicCategory": {
       "get": {
         "operationId": "CompatibilityReportsController_demographicResponseCounts",
@@ -1647,6 +1905,101 @@
         ]
       }
     },
+    "/admin/programs/{programId}/organizations-connection-fields.xlsx": {
+      "get": {
+        "operationId": "CompatibilityManagementController_organizationsConnectionWorkbook",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "management compatibility"
+        ]
+      }
+    },
+    "/admin/programs/{programId}/zoho-resync/preview": {
+      "post": {
+        "operationId": "CompatibilityManagementController_zohoResyncPreview",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "management compatibility"
+        ]
+      }
+    },
+    "/admin/programs/{programId}/zoho-resync/apply": {
+      "post": {
+        "operationId": "CompatibilityManagementController_zohoResyncApply",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "management compatibility"
+        ]
+      }
+    },
+    "/admin/projects/{id}": {
+      "delete": {
+        "operationId": "CompatibilityManagementController_deleteProject",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "management compatibility"
+        ]
+      }
+    },
+    "/admin/programs/{programId}": {
+      "delete": {
+        "operationId": "CompatibilityManagementController_deleteProgram",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "management compatibility"
+        ]
+      }
+    },
     "/admin/getpermissions/{roleId}": {
       "get": {
         "operationId": "CompatibilityManagementController_permissions",
@@ -1663,6 +2016,158 @@
         ],
         "tags": [
           "management compatibility"
+        ]
+      }
+    },
+    "/zoho/projects": {
+      "get": {
+        "operationId": "CompatibilityZohoController_listProjects",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Zoho compatibility"
+        ]
+      }
+    },
+    "/zoho/programs": {
+      "get": {
+        "operationId": "CompatibilityZohoController_listPrograms",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Zoho compatibility"
+        ]
+      }
+    },
+    "/zoho/projects/{projectId}/programs": {
+      "get": {
+        "operationId": "CompatibilityZohoController_listProgramsForProject",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Zoho compatibility"
+        ]
+      }
+    },
+    "/zoho/programs/{programId}/organizations": {
+      "get": {
+        "operationId": "CompatibilityZohoController_listOrganizationsForProgram",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Zoho compatibility"
+        ]
+      }
+    },
+    "/zoho/syncProjects": {
+      "get": {
+        "operationId": "CompatibilityZohoController_projects",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Zoho compatibility"
+        ]
+      }
+    },
+    "/zoho/syncPrograms": {
+      "get": {
+        "operationId": "CompatibilityZohoController_programs",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Zoho compatibility"
+        ]
+      }
+    },
+    "/zoho/syncOrganizations": {
+      "get": {
+        "operationId": "CompatibilityZohoController_organizations",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Zoho compatibility"
+        ]
+      }
+    },
+    "/zoho/syncClients": {
+      "get": {
+        "operationId": "CompatibilityZohoController_clients",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Zoho compatibility"
         ]
       }
     },
@@ -1759,25 +2264,6 @@
         ]
       }
     },
-    "/admin/uploadCustomReport": {
-      "post": {
-        "operationId": "CompatibilityAdminController_uploadCustomReport",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "tags": [
-          "administration compatibility"
-        ]
-      }
-    },
     "/admin/uploadKeyImpactAnalysis": {
       "post": {
         "operationId": "CompatibilityAdminController_uploadKeyImpactAnalysis",
@@ -1835,6 +2321,44 @@
         ]
       }
     },
+    "/admin/bulk-user-catalog": {
+      "get": {
+        "operationId": "CompatibilityAdminController_bulkUserCatalog",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "administration compatibility"
+        ]
+      }
+    },
+    "/admin/organization-options": {
+      "get": {
+        "operationId": "CompatibilityAdminController_organizationOptions",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "administration compatibility"
+        ]
+      }
+    },
     "/admin/getOrganizations": {
       "get": {
         "operationId": "CompatibilityAdminController_organizations",
@@ -1873,9 +2397,104 @@
         ]
       }
     },
+    "/admin/key-impact-analysis/pending": {
+      "get": {
+        "operationId": "CompatibilityAdminController_pendingKeyImpactAnalyses",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "administration compatibility"
+        ]
+      }
+    },
+    "/admin/key-impact-analysis/uploaded": {
+      "get": {
+        "operationId": "CompatibilityAdminController_uploadedKeyImpactAnalyses",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "administration compatibility"
+        ]
+      }
+    },
+    "/admin/key-impact-analysis/uploaded/{id}/download": {
+      "get": {
+        "operationId": "CompatibilityAdminController_downloadKeyImpactAnalysis",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "administration compatibility"
+        ]
+      }
+    },
+    "/admin/view-counts": {
+      "get": {
+        "operationId": "CompatibilityAdminController_viewCounts",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "administration compatibility"
+        ]
+      }
+    },
     "/admin/order/log": {
       "get": {
         "operationId": "CompatibilityAdminController_orderLogs",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "administration compatibility"
+        ]
+      }
+    },
+    "/admin/orders/{orderId}/validate-ach": {
+      "post": {
+        "operationId": "CompatibilityAdminController_validateAchOrder",
         "parameters": [],
         "responses": {
           "200": {
@@ -1968,6 +2587,196 @@
         ]
       }
     },
+    "/payment/stripePaymentIntent": {
+      "post": {
+        "operationId": "CompatibilityPaymentController_paymentIntent",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "payment compatibility"
+        ]
+      }
+    },
+    "/payment/checkout": {
+      "post": {
+        "operationId": "CompatibilityPaymentController_checkout",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "payment compatibility"
+        ]
+      }
+    },
+    "/payment/confirm": {
+      "post": {
+        "operationId": "CompatibilityPaymentController_confirmPayment",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "payment compatibility"
+        ]
+      }
+    },
+    "/payment/reconcile": {
+      "post": {
+        "operationId": "CompatibilityPaymentController_reconcilePayments",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "payment compatibility"
+        ]
+      }
+    },
+    "/admin/historicalImports/default-survey-definition.xlsx": {
+      "post": {
+        "operationId": "HistoricalImportController_downloadDefaultSurveyDefinition",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "administration historical import"
+        ]
+      }
+    },
+    "/admin/historicalImports/prepare": {
+      "post": {
+        "operationId": "HistoricalImportController_prepare",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "administration historical import"
+        ]
+      }
+    },
+    "/admin/historicalImports/match-ranking": {
+      "post": {
+        "operationId": "HistoricalImportController_matchRanking",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "administration historical import"
+        ]
+      }
+    },
+    "/admin/historicalImports/commit": {
+      "post": {
+        "operationId": "HistoricalImportController_submit",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "administration historical import"
+        ]
+      }
+    },
+    "/admin/programs/{programId}/survey-definition.xlsx": {
+      "get": {
+        "operationId": "ProgramSurveyDefinitionController_download",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "administration program survey definition"
+        ]
+      }
+    },
+    "/admin/programs/{programId}/survey-definition": {
+      "post": {
+        "operationId": "ProgramSurveyDefinitionController_upload",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "administration program survey definition"
+        ]
+      }
+    },
     "/api/v1/organizations/{organizationId}/commerce/checkout": {
       "post": {
         "operationId": "CommerceController_checkout_v1",
@@ -2016,117 +2825,31 @@
         ]
       }
     },
-    "/payment/stripePaymentIntent": {
+    "/api/v1/webhooks/stripe": {
       "post": {
-        "operationId": "CompatibilityPaymentController_paymentIntent",
+        "operationId": "StripeWebhookController_receive_v1",
         "parameters": [],
         "responses": {
-          "200": {
+          "201": {
             "description": ""
           }
         },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
         "tags": [
-          "payment compatibility"
+          "payments"
         ]
       }
     },
-    "/payment/checkout": {
+    "/webhook/stripe/payment": {
       "post": {
-        "operationId": "CompatibilityPaymentController_checkout",
+        "operationId": "StripeCompatibilityWebhookController_receive",
         "parameters": [],
         "responses": {
-          "200": {
+          "201": {
             "description": ""
           }
         },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
         "tags": [
-          "payment compatibility"
-        ]
-      }
-    },
-    "/zoho/syncProjects": {
-      "get": {
-        "operationId": "CompatibilityZohoController_projects",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "tags": [
-          "Zoho compatibility"
-        ]
-      }
-    },
-    "/zoho/syncPrograms": {
-      "get": {
-        "operationId": "CompatibilityZohoController_programs",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "tags": [
-          "Zoho compatibility"
-        ]
-      }
-    },
-    "/zoho/syncOrganizations": {
-      "get": {
-        "operationId": "CompatibilityZohoController_organizations",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "tags": [
-          "Zoho compatibility"
-        ]
-      }
-    },
-    "/zoho/syncClients": {
-      "get": {
-        "operationId": "CompatibilityZohoController_clients",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "tags": [
-          "Zoho compatibility"
+          "payments"
         ]
       }
     },
@@ -2211,1028 +2934,6 @@
         ],
         "tags": [
           "ops"
-        ]
-      }
-    },
-    "/api/v1/webhooks/stripe": {
-      "post": {
-        "operationId": "WebhooksController_stripeWebhook_v1",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "webhooks"
-        ]
-      }
-    },
-    "/api/v1/webhooks/zoho": {
-      "post": {
-        "operationId": "WebhooksController_zoho_v1",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "webhooks"
-        ]
-      }
-    },
-    "/api/v1/webhooks/checkmarket": {
-      "post": {
-        "operationId": "WebhooksController_checkMarket_v1",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "webhooks"
-        ]
-      }
-    },
-    "/user": {
-      "get": {
-        "operationId": "LegacyEndpointsController_user_get",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "post": {
-        "operationId": "LegacyEndpointsController_user_post",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "put": {
-        "operationId": "LegacyEndpointsController_user_put",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "delete": {
-        "operationId": "LegacyEndpointsController_user_delete",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "patch": {
-        "operationId": "LegacyEndpointsController_user_patch",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "options": {
-        "operationId": "LegacyEndpointsController_user_options",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "head": {
-        "operationId": "LegacyEndpointsController_user_head",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "search": {
-        "operationId": "LegacyEndpointsController_user_search",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      }
-    },
-    "/user/{one}": {
-      "get": {
-        "operationId": "LegacyEndpointsController_userOne_get",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "post": {
-        "operationId": "LegacyEndpointsController_userOne_post",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "put": {
-        "operationId": "LegacyEndpointsController_userOne_put",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "delete": {
-        "operationId": "LegacyEndpointsController_userOne_delete",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "patch": {
-        "operationId": "LegacyEndpointsController_userOne_patch",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "options": {
-        "operationId": "LegacyEndpointsController_userOne_options",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "head": {
-        "operationId": "LegacyEndpointsController_userOne_head",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "search": {
-        "operationId": "LegacyEndpointsController_userOne_search",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      }
-    },
-    "/user/{one}/{two}": {
-      "get": {
-        "operationId": "LegacyEndpointsController_userTwo_get",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "post": {
-        "operationId": "LegacyEndpointsController_userTwo_post",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "put": {
-        "operationId": "LegacyEndpointsController_userTwo_put",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "delete": {
-        "operationId": "LegacyEndpointsController_userTwo_delete",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "patch": {
-        "operationId": "LegacyEndpointsController_userTwo_patch",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "options": {
-        "operationId": "LegacyEndpointsController_userTwo_options",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "head": {
-        "operationId": "LegacyEndpointsController_userTwo_head",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "search": {
-        "operationId": "LegacyEndpointsController_userTwo_search",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      }
-    },
-    "/user/{one}/{two}/{three}": {
-      "get": {
-        "operationId": "LegacyEndpointsController_userThree_get",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "post": {
-        "operationId": "LegacyEndpointsController_userThree_post",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "put": {
-        "operationId": "LegacyEndpointsController_userThree_put",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "delete": {
-        "operationId": "LegacyEndpointsController_userThree_delete",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "patch": {
-        "operationId": "LegacyEndpointsController_userThree_patch",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "options": {
-        "operationId": "LegacyEndpointsController_userThree_options",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "head": {
-        "operationId": "LegacyEndpointsController_userThree_head",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "search": {
-        "operationId": "LegacyEndpointsController_userThree_search",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      }
-    },
-    "/user/{one}/{two}/{three}/{four}": {
-      "get": {
-        "operationId": "LegacyEndpointsController_userFour_get",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "post": {
-        "operationId": "LegacyEndpointsController_userFour_post",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "put": {
-        "operationId": "LegacyEndpointsController_userFour_put",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "delete": {
-        "operationId": "LegacyEndpointsController_userFour_delete",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "patch": {
-        "operationId": "LegacyEndpointsController_userFour_patch",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "options": {
-        "operationId": "LegacyEndpointsController_userFour_options",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "head": {
-        "operationId": "LegacyEndpointsController_userFour_head",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "search": {
-        "operationId": "LegacyEndpointsController_userFour_search",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      }
-    },
-    "/webhook": {
-      "get": {
-        "operationId": "LegacyEndpointsController_webhook_get",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "post": {
-        "operationId": "LegacyEndpointsController_webhook_post",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "put": {
-        "operationId": "LegacyEndpointsController_webhook_put",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "delete": {
-        "operationId": "LegacyEndpointsController_webhook_delete",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "patch": {
-        "operationId": "LegacyEndpointsController_webhook_patch",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "options": {
-        "operationId": "LegacyEndpointsController_webhook_options",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "head": {
-        "operationId": "LegacyEndpointsController_webhook_head",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "search": {
-        "operationId": "LegacyEndpointsController_webhook_search",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      }
-    },
-    "/webhook/{one}": {
-      "get": {
-        "operationId": "LegacyEndpointsController_webhookOne_get",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "post": {
-        "operationId": "LegacyEndpointsController_webhookOne_post",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "put": {
-        "operationId": "LegacyEndpointsController_webhookOne_put",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "delete": {
-        "operationId": "LegacyEndpointsController_webhookOne_delete",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "patch": {
-        "operationId": "LegacyEndpointsController_webhookOne_patch",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "options": {
-        "operationId": "LegacyEndpointsController_webhookOne_options",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "head": {
-        "operationId": "LegacyEndpointsController_webhookOne_head",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "search": {
-        "operationId": "LegacyEndpointsController_webhookOne_search",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      }
-    },
-    "/webhook/{one}/{two}": {
-      "get": {
-        "operationId": "LegacyEndpointsController_webhookTwo_get",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "post": {
-        "operationId": "LegacyEndpointsController_webhookTwo_post",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "put": {
-        "operationId": "LegacyEndpointsController_webhookTwo_put",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "delete": {
-        "operationId": "LegacyEndpointsController_webhookTwo_delete",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "patch": {
-        "operationId": "LegacyEndpointsController_webhookTwo_patch",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "options": {
-        "operationId": "LegacyEndpointsController_webhookTwo_options",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "head": {
-        "operationId": "LegacyEndpointsController_webhookTwo_head",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "search": {
-        "operationId": "LegacyEndpointsController_webhookTwo_search",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      }
-    },
-    "/webhook/{one}/{two}/{three}": {
-      "get": {
-        "operationId": "LegacyEndpointsController_webhookThree_get",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "post": {
-        "operationId": "LegacyEndpointsController_webhookThree_post",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "put": {
-        "operationId": "LegacyEndpointsController_webhookThree_put",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "delete": {
-        "operationId": "LegacyEndpointsController_webhookThree_delete",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "patch": {
-        "operationId": "LegacyEndpointsController_webhookThree_patch",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "options": {
-        "operationId": "LegacyEndpointsController_webhookThree_options",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "head": {
-        "operationId": "LegacyEndpointsController_webhookThree_head",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "search": {
-        "operationId": "LegacyEndpointsController_webhookThree_search",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      }
-    },
-    "/webhook/{one}/{two}/{three}/{four}": {
-      "get": {
-        "operationId": "LegacyEndpointsController_webhookFour_get",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "post": {
-        "operationId": "LegacyEndpointsController_webhookFour_post",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "put": {
-        "operationId": "LegacyEndpointsController_webhookFour_put",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "delete": {
-        "operationId": "LegacyEndpointsController_webhookFour_delete",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "patch": {
-        "operationId": "LegacyEndpointsController_webhookFour_patch",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "options": {
-        "operationId": "LegacyEndpointsController_webhookFour_options",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "head": {
-        "operationId": "LegacyEndpointsController_webhookFour_head",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
-        ]
-      },
-      "search": {
-        "operationId": "LegacyEndpointsController_webhookFour_search",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "LegacyEndpoints"
         ]
       }
     },
@@ -3330,9 +3031,9 @@
       "LoginDto": {
         "type": "object",
         "properties": {
-          "email": {
+          "username": {
             "type": "string",
-            "example": "admin@example.test"
+            "example": "admin"
           },
           "password": {
             "type": "string",
@@ -3341,7 +3042,7 @@
           }
         },
         "required": [
-          "email",
+          "username",
           "password"
         ]
       },
@@ -3355,6 +3056,14 @@
         "required": [
           "refreshToken"
         ]
+      },
+      "StartImpersonationDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "ExchangeImpersonationDto": {
+        "type": "object",
+        "properties": {}
       },
       "CreateUserDto": {
         "type": "object",
@@ -3398,10 +3107,10 @@
           },
           "organizationId": {
             "type": "string",
-            "description": "Required for client users. A native or migrated organization ID."
+            "description": "A native or migrated organization ID. For client users this may be derived from organization-program references."
           },
           "programs": {
-            "description": "Required for client users. Programs enrolled to the selected organization.",
+            "description": "Required for client users. Program IDs or organization-program references.",
             "type": "array",
             "items": {
               "type": "string"
@@ -3432,6 +3141,10 @@
           "mobile": {
             "type": "string"
           },
+          "organizationId": {
+            "type": "string",
+            "description": "A native or migrated organization reference for client users."
+          },
           "mfa": {
             "type": "string",
             "enum": [
@@ -3445,6 +3158,13 @@
           },
           "projects": {
             "description": "Native project IDs or migrated legacy project IDs.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "programs": {
+            "description": "Programs within the user's assigned projects.",
             "type": "array",
             "items": {
               "type": "string"
@@ -3469,7 +3189,7 @@
       "ManagementLoginStartDto": {
         "type": "object",
         "properties": {
-          "email": {
+          "username": {
             "type": "string"
           },
           "password": {
@@ -3478,7 +3198,7 @@
           }
         },
         "required": [
-          "email",
+          "username",
           "password"
         ]
       },
@@ -3542,13 +3262,13 @@
       "ForgotPasswordDto": {
         "type": "object",
         "properties": {
-          "email": {
-            "type": "string"
-          },
           "username": {
             "type": "string"
           }
-        }
+        },
+        "required": [
+          "username"
+        ]
       },
       "CompleteForgotPasswordDto": {
         "type": "object",

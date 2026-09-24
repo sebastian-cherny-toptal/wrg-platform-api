@@ -187,7 +187,7 @@ model User {
   externalId                  String?              @unique
   organizationId              String?              @db.Uuid
   organizationProgramId       String?              @db.Uuid
-  email                       String               @unique
+  email                       String
   username                    String?              @unique
   fullName                    String
   passwordHash                String

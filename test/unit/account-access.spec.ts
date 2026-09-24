@@ -192,7 +192,7 @@ describe("native account access endpoints", () => {
           method: "POST",
           url: "/user/management/login",
           payload: {
-            email: "admin@example.com",
+            username: "admin",
             password: "Password123!",
           },
         }),
@@ -226,7 +226,7 @@ describe("native account access endpoints", () => {
         app.inject({
           method: "POST",
           url: "/user/forgot-password",
-          payload: { email: "admin@example.com" },
+          payload: { username: "admin" },
         }),
         app.inject({
           method: "PUT",
@@ -387,13 +387,18 @@ describe("account recovery service", () => {
         }
       | undefined;
     let emailText: string | undefined;
+    let lookupWhere: Record<string, unknown> | undefined;
     const prisma = {
       user: {
-        findFirst: () =>
-          Promise.resolve({
+        findUnique: (args: { where: Record<string, unknown> }) => {
+          lookupWhere = args.where;
+          return Promise.resolve({
             id: "6c79998f-10bd-45af-bdd1-61e11b50297a",
             email: "admin@example.com",
-          }),
+            status: "ACTIVE",
+            roles: [],
+          });
+        },
       },
     } as unknown as PrismaService;
     const auth = {} as AuthService;
@@ -425,10 +430,11 @@ describe("account recovery service", () => {
     );
 
     const response = await service.requestForgotPassword({
-      email: " Admin@Example.com ",
+      username: " admin ",
     });
 
     assert.equal(response.success, true);
+    assert.deepEqual(lookupWhere, { username: "admin" });
     assert.equal(typeof response.data.key, "string");
     assert.ok(response.data.key.length >= 32);
     assert.equal("otp" in response.data, false);
@@ -506,6 +512,39 @@ describe("account recovery service", () => {
     assert.equal(deletedKey, "recovery-key");
   });
 
+  it("emails every username associated with a shared email address", async () => {
+    let deliveredText: string | undefined;
+    const prisma = {
+      user: {
+        findMany: (args: { where: Record<string, unknown> }) => {
+          assert.deepEqual(args.where, { email: "shared@example.com" });
+          return Promise.resolve([
+            { username: "first.user" },
+            { username: "second.user" },
+          ]);
+        },
+      },
+    } as unknown as PrismaService;
+    const mailer = {
+      assertConfigured: () => undefined,
+      send: (_email: string, _subject: string, text: string) => {
+        deliveredText = text;
+        return Promise.resolve();
+      },
+    } as unknown as UserInvitationMailer;
+    const service = new AccountAccessService(
+      prisma,
+      {} as AuthService,
+      {} as AccountRecoveryStore,
+      mailer,
+      {} as ConfigService<Env, true>,
+    );
+
+    await service.forgotUsername(" Shared@Example.COM ");
+
+    assert.equal(deliveredText, "Your usernames are: first.user, second.user");
+  });
+
   it("authenticates management users and issues tokens with native role claims", async () => {
     const passwordHash = await hash("Password123!");
     let issuedPrincipal: Principal | undefined;
@@ -534,7 +573,10 @@ describe("account recovery service", () => {
     };
     const prisma = {
       user: {
-        findUnique: () => Promise.resolve(user),
+        findUnique: (args: { where: Record<string, unknown> }) => {
+          assert.deepEqual(args.where, { username: "admin" });
+          return Promise.resolve(user);
+        },
         findFirst: () => Promise.resolve(user),
       },
     } as unknown as PrismaService;
@@ -556,7 +598,7 @@ describe("account recovery service", () => {
     );
 
     const start = await service.startManagementLogin({
-      email: " Admin@Example.com ",
+      username: " admin ",
       password: "Password123!",
     });
     const complete = await service.completeManagementLogin({
@@ -673,6 +715,46 @@ describe("account recovery service", () => {
     );
     assert.equal(metadata.passwordChangeRequired, false);
     assert.equal(deleted, true);
+  });
+});
+
+describe("native username login", () => {
+  it("uses the unique username rather than email to find the account", async () => {
+    const accessSecret = "access-secret-that-is-at-least-32-characters";
+    const refreshSecret = "refresh-secret-that-is-at-least-32-characters";
+    const passwordHash = await hash("Password123!");
+    let lookupWhere: Record<string, unknown> | undefined;
+    const prisma = {
+      user: {
+        findUnique: (args: { where: Record<string, unknown> }) => {
+          lookupWhere = args.where;
+          return Promise.resolve({
+            id: "6c79998f-10bd-45af-bdd1-61e11b50297a",
+            organizationId: null,
+            status: "ACTIVE",
+            passwordHash,
+            roles: [],
+          });
+        },
+      },
+      session: { create: () => Promise.resolve({}) },
+    } as unknown as PrismaService;
+    const config = {
+      get: (key: keyof Env) => {
+        const values: Partial<Env> = {
+          JWT_ACCESS_SECRET: accessSecret,
+          JWT_REFRESH_SECRET: refreshSecret,
+          JWT_ACCESS_TTL: "15m",
+          JWT_REFRESH_TTL_DAYS: 30,
+        };
+        return values[key];
+      },
+    } as ConfigService<Env, true>;
+    const auth = new AuthService(prisma, new JwtService(), config);
+
+    await auth.login(" admin ", "Password123!");
+
+    assert.deepEqual(lookupWhere, { username: "admin" });
   });
 });
 

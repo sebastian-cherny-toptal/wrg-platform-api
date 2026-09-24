@@ -87,8 +87,9 @@ type AccountSecretNamespace =
 
 class ManagementLoginStartDto {
   @ApiProperty({ type: String })
-  @IsEmail()
-  email!: string;
+  @IsString()
+  @MinLength(1)
+  username!: string;
 
   @ApiProperty({ type: String, minLength: 8 })
   @IsString()
@@ -146,16 +147,10 @@ class CompleteForgotPasswordDto extends ResetPasswordDto {
 }
 
 class ForgotPasswordDto {
-  @ApiPropertyOptional({ type: String })
-  @IsOptional()
-  @IsEmail()
-  email?: string;
-
-  @ApiPropertyOptional({ type: String })
-  @IsOptional()
+  @ApiProperty({ type: String })
   @IsString()
   @MinLength(1)
-  username?: string;
+  username!: string;
 }
 
 class ForgotUsernameDto {
@@ -296,7 +291,7 @@ export class AccountAccessService {
     message: "Login Successfully";
     data: { userId: string; "2faVerified": boolean };
   }> {
-    const user = await this.managementUserByEmail(dto.email);
+    const user = await this.managementUserByUsername(dto.username);
     let passwordMatches = false;
     try {
       passwordMatches = await verify(user.passwordHash, dto.password);
@@ -458,28 +453,24 @@ export class AccountAccessService {
     message: "true";
     data: { key: string };
   }> {
-    const email = dto.email?.trim().toLowerCase();
-    const username = dto.username?.trim();
-    if (!email && !username) {
-      throw new BadRequestException("Please provide email or username");
-    }
+    const username = dto.username.trim();
+    if (!username) throw new BadRequestException("Username is required");
     this.mailer.assertConfigured();
-    const identity: Prisma.UserWhereInput = email
-      ? { email }
-      : username
-        ? { username }
-        : {};
-    const user = await this.prisma.user.findFirst({
-      where: {
-        status: "ACTIVE",
-        ...identity,
-        roles: {
-          none: { role: { key: { in: ["client", "user"] } } },
-        },
+    const user = await this.prisma.user.findUnique({
+      where: { username },
+      select: {
+        id: true,
+        email: true,
+        status: true,
+        roles: { select: { role: { select: { key: true } } } },
       },
-      select: { id: true, email: true },
     });
-    if (!user) throw new NotFoundException("email or username is incorrect");
+    if (
+      user?.status !== "ACTIVE" ||
+      user.roles.some(({ role }) => ["client", "user"].includes(role.key))
+    ) {
+      throw new NotFoundException("username is incorrect");
+    }
     const key = randomBytes(32).toString("base64url");
     const otp = randomInt(100_000, 1_000_000).toString();
     await this.recovery.set(
@@ -514,17 +505,22 @@ export class AccountAccessService {
   }> {
     this.mailer.assertConfigured();
     const email = emailValue.trim().toLowerCase();
-    const user = await this.prisma.user.findUnique({
+    const users = await this.prisma.user.findMany({
       where: { email },
-      select: { email: true, username: true },
+      select: { username: true },
     });
-    if (!user?.username) {
+    const usernames = users.flatMap(({ username }) =>
+      username ? [username] : [],
+    );
+    if (usernames.length === 0) {
       throw new NotFoundException("username is incorrect");
     }
     await this.mailer.send(
-      user.email,
+      email,
       "Username",
-      `Your username is: ${user.username}`,
+      usernames.length === 1
+        ? `Your username is: ${usernames[0]}`
+        : `Your usernames are: ${usernames.join(", ")}`,
     );
     return { success: true, message: "sent successfully" };
   }
@@ -677,10 +673,10 @@ export class AccountAccessService {
     return user;
   }
 
-  private async managementUserByEmail(emailValue: string) {
-    const email = emailValue.trim().toLowerCase();
+  private async managementUserByUsername(usernameValue: string) {
+    const username = usernameValue.trim();
     const user = await this.prisma.user.findUnique({
-      where: { email },
+      where: { username },
       include: this.managementUserRelations(),
     });
     if (!user || !this.isManagementUser(user)) {

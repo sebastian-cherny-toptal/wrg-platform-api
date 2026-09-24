@@ -192,6 +192,58 @@ describe("update user endpoint", () => {
       /only update your own user/u,
     );
   });
+
+  it("allows changing a user to an email already used by another account", async () => {
+    const targetId = "6c79998f-10bd-45af-bdd1-61e11b50297a";
+    let lookupCount = 0;
+    let updateData: Record<string, unknown> | undefined;
+    const prisma = {
+      user: {
+        findFirst: () => {
+          lookupCount += 1;
+          return Promise.resolve({
+            id: targetId,
+            metadata: {},
+            organizationId: null,
+            organizationProgramId: null,
+            projects: [],
+            programs: [],
+            roles: [],
+          });
+        },
+        update: ({ data }: { data: Record<string, unknown> }) => {
+          updateData = data;
+          return Promise.resolve({
+            id: targetId,
+            email: "shared@example.com",
+            username: "unique.username",
+            fullName: "Example Person",
+            status: "ACTIVE",
+            metadata: {},
+            createdAt: new Date("2026-01-01T00:00:00.000Z"),
+            roles: [],
+            projects: [],
+          });
+        },
+      },
+    } as unknown as PrismaService;
+    const service = new UsersService(prisma, {} as UserInvitationMailer);
+
+    const response = await service.update(
+      targetId,
+      { email: " Shared@Example.COM " },
+      {
+        sub: targetId,
+        organizationId: null,
+        roles: ["manager"],
+        permissions: [],
+      },
+    );
+
+    assert.equal(lookupCount, 1);
+    assert.equal(updateData?.email, "shared@example.com");
+    assert.equal(response.data.email, "shared@example.com");
+  });
 });
 
 describe("admin program assignments", () => {

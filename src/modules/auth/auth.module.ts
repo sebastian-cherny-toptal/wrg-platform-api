@@ -15,7 +15,7 @@ import { JwtModule, JwtService } from "@nestjs/jwt";
 import { AuthGuard, PassportModule, PassportStrategy } from "@nestjs/passport";
 import { ApiBearerAuth, ApiProperty, ApiTags } from "@nestjs/swagger";
 import { hash, verify } from "argon2";
-import { IsEmail, IsString, MinLength } from "class-validator";
+import { IsString, MinLength } from "class-validator";
 import { ExtractJwt, Strategy } from "passport-jwt";
 import { BodyDto } from "../../common/http/body-dto.js";
 import type { Env } from "../../config/env.js";
@@ -38,9 +38,10 @@ export interface Principal {
 }
 
 class LoginDto {
-  @ApiProperty({ type: String, example: "admin@example.test" })
-  @IsEmail()
-  email!: string;
+  @ApiProperty({ type: String, example: "admin" })
+  @IsString()
+  @MinLength(1)
+  username!: string;
 
   @ApiProperty({ type: String, example: "ChangeMe123!", minLength: 8 })
   @IsString()
@@ -149,11 +150,11 @@ export class AuthService {
   ) {}
 
   async login(
-    email: string,
+    username: string,
     password: string,
   ): Promise<{ accessToken: string; refreshToken: string }> {
     const user = await this.prisma.user.findUnique({
-      where: { email: email.toLowerCase() },
+      where: { username: username.trim() },
       include: {
         roles: {
           include: {
@@ -343,7 +344,7 @@ class AuthController {
 
   @Post("login")
   login(@BodyDto(LoginDto) body: LoginDto) {
-    return this.auth.login(body.email, body.password);
+    return this.auth.login(body.username, body.password);
   }
 
   @Post("refresh")

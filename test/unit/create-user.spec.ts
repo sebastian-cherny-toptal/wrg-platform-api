@@ -195,9 +195,15 @@ describe("create user endpoint", () => {
   it("normalizes the email and never stores or returns the plaintext password", async () => {
     let createdData: Record<string, unknown> | undefined;
     let deliveredPassword: string | undefined;
+    let uniquenessLookup: Record<string, unknown> | undefined;
     const prisma = {
       user: {
-        findUnique: () => Promise.resolve(null),
+        findUnique: (args: { where: Record<string, unknown> }) => {
+          uniquenessLookup = args.where;
+          return Promise.resolve(
+            "email" in args.where ? { id: "existing-email-user-id" } : null,
+          );
+        },
         updateMany: () => Promise.resolve({ count: 0 }),
         create: (args: { data: Record<string, unknown> }) => {
           createdData = args.data;
@@ -249,6 +255,7 @@ describe("create user endpoint", () => {
     assert.ok(createdData);
     assert.equal(createdData.status, "INVITED");
     assert.equal(createdData.username, "example.person");
+    assert.deepEqual(uniquenessLookup, { username: "example.person" });
     assert.equal(typeof createdData.passwordHash, "string");
     assert.notEqual(createdData.passwordHash, plaintextPassword);
     assert.equal("password" in response.data, false);

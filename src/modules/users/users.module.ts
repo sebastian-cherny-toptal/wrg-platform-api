@@ -761,7 +761,7 @@ export class UsersService {
 
     if (
       await this.prisma.user.findUnique({
-        where: { email },
+        where: { username },
         select: { id: true },
       })
     ) {
@@ -1206,13 +1206,6 @@ export class UsersService {
     }
 
     const email = dto.email?.trim().toLowerCase();
-    if (email) {
-      const existing = await this.prisma.user.findFirst({
-        where: { email, id: { not: target.id } },
-        select: { id: true },
-      });
-      if (existing) throw new ConflictException("User already exists");
-    }
 
     const fullName = dto.fullName?.trim();
     if (fullName === "") throw new BadRequestException("Full name is required");
