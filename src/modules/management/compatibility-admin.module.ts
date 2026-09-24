@@ -611,9 +611,7 @@ export class CompatibilityAdminService {
     const organizations = await this.prisma.organization.findMany({
       where: {
         ...(reference ? referenceWhere(reference) : {}),
-        ...(hasEnrollmentFilter
-          ? { programs: { some: enrollmentWhere } }
-          : {}),
+        ...(hasEnrollmentFilter ? { programs: { some: enrollmentWhere } } : {}),
       },
       orderBy: { createdAt: "desc" },
       include: {
@@ -915,6 +913,98 @@ export class CompatibilityAdminService {
         activity,
         roles,
       },
+    };
+  }
+
+  async bulkUserCatalog(principal: Principal) {
+    this.assertAdmin(principal);
+    const [roles, projects, organizations, users] = await Promise.all([
+      this.prisma.role.findMany({
+        orderBy: { key: "asc" },
+        select: {
+          id: true,
+          key: true,
+          name: true,
+          _count: { select: { users: true } },
+        },
+      }),
+      this.prisma.project.findMany({
+        orderBy: { createdAt: "desc" },
+        select: {
+          id: true,
+          name: true,
+          programs: {
+            orderBy: [{ year: "desc" }, { createdAt: "desc" }],
+            select: { id: true, name: true, year: true },
+          },
+        },
+      }),
+      this.matchingOrganizationOptions(),
+      this.prisma.user.findMany({
+        where: { status: { not: "DISABLED" } },
+        orderBy: { createdAt: "desc" },
+        select: {
+          id: true,
+          fullName: true,
+          email: true,
+          username: true,
+          metadata: true,
+          organization: { select: { id: true, name: true } },
+          roles: {
+            select: { role: { select: { id: true, key: true } } },
+          },
+          projects: {
+            select: { project: { select: { id: true, name: true } } },
+          },
+          programs: {
+            select: {
+              program: { select: { id: true, name: true, year: true } },
+            },
+          },
+        },
+      }),
+    ]);
+    return {
+      success: true,
+      data: {
+        roles: roles.map((role) => ({
+          id: role.id,
+          key: role.key,
+          name: role.name,
+          userCount: role._count.users,
+        })),
+        projects,
+        organizations,
+        users: users.map((user) => {
+          const role = user.roles[0]?.role;
+          return {
+            id: user.id,
+            fullName: user.fullName,
+            email: user.email,
+            username: user.username,
+            mobile: optionalString(jsonObject(user.metadata).mobile) ?? null,
+            role: role?.key ?? null,
+            roleId: role?.id ?? null,
+            organization: user.organization,
+            projects: user.projects.map(({ project }) => project),
+            programDetails: user.programs.map(({ program }) => program),
+          };
+        }),
+      },
+    };
+  }
+
+  async organizationOptions(
+    principal: Principal,
+    projectReference: string | undefined,
+  ) {
+    this.assertAdmin(principal);
+    if (!projectReference)
+      throw new BadRequestException("projectId is required");
+    const project = await this.project(projectReference);
+    return {
+      success: true,
+      data: await this.matchingOrganizationOptions(project.id),
     };
   }
 
@@ -1342,6 +1432,57 @@ export class CompatibilityAdminService {
     }));
   }
 
+  private async matchingOrganizationOptions(projectId?: string) {
+    const enrollmentWhere = {
+      isIncluded: true,
+      ...(projectId ? { projectId } : {}),
+    };
+    const organizations = await this.prisma.organization.findMany({
+      where: { programs: { some: enrollmentWhere } },
+      orderBy: { name: "asc" },
+      select: {
+        id: true,
+        name: true,
+        metadata: true,
+        programs: {
+          where: enrollmentWhere,
+          select: { programId: true, metrics: true },
+        },
+      },
+    });
+    return organizations.flatMap((organization) => {
+      const fallbackName =
+        optionalString(
+          jsonObject(organization.metadata).sourceOrganizationName,
+        ) ?? organization.name;
+      const groups = new Map<
+        string,
+        { name: string; programIds: Set<string> }
+      >();
+      for (const enrollment of organization.programs) {
+        const name =
+          optionalString(
+            jsonObject(enrollment.metrics).Source_Organization_Name,
+          ) ?? fallbackName;
+        const key = name
+          .toLocaleLowerCase()
+          .replace(/[^a-z0-9]+/gu, " ")
+          .trim();
+        const group = groups.get(key) ?? {
+          name,
+          programIds: new Set<string>(),
+        };
+        group.programIds.add(enrollment.programId);
+        groups.set(key, group);
+      }
+      return [...groups.values()].map((group) => ({
+        id: organization.id,
+        name: group.name,
+        programIds: [...group.programIds],
+      }));
+    });
+  }
+
   private async organization(reference: string) {
     const value = await this.prisma.organization.findFirst({
       where: referenceWhere(reference),
@@ -1473,18 +1614,26 @@ export class CompatibilityAdminController {
     return this.admin.deleteCustomReport(principal, id);
   }
 
+  @Get("bulk-user-catalog")
+  bulkUserCatalog(@CurrentUser() principal: Principal) {
+    return this.admin.bulkUserCatalog(principal);
+  }
+
+  @Get("organization-options")
+  organizationOptions(
+    @CurrentUser() principal: Principal,
+    @Query("projectId") projectId: string | undefined,
+  ) {
+    return this.admin.organizationOptions(principal, projectId);
+  }
+
   @Get("getOrganizations")
   organizations(
     @CurrentUser() principal: Principal,
     @Query("programId") programId: string | undefined,
     @Query("projectId") projectId: string | undefined,
   ) {
-    return this.admin.organizations(
-      principal,
-      undefined,
-      programId,
-      projectId,
-    );
+    return this.admin.organizations(principal, undefined, programId, projectId);
   }
 
   @Get("getOrganizations/:id")
