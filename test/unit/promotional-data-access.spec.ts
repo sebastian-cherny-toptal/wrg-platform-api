@@ -40,7 +40,7 @@ class TestJwtStrategy extends PassportStrategy(Strategy) {
   }
 }
 
-it("keeps real dashboard and report responses out of promotional sessions", async () => {
+it("hides an assigned user's real data while Promotional and exposes it after a fresh Client login", async () => {
   const prisma = {
     program: {
       findFirst: () => ({
@@ -109,7 +109,7 @@ it("keeps real dashboard and report responses out of promotional sessions", asyn
   await app.init();
   const token = (role: "promotional" | "client") =>
     app.get(JwtService).sign({
-      sub: `${role}-1`,
+      sub: "assigned-user-1",
       organizationId: "organization-1",
       roles: [role],
       permissions: [],
@@ -248,7 +248,7 @@ it("keeps real dashboard and report responses out of promotional sessions", asyn
       .get(CompatibilityReportsService)
       .feedbackWorkbook(
         {
-          sub: "promotional-1",
+          sub: "assigned-user-1",
           organizationId: "organization-1",
           roles: ["promotional"],
           permissions: [],
