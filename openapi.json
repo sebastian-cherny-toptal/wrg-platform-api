@@ -2777,35 +2777,6 @@
         ]
       }
     },
-    "/api/v1/organizations/{organizationId}/commerce/checkout": {
-      "post": {
-        "operationId": "CommerceController_checkout_v1",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CheckoutDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "tags": [
-          "commerce"
-        ]
-      }
-    },
     "/api/v1/organizations/{organizationId}/commerce/orders": {
       "get": {
         "operationId": "CommerceController_orders_v1",
@@ -3451,46 +3422,6 @@
           "category",
           "curruntYear",
           "prevYear"
-        ]
-      },
-      "CheckoutDto": {
-        "type": "object",
-        "properties": {
-          "currency": {
-            "type": "string",
-            "enum": [
-              "USD",
-              "CAD",
-              "GBP"
-            ]
-          },
-          "amountMinor": {
-            "type": "number",
-            "minimum": 1
-          },
-          "items": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "additionalProperties": true
-            }
-          },
-          "organizationProgramId": {
-            "type": "string"
-          },
-          "paymentMethod": {
-            "type": "string",
-            "enum": [
-              "card",
-              "invoice"
-            ]
-          }
-        },
-        "required": [
-          "currency",
-          "amountMinor",
-          "items",
-          "paymentMethod"
         ]
       },
       "StartSyncDto": {

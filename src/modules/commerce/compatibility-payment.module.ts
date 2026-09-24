@@ -459,6 +459,14 @@ export class CompatibilityPaymentService {
       });
       return;
     }
+    if (
+      order.paymentMethod === "card" ||
+      order.paymentMethod === "invoice"
+    ) {
+      throw new ConflictException(
+        "Order was not created by the server-priced checkout",
+      );
+    }
     const rawItems = Array.isArray(order.items) ? order.items : [order.items];
     const items = rawItems.flatMap((entry): CatalogCheckoutItem[] => {
       const value = catalogJsonObject(entry);
