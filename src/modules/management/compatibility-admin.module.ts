@@ -592,21 +592,33 @@ export class CompatibilityAdminService {
     principal: Principal,
     reference?: string,
     programReference?: string,
+    projectReference?: string,
   ) {
     this.assertPermission(principal, "previewClientsDashboardAccess");
     let programId: string | undefined;
     if (programReference) {
       programId = (await this.program(programReference)).id;
     }
+    let projectId: string | undefined;
+    if (projectReference) {
+      projectId = (await this.project(projectReference)).id;
+    }
+    const enrollmentWhere = {
+      ...(programId ? { programId } : {}),
+      ...(projectId ? { projectId } : {}),
+    };
+    const hasEnrollmentFilter = Boolean(programId ?? projectId);
     const organizations = await this.prisma.organization.findMany({
       where: {
         ...(reference ? referenceWhere(reference) : {}),
-        ...(programId ? { programs: { some: { programId } } } : {}),
+        ...(hasEnrollmentFilter
+          ? { programs: { some: enrollmentWhere } }
+          : {}),
       },
       orderBy: { createdAt: "desc" },
       include: {
         programs: {
-          ...(programId ? { where: { programId } } : {}),
+          ...(hasEnrollmentFilter ? { where: enrollmentWhere } : {}),
           include: { program: true, project: true },
         },
         users: {
@@ -717,7 +729,6 @@ export class CompatibilityAdminService {
                   enrollment.project.id,
                 programId: [
                   {
-                    ...jsonObject(enrollment.program.metadata),
                     _id:
                       enrollment.program.legacyId ??
                       enrollment.program.externalId ??
@@ -1466,8 +1477,14 @@ export class CompatibilityAdminController {
   organizations(
     @CurrentUser() principal: Principal,
     @Query("programId") programId: string | undefined,
+    @Query("projectId") projectId: string | undefined,
   ) {
-    return this.admin.organizations(principal, undefined, programId);
+    return this.admin.organizations(
+      principal,
+      undefined,
+      programId,
+      projectId,
+    );
   }
 
   @Get("getOrganizations/:id")

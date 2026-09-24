@@ -689,6 +689,112 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
     );
   });
 
+  it("scopes organization options to a project without repeating program metadata", async () => {
+    let organizationQuery: Record<string, unknown> | undefined;
+    const service = new CompatibilityAdminService(
+      {
+        project: {
+          findFirst: () => Promise.resolve({ id: "database-project-id" }),
+        },
+        organization: {
+          findMany: (query: Record<string, unknown>) => {
+            organizationQuery = query;
+            return Promise.resolve([
+              {
+                id: "organization-id",
+                legacyId: null,
+                externalId: null,
+                name: "Artemis",
+                stripeCustomerId: null,
+                metadata: {},
+                createdAt: new Date("2026-01-01T00:00:00.000Z"),
+                programs: [
+                  {
+                    id: "enrollment-id",
+                    legacyId: null,
+                    externalId: null,
+                    dealExternalId: null,
+                    stage: "Closed",
+                    isWinner: "N",
+                    isIncluded: true,
+                    employeesCount: 10,
+                    overallRank: null,
+                    categoryRank: null,
+                    currentZohoCategory: "Small",
+                    benchmarkCategory: "Small",
+                    purchasedEvSortingFilter: null,
+                    reportAccess: {},
+                    paymentDetails: {},
+                    metadata: {},
+                    metrics: {
+                      Source_Organization_ID: "artemis",
+                      Source_Organization_Name: "Artemis",
+                    },
+                    createdAt: new Date("2026-01-01T00:00:00.000Z"),
+                    updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+                    project: {
+                      id: "database-project-id",
+                      legacyId: null,
+                      externalId: "external-project-id",
+                      name: "Workforce",
+                    },
+                    program: {
+                      id: "program-id",
+                      legacyId: null,
+                      externalId: null,
+                      metadata: {
+                        benchmarkCategories: ["Small", "Large"],
+                        reportCatalog: [{ id: "must-not-be-repeated" }],
+                        surveyDefinition: { pages: ["large payload"] },
+                      },
+                      name: "Awards",
+                      year: 2026,
+                      currency: "USD",
+                    },
+                  },
+                ],
+                users: [],
+              },
+            ]);
+          },
+        },
+      } as never,
+      {} as never,
+      {} as never,
+    );
+
+    const response = await service.organizations(
+      {
+        sub: "admin-id",
+        organizationId: null,
+        roles: ["admin"],
+        permissions: [],
+      },
+      undefined,
+      undefined,
+      "external-project-id",
+    );
+
+    assert.ok(organizationQuery);
+    assert.deepEqual(organizationQuery.where, {
+      programs: { some: { projectId: "database-project-id" } },
+    });
+    assert.deepEqual(
+      (organizationQuery.include as { programs: { where: unknown } }).programs
+        .where,
+      { projectId: "database-project-id" },
+    );
+    assert.deepEqual(response.data[0]?.orgPrograms[0]?.orgs.programId, [
+      {
+        _id: "program-id",
+        id: "program-id",
+        Name: "Awards",
+        Program_Year: 2026,
+        Currency: "USD",
+      },
+    ]);
+  });
+
   it("projects Zoho program records for the admin selector", async () => {
     const requestedFields = new Map<string, string[]>();
     const service = new CompatibilityZohoService(
