@@ -793,7 +793,7 @@ describe("historical import service", () => {
     }
   });
 
-  it("stores EA file metadata without importing EA as a survey", async () => {
+  it("stores EA file metadata and imports EA for Benefits reports", async () => {
     const root = mkdtempSync(join(tmpdir(), "historical-import-ea-metadata-"));
     const importId = "import-ea-metadata";
     const eaPath = join(root, "ea.xlsx");
@@ -895,7 +895,7 @@ describe("historical import service", () => {
       );
 
       assert.deepEqual(reconciliationFileKinds, ["EA", "EFS"]);
-      assert.deepEqual(importedSurveyKinds, ["EFS"]);
+      assert.deepEqual(importedSurveyKinds, ["EA", "EFS"]);
       assert.deepEqual(
         (programMetadata as { employerAssessmentFile?: unknown })
           .employerAssessmentFile,

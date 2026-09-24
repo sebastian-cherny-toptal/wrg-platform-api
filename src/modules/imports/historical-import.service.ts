@@ -2458,6 +2458,14 @@ export class HistoricalImportService {
         await this.importSurvey(
           this.prisma,
           draft,
+          "EA",
+          eaFile,
+          programId,
+          organizationIds,
+        );
+        await this.importSurvey(
+          this.prisma,
+          draft,
           "EFS",
           efsFile,
           programId,
