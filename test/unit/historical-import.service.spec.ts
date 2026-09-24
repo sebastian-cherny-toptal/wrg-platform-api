@@ -804,7 +804,7 @@ describe("historical import service", () => {
     }
   });
 
-  it("uses stored question text and answer labels for imported survey columns", () => {
+  it("keeps stored question text but drops inherited answer labels", () => {
     const question = {
       id: "question-id",
       dataLabel: "q_YourJob_3_25",
@@ -829,9 +829,17 @@ describe("historical import service", () => {
       mergeHistoricalQuestionTemplate(question, template).caption,
       template.caption,
     );
-    assert.deepEqual(
+    assert.equal(
       historicalQuestionMetadata(question, template.metadata, "import-id")
         .QuestionResponses,
+      undefined,
+    );
+    assert.deepEqual(
+      historicalQuestionMetadata(
+        question,
+        { ...template.metadata, surveyDefinitionAnswers: true },
+        "import-id",
+      ).QuestionResponses,
       template.metadata.QuestionResponses,
     );
     assert.deepEqual(

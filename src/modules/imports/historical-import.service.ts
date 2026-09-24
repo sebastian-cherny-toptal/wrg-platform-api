@@ -36,6 +36,7 @@ import type { BenchmarkQuestion } from "../reports/compatibility-reports.module.
 import { sortedVerbatimsEntitlementData } from "../reports/sorted-verbatims-entitlement.js";
 import {
   effectiveSurveyDefinition,
+  loadDefaultSurveyDefinition,
   surveyDefinitionWorkbook,
 } from "./program-survey-definition.service.js";
 import {
@@ -772,17 +773,6 @@ function assertXlsxFile(file: UploadedWorkbookFile): void {
   }
 }
 
-function likertQuestionResponses() {
-  return [
-    { Id: 1, Caption: "Strongly Disagree" },
-    { Id: 2, Caption: "Disagree" },
-    { Id: 3, Caption: "Neutral" },
-    { Id: 4, Caption: "Agree" },
-    { Id: 5, Caption: "Strongly Agree" },
-    { Id: 6, Caption: "N/A" },
-  ];
-}
-
 function questionTypeId(type: string): number {
   if (type === "likert") return 5;
   if (type === "demographic") return 2;
@@ -923,12 +913,21 @@ export function historicalQuestionMetadata(
   importId: string,
 ): Prisma.InputJsonObject {
   const template = jsonMetadata(templateMetadata);
+  const metadata = { ...template };
+  const inheritedQuestionResponses = metadata.QuestionResponses;
+  delete metadata.QuestionResponses;
+  delete metadata.questionResponses;
+  delete metadata.responseOptions;
+  delete metadata.options;
+  const explicitQuestionResponses = template.surveyDefinitionAnswers
+    ? inheritedQuestionResponses
+    : undefined;
   return {
-    ...template,
+    ...metadata,
     QuestionTypeId: template.QuestionTypeId ?? questionTypeId(question.type),
     reportRole: template.reportRole ?? questionReportRole(question.type),
-    ...(question.type === "likert" && !template.QuestionResponses
-      ? { QuestionResponses: likertQuestionResponses() }
+    ...(explicitQuestionResponses
+      ? { QuestionResponses: explicitQuestionResponses }
       : {}),
     ...(question.filterLabel ? { filterLabel: question.filterLabel } : {}),
     sourceColumn: question.column,
@@ -1027,6 +1026,7 @@ export class HistoricalImportService {
         questions,
         metadata.programYear,
         responses,
+        await loadDefaultSurveyDefinition(),
       );
       const unresolved = new Set(
         missingQuestionTemplateLabels(
@@ -1856,6 +1856,10 @@ export class HistoricalImportService {
     programId: string | undefined,
     questions: XlsxQuestionDefinition[],
   ): Promise<Map<string, HistoricalQuestionTemplate>> {
+    const questionByKey = new Map(
+      questions.map((question) => [question.dataLabel, question]),
+    );
+    const templates = new Map<string, HistoricalQuestionTemplate>();
     const storedTemplates = await prisma.question.findMany({
       where: {
         dataLabel: { in: questions.map(({ dataLabel }) => dataLabel) },
@@ -1879,7 +1883,6 @@ export class HistoricalImportService {
       },
       orderBy: { survey: { createdAt: "desc" } },
     });
-    const templates = new Map<string, HistoricalQuestionTemplate>();
     for (const template of storedTemplates) {
       const sameProgram = template.survey.programId === programId;
       if (
@@ -1889,16 +1892,54 @@ export class HistoricalImportService {
       ) {
         continue;
       }
-      if (!templates.has(template.dataLabel)) {
-        templates.set(template.dataLabel, template);
+      if (templates.has(template.dataLabel)) continue;
+      const metadata = jsonMetadata(template.metadata);
+      const sanitizedMetadata = { ...metadata };
+      if (!metadata.surveyDefinitionAnswers) {
+        delete sanitizedMetadata.QuestionResponses;
+        delete sanitizedMetadata.questionResponses;
+        delete sanitizedMetadata.responseOptions;
+        delete sanitizedMetadata.options;
       }
+      templates.set(template.dataLabel, {
+        ...template,
+        metadata: sanitizedMetadata,
+      });
+    }
+    for (const definition of await loadDefaultSurveyDefinition()) {
+      const source = questionByKey.get(definition.dataLabel);
+      if (!source) continue;
+      const existing = templates.get(definition.dataLabel);
+      templates.set(definition.dataLabel, {
+        dataLabel: definition.dataLabel,
+        caption: definition.caption || source.caption,
+        type: definition.type ?? source.type,
+        metadata: {
+          ...jsonMetadata(existing?.metadata),
+          ...(definition.categoryLabel
+            ? { categoryLabel: definition.categoryLabel }
+            : {}),
+        },
+      });
     }
     const bundled = await loadBundledWorkforceQuestionTemplates(
       draft.programYear,
       questions,
     );
     for (const [dataLabel, template] of bundled) {
-      if (!templates.has(dataLabel)) templates.set(dataLabel, template);
+      const existing = templates.get(dataLabel);
+      templates.set(
+        dataLabel,
+        existing
+          ? {
+              ...existing,
+              metadata: {
+                ...jsonMetadata(template.metadata),
+                ...jsonMetadata(existing.metadata),
+              },
+            }
+          : template,
+      );
     }
     for (const configured of draft.surveyDefinition ?? []) {
       const source = questions.find(

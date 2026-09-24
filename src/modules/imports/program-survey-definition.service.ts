@@ -8,6 +8,8 @@ import {
 import type { Prisma } from "@prisma/client";
 import ExcelJS from "exceljs";
 import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import { basename } from "node:path";
 import { PrismaService } from "../../database/prisma.service.js";
 import type { Principal } from "../auth/auth.module.js";
@@ -42,6 +44,19 @@ const excludedSurveyDefinitionKeys = new Set([
   "127. Sample size",
 ]);
 
+const defaultSurveyDefinitionFile = "Default_Questions_and_Answers.xlsx";
+let defaultSurveyDefinitionPromise: Promise<SurveyDefinition> | undefined;
+
+/** Defaults live in the bundled workbook, not in inherited question metadata. */
+export function loadDefaultSurveyDefinition(): Promise<SurveyDefinition> {
+  defaultSurveyDefinitionPromise ??= readFile(
+    fileURLToPath(
+      new URL(`../../../${defaultSurveyDefinitionFile}`, import.meta.url),
+    ),
+  ).then((buffer) => parseSurveyDefinition(buffer));
+  return defaultSurveyDefinitionPromise;
+}
+
 function object(value: Prisma.JsonValue | undefined): Prisma.JsonObject {
   return value && typeof value === "object" && !Array.isArray(value)
     ? value
@@ -62,6 +77,7 @@ function answerOptions(
   question: BenchmarkQuestion,
   year: number | null,
   values: Prisma.JsonValue[],
+  defaults?: SurveyDefinitionQuestion,
 ): NonNullable<SurveyDefinitionQuestion["options"]> {
   const type = questionType(question.type);
   if (type === "text" || type === "open-text") return [];
@@ -74,35 +90,39 @@ function answerOptions(
     const key = String(raw);
     candidates.set(key, { ...candidates.get(key), ...option });
   };
-  for (const field of [
-    "QuestionResponses",
-    "questionResponses",
-    "responseOptions",
-    "options",
-  ]) {
-    const source = metadata[field];
-    if (Array.isArray(source)) {
-      source.forEach((item, index) => {
-        const option = object(item);
-        add(
-          option.Id ??
-            option.id ??
-            option.ResponseId ??
-            option.responseId ??
-            option.Value ??
-            option.value ??
-            option.Code ??
-            option.code ??
-            index + 1,
-          { Position: index + 1, ...option },
-        );
-      });
-    } else if (source && typeof source === "object") {
-      for (const key of Object.keys(source)) add(key);
+  if (metadata.surveyDefinitionAnswers) {
+    for (const field of [
+      "QuestionResponses",
+      "questionResponses",
+      "responseOptions",
+      "options",
+    ]) {
+      const source = metadata[field];
+      if (Array.isArray(source)) {
+        source.forEach((item, index) => {
+          const option = object(item);
+          add(
+            option.Id ??
+              option.id ??
+              option.ResponseId ??
+              option.responseId ??
+              option.Value ??
+              option.value ??
+              option.Code ??
+              option.code ??
+              index + 1,
+            { Position: index + 1, ...option },
+          );
+        });
+      } else if (source && typeof source === "object") {
+        for (const key of Object.keys(source)) add(key);
+      }
+      if (candidates.size) break;
     }
-    if (candidates.size) break;
+  } else {
+    for (const option of defaults?.options ?? []) add(option.Id, option);
   }
-  if (!metadata.surveyDefinitionAnswers) {
+  if (!metadata.surveyDefinitionAnswers && !defaults?.options?.length) {
     if (type === "likert") {
       for (const value of [1, 2, 3, 4, 5, 6, 99]) add(value);
     } else if (type === "demographic") {
@@ -114,8 +134,15 @@ function answerOptions(
     }
   }
   for (const value of values) add(value);
+  const captionQuestion = metadata.surveyDefinitionAnswers
+    ? question
+    : { ...question, metadata: {} };
   const options = [...candidates].flatMap(([Id, source], index) => {
-    const Caption = reportResponseCaption(Id, question, year);
+    const defaultCaption = defaults?.options?.find(
+      (option) => option.Id === Id,
+    )?.Caption;
+    const Caption =
+      defaultCaption ?? reportResponseCaption(Id, captionQuestion, year);
     if (!Caption) return [];
     const configured = definitionAnswer(Id, question.metadata);
     const configuredScore = Number(
@@ -141,7 +168,7 @@ function answerOptions(
     const fallback =
       type === "likert"
         ? Score
-        : demographicResponsePosition(Caption, question, year);
+        : demographicResponsePosition(Caption, captionQuestion, year);
     const Position =
       Number.isInteger(order) && order > 0
         ? order
@@ -163,25 +190,47 @@ export function effectiveSurveyDefinition(
   questions: BenchmarkQuestion[],
   year: number | null,
   responses: Array<{ questionId: string; value: Prisma.JsonValue }>,
+  defaults: SurveyDefinition = [],
 ): SurveyDefinition {
+  const defaultsByKey = new Map(
+    defaults.map((definition) => [definition.dataLabel, definition]),
+  );
   return questions.map((question) => {
+    const metadata = object(question.metadata);
+    const defaultQuestion = defaultsByKey.get(question.dataLabel);
+    const useDefaults = !metadata.surveyDefinition && defaultQuestion;
+    const effectiveQuestion = useDefaults
+      ? {
+          ...question,
+          caption: defaultQuestion.caption || question.caption,
+          type: defaultQuestion.type ?? question.type,
+          position: defaultQuestion.position ?? question.position,
+          metadata: {
+            ...metadata,
+            ...(defaultQuestion.categoryLabel
+              ? { categoryLabel: defaultQuestion.categoryLabel }
+              : {}),
+          },
+        }
+      : question;
     const options = answerOptions(
-      question,
+      effectiveQuestion,
       year,
       responses
         .filter((response) => response.questionId === question.id)
         .map(({ value }) => value),
+      useDefaults ? defaultQuestion : undefined,
     );
-    const metadata = object(question.metadata);
+    const effectiveMetadata = object(effectiveQuestion.metadata);
     const categoryLabel =
-      typeof metadata.categoryLabel === "string"
-        ? metadata.categoryLabel
+      typeof effectiveMetadata.categoryLabel === "string"
+        ? effectiveMetadata.categoryLabel
         : undefined;
     return {
-      dataLabel: question.dataLabel,
-      caption: surveyQuestionLabel(question),
-      type: questionType(question.type),
-      position: question.position,
+      dataLabel: effectiveQuestion.dataLabel,
+      caption: surveyQuestionLabel(effectiveQuestion),
+      type: questionType(effectiveQuestion.type),
+      position: effectiveQuestion.position,
       ...(categoryLabel ? { categoryLabel } : {}),
       ...(options.length ? { options } : {}),
     };
@@ -329,6 +378,7 @@ export class ProgramSurveyDefinitionService {
       survey.questions,
       program.year,
       await this.responses(this.prisma, survey.questions),
+      await loadDefaultSurveyDefinition(),
     );
     return surveyDefinitionWorkbook(definition);
   }
@@ -399,6 +449,7 @@ export class ProgramSurveyDefinitionService {
           questions,
           program.year,
           responses,
+          await loadDefaultSurveyDefinition(),
         );
         if (JSON.stringify(current) === JSON.stringify(uploaded))
           return { updatedQuestions: 0, unchanged: true };

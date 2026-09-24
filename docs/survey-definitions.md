@@ -31,9 +31,12 @@ them into generic agreement labels.
 The wizard's default download is multipart
 `POST /admin/historicalImports/default-survey-definition.xlsx` with `metadata`
 and `efsFile`. It derives question keys from that EFS, resolves approved question
-wording through the same year-aware template lookup as import, and exports actual
-recorded and configured answer options. A question with no approved wording has a
-blank label in the template; fill it before uploading the definition.
+wording and answer options from `Default_Questions_and_Answers.xlsx`, then adds
+actual recorded answer values. Default answer lists are not inherited from other
+questions in the database or stored on imported questions. Explicitly uploaded
+program overrides remain in question metadata. A question with no approved
+wording has a blank label in the template; fill it before uploading the
+definition.
 
 Use two sheets with headers in row 1. Sheet names and headers are case-insensitive;
 question keys and raw answers are case-sensitive.
