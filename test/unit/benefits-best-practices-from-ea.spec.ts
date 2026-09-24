@@ -636,7 +636,7 @@ describe("Benefits & Best Practices generation from EA", () => {
     );
   });
 
-  it("generates from the linked Employer Assessment and raw organization answers", async () => {
+  it("generates from a globally linked Employer Assessment and raw organization answers", async () => {
     const organizationIds = Array.from(
       { length: 10 },
       (_, index) => `org-${index}`,
@@ -672,8 +672,10 @@ describe("Benefits & Best Practices generation from EA", () => {
           })),
       },
       survey: {
-        findFirst: ({ where }: { where: unknown }) =>
-          JSON.stringify(where).includes("765432") ? { id: "ea-survey" } : null,
+        findFirst: ({ where }: { where: Record<string, unknown> }) =>
+          JSON.stringify(where).includes("765432") && !("programId" in where)
+            ? { id: "ea-survey" }
+            : null,
       },
       respondent: {
         findMany: () =>

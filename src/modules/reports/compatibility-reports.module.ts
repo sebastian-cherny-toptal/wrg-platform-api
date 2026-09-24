@@ -4969,7 +4969,6 @@ export class CompatibilityReportsService {
       (assessmentId
         ? await this.prisma.survey.findFirst({
             where: {
-              programId: context.program.id,
               OR: [
                 { externalId: assessmentId },
                 { legacyId: assessmentId },
