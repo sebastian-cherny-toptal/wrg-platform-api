@@ -2,8 +2,8 @@ import AdmZip from "adm-zip";
 import ExcelJS from "exceljs";
 import assert from "node:assert/strict";
 import {
+  existsSync,
   mkdtempSync,
-  mkdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -123,50 +123,55 @@ describe("historical import service", () => {
   });
 
   for (const categories of [undefined, [], ["Default"]]) {
-    it(`defaults missing benchmark categories ${JSON.stringify(categories)} on draft creation`, async () => {
-      const service = new HistoricalImportService({
-        project: { findFirst: () => ({ id: "project-1" }) },
-        syncJob: { create: ({ data }: { data: unknown }) => data },
-      } as never);
-      const result = await service.createDraft(
-        {
-          sub: "admin",
-          roles: ["admin"],
-          permissions: [],
-          organizationId: null,
-        },
-        {
-          projectId: "project-1",
-          programName: "Default program",
-          programYear: 2026,
-          efsLaunchDate: "2026-01-01",
-          efsDeadline: "2026-12-31",
-          benchmarkCategories: categories,
-          organizationPrograms: [
-            {
-              organizationKey: "acme",
-              surveysSent: 10,
-              isWinner: "Y",
-              currentZohoCategory: "Large",
-              benchmarkCategory: "Small",
-              reportCategory: "25-99",
-            },
-          ],
-        },
-      );
-      assert.deepEqual(result.metadata.benchmarkCategories, ["Default"]);
-      assert.equal(
-        result.metadata.organizationPrograms?.[0]?.currentZohoCategory,
-        "Default",
-      );
-      assert.equal(
-        result.metadata.organizationPrograms[0].benchmarkCategory,
-        "Default",
-      );
-      assert.equal(
-        result.metadata.organizationPrograms[0].reportCategory,
-        "25-99",
-      );
+    it(`defaults missing benchmark categories ${JSON.stringify(categories)} during stateless preparation`, async () => {
+      const root = mkdtempSync(join(tmpdir(), "historical-default-category-"));
+      const filePath = join(root, "ea.xlsx");
+      await writeWorkbook(filePath, "Acme", 1);
+      const service = new HistoricalImportService({} as never);
+      try {
+        const result = await service.prepare(
+          {
+            sub: "admin",
+            roles: ["admin"],
+            permissions: [],
+            organizationId: null,
+          },
+          {
+            projectName: "Default project",
+            programName: "Default program",
+            programYear: 2026,
+            efsLaunchDate: "2026-01-01",
+            efsDeadline: "2026-12-31",
+            benchmarkCategories: categories,
+            organizationPrograms: [
+              {
+                organizationKey: "acme",
+                surveysSent: 10,
+                isWinner: "Y",
+                currentZohoCategory: "Large",
+                benchmarkCategory: "Small",
+                reportCategory: "25-99",
+              },
+            ],
+          },
+          { eaFile: { filename: "ea.xlsx", buffer: readFileSync(filePath) } },
+        );
+        assert.deepEqual(result.metadata.benchmarkCategories, ["Default"]);
+        assert.equal(
+          result.metadata.organizationPrograms?.[0]?.currentZohoCategory,
+          "Default",
+        );
+        assert.equal(
+          result.metadata.organizationPrograms[0].benchmarkCategory,
+          "Default",
+        );
+        assert.equal(
+          result.metadata.organizationPrograms[0].reportCategory,
+          "25-99",
+        );
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
     });
   }
 
@@ -187,6 +192,20 @@ describe("historical import service", () => {
 
     try {
       const service = new HistoricalImportService(prisma as never);
+      const internals = service as unknown as {
+        storeWorkbook: (
+          draft: unknown,
+          kind: "EA" | "EFS",
+          file: unknown,
+        ) => { filePath: string };
+      };
+      const storeWorkbook = internals.storeWorkbook.bind(service);
+      let stagedFilePath: string | undefined;
+      internals.storeWorkbook = (draft, kind, file) => {
+        const stored = storeWorkbook(draft, kind, file);
+        stagedFilePath = stored.filePath;
+        return stored;
+      };
       const result = await service.prepare(
         {
           sub: "user-1",
@@ -214,6 +233,8 @@ describe("historical import service", () => {
         result.validation.organizations[0]?.displayName,
         "Acme Corp",
       );
+      assert.ok(stagedFilePath);
+      assert.equal(existsSync(stagedFilePath), false);
     } finally {
       process.chdir(previousCwd);
       rmSync(root, { recursive: true, force: true });
@@ -290,7 +311,7 @@ describe("historical import service", () => {
     }
   });
 
-  it("creates only a committing job when the complete wizard is submitted", async () => {
+  it("persists only sanitized audit data and commits the runtime draft", async () => {
     const root = mkdtempSync(join(tmpdir(), "historical-import-submit-"));
     const previousCwd = process.cwd();
     process.chdir(root);
@@ -299,6 +320,8 @@ describe("historical import service", () => {
     await writeWorkbook(eaPath, "Acme Corp", 1);
     await writeWorkbook(efsPath, "Acme Corp", 1);
     let createdJob: Record<string, unknown> | undefined;
+    let runtimeDraft:
+      { stagingDir: string; eaFile?: { filePath: string } } | undefined;
     const prisma = {
       question: {
         findMany: () => [
@@ -321,9 +344,23 @@ describe("historical import service", () => {
 
     try {
       const service = new HistoricalImportService(prisma as never);
-      service.commit = (_principal, importId) =>
-        Promise.resolve({
-          importId,
+      const internals = service as unknown as {
+        commitDraft: (
+          principal: unknown,
+          draft: {
+            importId: string;
+            stagingDir: string;
+            eaFile?: { filePath: string };
+          },
+          validation: unknown,
+        ) => Promise<unknown>;
+      };
+      internals.commitDraft = (_principal, draft) => {
+        runtimeDraft = draft;
+        assert.equal(existsSync(draft.stagingDir), true);
+        assert.equal(existsSync(draft.eaFile?.filePath ?? ""), true);
+        return Promise.resolve({
+          importId: draft.importId,
           status: "succeeded",
           metadata: {
             projectName: "Test Project",
@@ -333,6 +370,7 @@ describe("historical import service", () => {
             efsDeadline: "2026-12-31",
           },
         });
+      };
 
       await service.submit(
         {
@@ -356,9 +394,38 @@ describe("historical import service", () => {
 
       assert.ok(createdJob);
       assert.equal(createdJob.status, "RUNNING");
-      assert.equal(
-        (createdJob.input as { status?: string }).status,
-        "committing",
+      assert.ok(runtimeDraft);
+      assert.equal(existsSync(runtimeDraft.stagingDir), false);
+      const serializedInput = JSON.stringify(createdJob.input);
+      assert.doesNotMatch(serializedInput, /stagingDir|filePath|buffer/u);
+      const input = createdJob.input as {
+        createdByUserId?: string;
+        metadata?: { programName?: string };
+        workbooks?: Array<Record<string, unknown>>;
+      };
+      assert.equal(input.createdByUserId, "user-1");
+      assert.equal(input.metadata?.programName, "Test Program");
+      assert.deepEqual(
+        input.workbooks?.map(({ kind, fileName, sizeBytes }) => ({
+          kind,
+          fileName,
+          sizeBytes,
+        })),
+        [
+          {
+            kind: "EA",
+            fileName: "ea.xlsx",
+            sizeBytes: readFileSync(eaPath).length,
+          },
+          {
+            kind: "EFS",
+            fileName: "efs.xlsx",
+            sizeBytes: readFileSync(efsPath).length,
+          },
+        ],
+      );
+      assert.ok(
+        input.workbooks.every(({ sha256 }) => typeof sha256 === "string"),
       );
       assert.equal(
         (createdJob.output as { workbooks?: unknown[] }).workbooks?.length,
@@ -370,75 +437,231 @@ describe("historical import service", () => {
     }
   });
 
-  it("stores and summarizes one workbook immediately after upload", async () => {
-    const root = mkdtempSync(join(tmpdir(), "historical-import-upload-"));
-    const previousCwd = process.cwd();
-    process.chdir(root);
-    const importId = "import-upload-id";
-    let storedInput: unknown;
+  it("cleans request files and marks the audit job failed when commit fails", async () => {
+    const root = mkdtempSync(join(tmpdir(), "historical-import-failure-"));
+    const eaPath = join(root, "ea.xlsx");
+    const efsPath = join(root, "efs.xlsx");
+    await writeWorkbook(eaPath, "Acme Corp", 1);
+    await writeWorkbook(efsPath, "Acme Corp", 1);
+    let stagedFilePath: string | undefined;
+    let failedStatus: string | undefined;
     const prisma = {
+      question: {
+        findMany: () => [
+          {
+            dataLabel: "q_CoreEmployeeExperience_Test",
+            caption: "Approved 2026 wording",
+            type: "likert",
+            metadata: {},
+            survey: { programId: "known-program", program: { year: 2026 } },
+          },
+        ],
+      },
       syncJob: {
-        findFirst: () => ({
-          input: {
-            importId,
-            stagingDir: join(root, "var", "historical-imports", importId),
+        create: ({ data }: { data: unknown }) => data,
+        updateMany: ({ data }: { data: { status?: string } }) => {
+          failedStatus = data.status;
+          return { count: 1 };
+        },
+      },
+      project: {
+        findUnique: () => {
+          throw new Error("database unavailable");
+        },
+        deleteMany: () => Promise.resolve({ count: 0 }),
+      },
+      organization: { deleteMany: () => Promise.resolve({ count: 0 }) },
+    };
+    const service = new HistoricalImportService(prisma as never);
+    const internals = service as unknown as {
+      storeWorkbook: (
+        draft: unknown,
+        kind: "EA" | "EFS",
+        file: unknown,
+      ) => { filePath: string };
+    };
+    const storeWorkbook = internals.storeWorkbook.bind(service);
+    internals.storeWorkbook = (draft, kind, file) => {
+      const stored = storeWorkbook(draft, kind, file);
+      stagedFilePath = stored.filePath;
+      return stored;
+    };
+
+    try {
+      await assert.rejects(
+        service.submit(
+          {
+            sub: "user-1",
+            roles: ["admin"],
+            permissions: [],
+            organizationId: null,
+          },
+          {
             projectName: "Test Project",
             programName: "Test Program",
             programYear: 2026,
             efsLaunchDate: "2026-01-01",
             efsDeadline: "2026-12-31",
-            status: "draft",
           },
-        }),
-        updateMany: ({ data }: { data: { input: unknown } }) => {
-          storedInput = data.input;
-          return { count: 1 };
+          {
+            eaFile: { filename: "ea.xlsx", buffer: readFileSync(eaPath) },
+            efsFile: { filename: "efs.xlsx", buffer: readFileSync(efsPath) },
+          },
+        ),
+        /database unavailable/u,
+      );
+      assert.equal(failedStatus, "FAILED");
+      assert.ok(stagedFilePath);
+      assert.equal(existsSync(stagedFilePath), false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("cleans request files without creating an audit job when validation rejects the submission", async () => {
+    const root = mkdtempSync(join(tmpdir(), "historical-import-invalid-"));
+    const eaPath = join(root, "ea.xlsx");
+    const efsPath = join(root, "efs.xlsx");
+    await writeWorkbook(eaPath, "Acme Corp", 1);
+    await writeWorkbook(efsPath, "Acme Corp", 1);
+    let stagedFilePath: string | undefined;
+    let createCalls = 0;
+    const service = new HistoricalImportService({
+      question: { findMany: () => [] },
+      syncJob: {
+        create: () => {
+          createCalls += 1;
         },
       },
+    } as never);
+    const internals = service as unknown as {
+      storeWorkbook: (
+        draft: unknown,
+        kind: "EA" | "EFS",
+        file: unknown,
+      ) => { filePath: string };
     };
-    const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet("Survey");
-    worksheet.addRow([
-      "Score %",
-      "organization name",
-      "Respondent",
-      "Language",
-      "Date responded",
-      "Reached end",
-      "q_CoreEmployeeExperience_Test",
-    ]);
-    worksheet.addRow([null, "Acme Corp", 1, "en", "2026-01-01", "Yes", 4]);
-    const buffer = Buffer.from(await workbook.xlsx.writeBuffer());
+    const storeWorkbook = internals.storeWorkbook.bind(service);
+    internals.storeWorkbook = (draft, kind, file) => {
+      const stored = storeWorkbook(draft, kind, file);
+      stagedFilePath = stored.filePath;
+      return stored;
+    };
 
     try {
-      const service = new HistoricalImportService(prisma as never);
-      const result = await service.uploadWorkbook(
+      await assert.rejects(
+        service.submit(
+          {
+            sub: "user-1",
+            roles: ["admin"],
+            permissions: [],
+            organizationId: null,
+          },
+          {
+            projectName: "Test Project",
+            programName: "Test Program",
+            programYear: 2022,
+            efsLaunchDate: "2022-01-01",
+            efsDeadline: "2022-12-31",
+          },
+          {
+            eaFile: { filename: "ea.xlsx", buffer: readFileSync(eaPath) },
+            efsFile: { filename: "efs.xlsx", buffer: readFileSync(efsPath) },
+          },
+        ),
+        /q_CoreEmployeeExperience_Test/u,
+      );
+      assert.equal(createCalls, 0);
+      assert.ok(stagedFilePath);
+      assert.equal(existsSync(stagedFilePath), false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("isolates concurrent one-shot imports in separate request workspaces", async () => {
+    const root = mkdtempSync(join(tmpdir(), "historical-import-concurrent-"));
+    const eaPath = join(root, "ea.xlsx");
+    const efsPath = join(root, "efs.xlsx");
+    await writeWorkbook(eaPath, "Acme Corp", 1);
+    await writeWorkbook(efsPath, "Acme Corp", 1);
+    const prisma = {
+      question: {
+        findMany: () => [
+          {
+            dataLabel: "q_CoreEmployeeExperience_Test",
+            caption: "Approved 2026 wording",
+            type: "likert",
+            metadata: {},
+            survey: { programId: "known-program", program: { year: 2026 } },
+          },
+        ],
+      },
+      syncJob: { create: ({ data }: { data: unknown }) => data },
+    };
+    const service = new HistoricalImportService(prisma as never);
+    const workspaces: string[] = [];
+    let release!: () => void;
+    let bothEntered!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const entered = new Promise<void>((resolve) => {
+      bothEntered = resolve;
+    });
+    const internals = service as unknown as {
+      commitDraft: (
+        principal: unknown,
+        draft: { importId: string; stagingDir: string },
+        validation: unknown,
+      ) => Promise<unknown>;
+    };
+    internals.commitDraft = async (_principal, draft) => {
+      workspaces.push(draft.stagingDir);
+      if (workspaces.length === 2) bothEntered();
+      await gate;
+      return {
+        importId: draft.importId,
+        status: "succeeded",
+        metadata: {
+          programName: "Test Program",
+          programYear: 2026,
+          efsLaunchDate: "2026-01-01",
+          efsDeadline: "2026-12-31",
+        },
+      };
+    };
+    const submit = () =>
+      service.submit(
         {
           sub: "user-1",
           roles: ["admin"],
           permissions: [],
           organizationId: null,
         },
-        importId,
-        "EA",
-        { filename: "ea.xlsx", buffer },
+        {
+          projectName: "Test Project",
+          programName: "Test Program",
+          programYear: 2026,
+          efsLaunchDate: "2026-01-01",
+          efsDeadline: "2026-12-31",
+        },
+        {
+          eaFile: { filename: "ea.xlsx", buffer: readFileSync(eaPath) },
+          efsFile: { filename: "efs.xlsx", buffer: readFileSync(efsPath) },
+        },
       );
 
-      assert.deepEqual(result.workbook, {
-        kind: "EA",
-        fileName: "ea.xlsx",
-        sha256: result.workbook.sha256,
-        questions: 6,
-        organizations: 1,
-        respondents: 1,
-        responses: 6,
-      });
-      assert.equal(
-        (storedInput as { eaFile?: { fileName?: string } }).eaFile?.fileName,
-        "ea.xlsx",
-      );
+    try {
+      const imports = [submit(), submit()];
+      await entered;
+      assert.equal(new Set(workspaces).size, 2);
+      assert.ok(workspaces.every((workspace) => existsSync(workspace)));
+      release();
+      await Promise.all(imports);
+      assert.ok(workspaces.every((workspace) => !existsSync(workspace)));
     } finally {
-      process.chdir(previousCwd);
+      release();
       rmSync(root, { recursive: true, force: true });
     }
   });
@@ -449,7 +672,8 @@ describe("historical import service", () => {
     );
     const previousCwd = process.cwd();
     process.chdir(root);
-    let storedInput: unknown;
+    const eaPath = join(root, "ea.xlsx");
+    await writeWorkbook(eaPath, "Acme", 1);
     const prisma = {
       project: {
         findFirst: ({ where }: { where: Record<string, unknown> }) => {
@@ -466,17 +690,11 @@ describe("historical import service", () => {
             : null;
         },
       },
-      syncJob: {
-        create: ({ data }: { data: { input: unknown } }) => {
-          storedInput = data.input;
-          return data;
-        },
-      },
     };
 
     try {
       const service = new HistoricalImportService(prisma as never);
-      const result = await service.createDraft(
+      const result = await service.prepare(
         {
           sub: "user-1",
           roles: ["admin"],
@@ -492,6 +710,7 @@ describe("historical import service", () => {
           efsLaunchDate: "2026-01-01",
           efsDeadline: "2026-12-31",
         },
+        { eaFile: { filename: "ea.xlsx", buffer: readFileSync(eaPath) } },
       );
 
       assert.equal(
@@ -499,10 +718,6 @@ describe("historical import service", () => {
         "11111111-1111-4111-8111-111111111111",
       );
       assert.equal(result.metadata.zohoProjectId, "zoho-project-1");
-      assert.equal(
-        (storedInput as { projectId?: string }).projectId,
-        "11111111-1111-4111-8111-111111111111",
-      );
     } finally {
       process.chdir(previousCwd);
       rmSync(root, { recursive: true, force: true });
@@ -513,20 +728,15 @@ describe("historical import service", () => {
     const root = mkdtempSync(join(tmpdir(), "historical-import-zoho-project-"));
     const previousCwd = process.cwd();
     process.chdir(root);
-    let storedInput: unknown;
+    const eaPath = join(root, "ea.xlsx");
+    await writeWorkbook(eaPath, "Acme", 1);
     const prisma = {
       project: { findFirst: () => null },
-      syncJob: {
-        create: ({ data }: { data: { input: unknown } }) => {
-          storedInput = data.input;
-          return data;
-        },
-      },
     };
 
     try {
       const service = new HistoricalImportService(prisma as never);
-      const result = await service.createDraft(
+      const result = await service.prepare(
         {
           sub: "user-1",
           roles: ["admin"],
@@ -565,6 +775,7 @@ describe("historical import service", () => {
             },
           ],
         },
+        { eaFile: { filename: "ea.xlsx", buffer: readFileSync(eaPath) } },
       );
 
       assert.equal(result.metadata.zohoProjectId, "zoho-project-1");
@@ -586,10 +797,6 @@ describe("historical import service", () => {
       assert.equal(
         result.metadata.organizationPrograms[0].reportCategory,
         "25-99",
-      );
-      assert.equal(
-        (storedInput as { zohoProjectId?: string }).zohoProjectId,
-        "zoho-project-1",
       );
     } finally {
       process.chdir(previousCwd);
@@ -678,119 +885,59 @@ describe("historical import service", () => {
     }
   });
 
-  it("validates uploaded workbooks and returns a summary", async () => {
-    const root = mkdtempSync(join(tmpdir(), "historical-import-test-"));
-    const previousCwd = process.cwd();
-    process.chdir(root);
-    const importId = "import-test-id";
-    const stagingDir = join(root, "var", "historical-imports", importId);
-    mkdirSync(stagingDir, { recursive: true });
-    const eaPath = join(stagingDir, "ea-ea.xlsx");
-    const efsPath = join(stagingDir, "efs-efs.xlsx");
-    await writeWorkbook(eaPath, "Acme Corp", 1);
-    await writeWorkbook(efsPath, "Acme Corp", 1);
-
-    const prisma = {
-      question: {
-        findMany: () => [
+  it("matches ranking workbooks without creating a persisted draft", async () => {
+    const rankingWorkbook = new ExcelJS.Workbook();
+    const rankingSheet = rankingWorkbook.addWorksheet("Ranking");
+    rankingSheet.addRow([
+      "Stage",
+      "Alias Name",
+      "Organization ID",
+      "CY Winner",
+      "CY Category",
+    ]);
+    rankingSheet.addRow(["Promote", "Acme Corp", "1", "Yes", "Small/Medium"]);
+    rankingSheet.addRow(["Promote", "Pending Corp", "2", "7", "7"]);
+    const service = new HistoricalImportService({} as never);
+    const ranking = await service.previewRanking(
+      {
+        sub: "user-1",
+        roles: ["admin"],
+        permissions: [],
+        organizationId: null,
+      },
+      {
+        projectName: "Test Project",
+        programName: "Test Program",
+        benchmarkCategories: ["Small/Medium"],
+        programYear: 2026,
+        efsLaunchDate: "2026-01-01",
+        efsDeadline: "2026-12-31",
+        organizationPrograms: [
           {
-            dataLabel: "q_CoreEmployeeExperience_Test",
-            caption: "Approved 2026 wording",
-            type: "likert",
-            metadata: {},
-            survey: { programId: "known-program", program: { year: 2026 } },
+            organizationKey: "name:acme corp",
+            sourceOrganizationId: "1",
+            organizationName: "Acme Corp",
+            surveysSent: 1,
+            isWinner: null,
+            isIncluded: true,
           },
         ],
       },
-      syncJob: {
-        findFirst: () => ({
-          input: {
-            importId,
-            stagingDir,
-            projectName: "Test Project",
-            programName: "Test Program",
-            benchmarkCategories: ["Small/Medium"],
-            programYear: 2026,
-            efsLaunchDate: "2026-01-01",
-            efsDeadline: "2026-12-31",
-            status: "draft",
-            eaFile: {
-              kind: "EA",
-              fileName: "ea.xlsx",
-              filePath: eaPath,
-              sha256: "ea",
-              sizeBytes: readFileSync(eaPath).length,
-            },
-            efsFile: {
-              kind: "EFS",
-              fileName: "efs.xlsx",
-              filePath: efsPath,
-              sha256: "efs",
-              sizeBytes: readFileSync(efsPath).length,
-            },
-          },
-          output: null,
-          status: "PENDING",
-        }),
-        updateMany: () => ({ count: 1 }),
+      {
+        filename: "ranking.xlsx",
+        buffer: Buffer.from(await rankingWorkbook.xlsx.writeBuffer()),
       },
-    };
-
-    try {
-      const service = new HistoricalImportService(prisma as never);
-      const summary = await service.validate(
-        {
-          sub: "user-1",
-          roles: ["admin"],
-          permissions: [],
-          organizationId: null,
-        },
-        importId,
-      );
-      assert.equal(summary.blockingErrorCount, 0);
-      assert.equal(summary.workbooks.length, 2);
-      assert.equal(summary.organizations.length, 1);
-
-      const rankingWorkbook = new ExcelJS.Workbook();
-      const rankingSheet = rankingWorkbook.addWorksheet("Ranking");
-      rankingSheet.addRow([
-        "Stage",
-        "Alias Name",
-        "Organization ID",
-        "CY Winner",
-        "CY Category",
-      ]);
-      rankingSheet.addRow(["Promote", "Acme Corp", "1", "Yes", "Small/Medium"]);
-      rankingSheet.addRow(["Promote", "Pending Corp", "2", "7", "7"]);
-      const rankingBuffer = Buffer.from(
-        await rankingWorkbook.xlsx.writeBuffer(),
-      );
-      const ranking = await service.matchRankingWorkbook(
-        {
-          sub: "user-1",
-          roles: ["admin"],
-          permissions: [],
-          organizationId: null,
-        },
-        importId,
-        { filename: "ranking.xlsx", buffer: rankingBuffer },
-      );
-      assert.equal(ranking.matchedOrganizations, 1);
-      assert.equal(ranking.invalidRows, 1);
-      assert.deepEqual(ranking.organizationPrograms, [
-        {
-          organizationKey: "name:acme corp",
-          organizationName: "Acme Corp",
-          surveysSent: 1,
-          isWinner: "Y",
-          isIncluded: true,
-          currentZohoCategory: "Small/Medium",
-        },
-      ]);
-    } finally {
-      process.chdir(previousCwd);
-      rmSync(root, { recursive: true, force: true });
-    }
+    );
+    assert.equal(ranking.matchedOrganizations, 1);
+    assert.equal(ranking.invalidRows, 1);
+    assert.equal(ranking.organizationPrograms[0]?.isWinner, "Y");
+    const matched = ranking.organizationPrograms[0];
+    assert.equal(
+      "currentZohoCategory" in matched
+        ? matched.currentZohoCategory
+        : undefined,
+      "Small/Medium",
+    );
   });
 
   it("stores EA file metadata and imports EA for Benefits reports", async () => {
@@ -809,6 +956,7 @@ describe("historical import service", () => {
       workbooks: [],
       organizations: [],
       blockingErrorCount: 0,
+      warningCount: 0,
     };
     const draft = {
       importId,
@@ -835,7 +983,7 @@ describe("historical import service", () => {
       },
     };
     const prisma = {
-      syncJob: { findFirst: () => ({ output: validation }) },
+      syncJob: { updateMany: () => ({ count: 1 }) },
       project: {
         findUnique: () => null,
         create: ({ data }: { data: unknown }) => data,
@@ -853,8 +1001,11 @@ describe("historical import service", () => {
     try {
       const service = new HistoricalImportService(prisma as never);
       const internals = service as unknown as {
-        loadDraft: () => Promise<unknown>;
-        saveDraft: (...args: unknown[]) => Promise<void>;
+        commitDraft: (
+          principal: unknown,
+          draft: unknown,
+          validation: unknown,
+        ) => Promise<unknown>;
         collectOrganizationRows: (
           ...args: unknown[]
         ) => Promise<Map<string, never>>;
@@ -863,10 +1014,7 @@ describe("historical import service", () => {
         ) => Promise<Map<string, string>>;
         importSurvey: (...args: unknown[]) => Promise<void>;
         updateOrganizationPrograms: (...args: unknown[]) => Promise<void>;
-        getStatus: (...args: unknown[]) => Promise<unknown>;
       };
-      internals.loadDraft = () => Promise.resolve(draft);
-      internals.saveDraft = () => Promise.resolve();
       internals.collectOrganizationRows = (...args) => {
         reconciliationFileKinds.push(
           ...args
@@ -882,16 +1030,16 @@ describe("historical import service", () => {
         return Promise.resolve();
       };
       internals.updateOrganizationPrograms = () => Promise.resolve();
-      internals.getStatus = () => Promise.resolve({ status: "succeeded" });
 
-      await service.commit(
+      await internals.commitDraft(
         {
           sub: "bypass-login-auth",
           roles: ["admin"],
           permissions: [],
           organizationId: null,
         },
-        importId,
+        draft,
+        validation,
       );
 
       assert.deepEqual(reconciliationFileKinds, ["EA", "EFS"]);

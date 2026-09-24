@@ -1,22 +1,21 @@
 import {
   BadRequestException,
-  ConflictException,
   ForbiddenException,
   Inject,
   Injectable,
   InternalServerErrorException,
-  NotFoundException,
 } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import type { PrismaClient } from "@prisma/client";
 import { createHash, randomUUID } from "node:crypto";
 import {
   existsSync,
-  mkdirSync,
+  mkdtempSync,
   readdirSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { tmpdir } from "node:os";
 import { basename, extname, join } from "node:path";
 import ExcelJS from "exceljs";
 import {
@@ -67,9 +66,6 @@ const MAX_PERSISTED_VALIDATION_ISSUES = 200;
 const XLSX_SIGNATURE = Buffer.from([0x50, 0x4b, 0x03, 0x04]);
 const responseBatchSize = 2_000;
 
-function stagingRoot(): string {
-  return join(process.cwd(), "var", "historical-imports");
-}
 const standardOpenQuestionCaptions: Record<string, string> = {
   q_OpenEnded_1:
     "What are the top two or three reasons people like working for this organization?",
@@ -187,7 +183,18 @@ interface HistoricalImportDraft extends HistoricalImportMetadata {
   status: "draft" | "validated" | "committing" | "succeeded" | "failed";
   projectId?: string;
   programId?: string;
-  commitIdempotencyKey?: string;
+}
+
+interface HistoricalImportAuditInput {
+  importId: string;
+  createdByUserId?: string;
+  metadata: HistoricalImportMetadata;
+  workbooks: Array<{
+    kind: HistoricalSurveyKind;
+    fileName: string;
+    sha256: string;
+    sizeBytes: number;
+  }>;
 }
 
 export interface HistoricalImportValidationIssue {
@@ -222,6 +229,38 @@ export interface HistoricalImportStatus {
   projectName?: string;
   programId?: string;
   error?: string;
+}
+
+function publicMetadata(
+  draft: HistoricalImportDraft,
+): HistoricalImportMetadata {
+  const metadata = { ...draft } as Partial<HistoricalImportDraft>;
+  delete metadata.importId;
+  delete metadata.stagingDir;
+  delete metadata.createdByUserId;
+  delete metadata.eaFile;
+  delete metadata.efsFile;
+  delete metadata.surveyDefinitionChanged;
+  delete metadata.status;
+  return metadata as HistoricalImportMetadata;
+}
+
+function auditInput(draft: HistoricalImportDraft): HistoricalImportAuditInput {
+  return {
+    importId: draft.importId,
+    ...(draft.createdByUserId
+      ? { createdByUserId: draft.createdByUserId }
+      : {}),
+    metadata: publicMetadata(draft),
+    workbooks: [draft.eaFile, draft.efsFile]
+      .filter((workbook): workbook is StoredWorkbook => Boolean(workbook))
+      .map(({ kind, fileName, sha256, sizeBytes }) => ({
+        kind,
+        fileName,
+        sha256,
+        sizeBytes,
+      })),
+  };
 }
 
 interface UploadedWorkbookFile {
@@ -267,14 +306,8 @@ function importPrefixFor(importId: string): string {
   return `historical-import:${importId}`;
 }
 
-function stagingDirectory(importId: string): string {
-  return join(stagingRoot(), importId);
-}
-
-function ensureStagingDirectory(importId: string): string {
-  const directory = stagingDirectory(importId);
-  mkdirSync(directory, { recursive: true });
-  return directory;
+function createRequestWorkspace(importId: string): string {
+  return mkdtempSync(join(tmpdir(), `wrg-historical-import-${importId}-`));
 }
 
 function assertStoredWorkbooksReady(
@@ -308,9 +341,7 @@ function isWorkbookValidationError(error: Error): boolean {
 function toHttpException(error: unknown): Error {
   if (
     error instanceof BadRequestException ||
-    error instanceof ConflictException ||
-    error instanceof ForbiddenException ||
-    error instanceof NotFoundException
+    error instanceof ForbiddenException
   ) {
     return error;
   }
@@ -741,51 +772,6 @@ function assertXlsxFile(file: UploadedWorkbookFile): void {
   }
 }
 
-function draftFromInput(input: unknown): HistoricalImportDraft {
-  const value = objectBody(input);
-  const importId = requiredString(value, "importId");
-  const stagingDir = requiredString(value, "stagingDir");
-  const metadata = validateMetadata(value);
-  const statusValue = value.status;
-  const status =
-    statusValue === "validated" ||
-    statusValue === "committing" ||
-    statusValue === "succeeded" ||
-    statusValue === "failed"
-      ? statusValue
-      : "draft";
-  return {
-    ...metadata,
-    importId,
-    stagingDir,
-    ...(typeof value.createdByUserId === "string"
-      ? { createdByUserId: value.createdByUserId }
-      : {}),
-    status,
-    ...(typeof value.projectId === "string"
-      ? { projectId: value.projectId }
-      : {}),
-    ...(typeof value.commitIdempotencyKey === "string"
-      ? { commitIdempotencyKey: value.commitIdempotencyKey }
-      : {}),
-    ...(value.eaFile ? { eaFile: value.eaFile as StoredWorkbook } : {}),
-    ...(value.efsFile ? { efsFile: value.efsFile as StoredWorkbook } : {}),
-    ...(Array.isArray(value.surveyDefinition)
-      ? { surveyDefinition: value.surveyDefinition as SurveyDefinition }
-      : {}),
-    ...(value.surveyDefinitionFile
-      ? {
-          surveyDefinitionFile: value.surveyDefinitionFile as NonNullable<
-            HistoricalImportDraft["surveyDefinitionFile"]
-          >,
-        }
-      : {}),
-    ...(value.surveyDefinitionChanged === true
-      ? { surveyDefinitionChanged: true }
-      : {}),
-  };
-}
-
 function likertQuestionResponses() {
   return [
     { Id: 1, Caption: "Strongly Disagree" },
@@ -974,7 +960,7 @@ export class HistoricalImportService {
       validateMetadata(input),
     );
     const importId = randomUUID();
-    const stagingDir = ensureStagingDirectory(importId);
+    const stagingDir = createRequestWorkspace(importId);
     const draft: HistoricalImportDraft = {
       ...metadata,
       importId,
@@ -1071,65 +1057,17 @@ export class HistoricalImportService {
     }
   }
 
-  private normalizeDraft(draft: HistoricalImportDraft): HistoricalImportDraft {
-    const stagingDir = ensureStagingDirectory(draft.importId);
-    const normalizeWorkbook = (
-      workbook: StoredWorkbook | undefined,
-    ): StoredWorkbook | undefined => {
-      if (!workbook) return undefined;
-      const storedName = basename(workbook.filePath);
-      const expectedPrefix = `${workbook.kind.toLowerCase()}-`;
-      const normalizedName = storedName.startsWith(expectedPrefix)
-        ? storedName
-        : `${workbook.kind.toLowerCase()}-${workbook.fileName}`;
-      return {
-        ...workbook,
-        filePath: join(stagingDir, normalizedName),
-      };
-    };
-    const eaFile = normalizeWorkbook(draft.eaFile);
-    const efsFile = normalizeWorkbook(draft.efsFile);
-    return {
-      ...draft,
-      stagingDir,
-      ...(eaFile ? { eaFile } : {}),
-      ...(efsFile ? { efsFile } : {}),
-    };
-  }
-
-  private async loadDraft(importId: string): Promise<HistoricalImportDraft> {
-    const record = await this.prisma.syncJob.findFirst({
-      where: {
-        provider: "historical-import",
-        externalId: importId,
-      },
-    });
-    if (!record) throw new NotFoundException("Historical import not found");
-    return this.normalizeDraft(draftFromInput(record.input));
-  }
-
-  private async saveDraft(
-    draft: HistoricalImportDraft,
-    extra: {
-      status?: HistoricalImportDraft["status"];
-      output?: Prisma.InputJsonValue;
-      error?: string | null;
-    } = {},
+  private async updateAuditJob(
+    importId: string,
+    status: "SUCCEEDED" | "FAILED",
+    error: string | null,
   ): Promise<void> {
     await this.prisma.syncJob.updateMany({
-      where: { idempotencyKey: `historical-import:${draft.importId}` },
+      where: { idempotencyKey: `historical-import:${importId}` },
       data: {
-        status:
-          extra.status === "succeeded"
-            ? "SUCCEEDED"
-            : extra.status === "failed"
-              ? "FAILED"
-              : extra.status === "committing"
-                ? "RUNNING"
-                : "PENDING",
-        input: draft as unknown as Prisma.InputJsonValue,
-        ...(extra.output !== undefined ? { output: extra.output } : {}),
-        ...(extra.error !== undefined ? { error: extra.error } : {}),
+        status,
+        error,
+        finishedAt: new Date(),
       },
     });
   }
@@ -1140,10 +1078,12 @@ export class HistoricalImportService {
     file: UploadedWorkbookFile,
   ): StoredWorkbook {
     assertXlsxFile(file);
-    const stagingDir = ensureStagingDirectory(draft.importId);
     const fileName = basename(file.filename);
-    const filePath = join(stagingDir, `${kind.toLowerCase()}-${fileName}`);
-    writeFileSync(filePath, file.buffer);
+    const filePath = join(
+      draft.stagingDir,
+      `${kind.toLowerCase()}-${fileName}`,
+    );
+    writeFileSync(filePath, file.buffer, { mode: 0o600 });
     return {
       kind,
       fileName,
@@ -1353,7 +1293,7 @@ export class HistoricalImportService {
     }
 
     const importId = randomUUID();
-    const stagingDir = ensureStagingDirectory(importId);
+    const stagingDir = createRequestWorkspace(importId);
     let draft: HistoricalImportDraft = {
       ...metadata,
       importId,
@@ -1419,16 +1359,14 @@ export class HistoricalImportService {
           externalId: importId,
           idempotencyKey: `historical-import:${importId}`,
           status: "RUNNING",
-          input: draft as unknown as Prisma.InputJsonValue,
+          input: auditInput(draft) as unknown as Prisma.InputJsonValue,
           output: validation as unknown as Prisma.InputJsonValue,
+          startedAt: new Date(),
         },
       });
-      return await this.commit(principal, importId);
-    } catch (error) {
-      if (existsSync(stagingDir)) {
-        rmSync(stagingDir, { recursive: true, force: true });
-      }
-      throw error;
+      return await this.commitDraft(principal, draft, validation);
+    } finally {
+      rmSync(stagingDir, { recursive: true, force: true });
     }
   }
 
@@ -1461,7 +1399,7 @@ export class HistoricalImportService {
     }
 
     const importId = randomUUID();
-    const stagingDir = ensureStagingDirectory(importId);
+    const stagingDir = createRequestWorkspace(importId);
     let draft: HistoricalImportDraft = {
       ...metadata,
       importId,
@@ -1497,9 +1435,7 @@ export class HistoricalImportService {
           : await this.validatePreviewDraft(draft),
       };
     } finally {
-      if (existsSync(stagingDir)) {
-        rmSync(stagingDir, { recursive: true, force: true });
-      }
+      rmSync(stagingDir, { recursive: true, force: true });
     }
   }
 
@@ -1570,55 +1506,6 @@ export class HistoricalImportService {
         };
       })
       .sort((left, right) => left.displayName.localeCompare(right.displayName));
-  }
-
-  async createDraft(
-    principal: Principal,
-    body: unknown,
-  ): Promise<{ importId: string; metadata: HistoricalImportMetadata }> {
-    this.assertAccess(principal);
-    const metadata = await this.resolveMetadataReferences(
-      validateMetadata(body),
-    );
-    const importId = randomUUID();
-    const stagingDir = ensureStagingDirectory(importId);
-    const draft: HistoricalImportDraft = {
-      ...metadata,
-      importId,
-      stagingDir,
-      createdByUserId: principal.sub,
-      status: "draft",
-    };
-    await this.prisma.syncJob.create({
-      data: {
-        provider: "historical-import",
-        kind: "draft",
-        externalId: importId,
-        idempotencyKey: `historical-import:${importId}`,
-        input: draft as unknown as Prisma.InputJsonValue,
-      },
-    });
-    return { importId, metadata };
-  }
-
-  async updateMetadata(
-    principal: Principal,
-    importId: string,
-    body: unknown,
-  ): Promise<{ importId: string; metadata: HistoricalImportMetadata }> {
-    this.assertAccess(principal);
-    const draft = await this.loadDraft(importId);
-    if (draft.status === "committing" || draft.status === "succeeded") {
-      throw new ConflictException(
-        "This historical import can no longer be edited",
-      );
-    }
-    const metadata = await this.resolveMetadataReferences(
-      validateMetadata({ ...draft, ...objectBody(body) }),
-    );
-    const nextDraft = { ...draft, ...metadata, status: "draft" as const };
-    await this.saveDraft(nextDraft);
-    return { importId, metadata };
   }
 
   private async resolveMetadataReferences(
@@ -1699,85 +1586,6 @@ export class HistoricalImportService {
       };
     }
     return metadata;
-  }
-
-  async uploadWorkbooks(
-    principal: Principal,
-    importId: string,
-    eaFile: UploadedWorkbookFile,
-    efsFile: UploadedWorkbookFile,
-  ): Promise<{ importId: string; eaFileName: string; efsFileName: string }> {
-    this.assertAccess(principal);
-    const draft = await this.loadDraft(importId);
-    if (draft.status === "committing" || draft.status === "succeeded") {
-      throw new ConflictException(
-        "This historical import can no longer be edited",
-      );
-    }
-    if (eaFile.buffer.equals(efsFile.buffer)) {
-      throw new BadRequestException(
-        "EA and EFS workbooks must be different files",
-      );
-    }
-    const stagingDir = ensureStagingDirectory(importId);
-    const nextDraft: HistoricalImportDraft = {
-      ...draft,
-      stagingDir,
-      eaFile: this.storeWorkbook({ ...draft, stagingDir }, "EA", eaFile),
-      efsFile: this.storeWorkbook({ ...draft, stagingDir }, "EFS", efsFile),
-      status: "draft",
-    };
-    await this.saveDraft(nextDraft);
-    const storedEa = nextDraft.eaFile;
-    const storedEfs = nextDraft.efsFile;
-    if (!storedEa || !storedEfs) {
-      throw new BadRequestException("Uploaded workbooks could not be stored");
-    }
-    return {
-      importId,
-      eaFileName: storedEa.fileName,
-      efsFileName: storedEfs.fileName,
-    };
-  }
-
-  async uploadWorkbook(
-    principal: Principal,
-    importId: string,
-    kind: HistoricalSurveyKind,
-    file: UploadedWorkbookFile,
-  ): Promise<{
-    importId: string;
-    workbook: HistoricalImportWorkbookSummary;
-  }> {
-    this.assertAccess(principal);
-    const draft = await this.loadDraft(importId);
-    if (draft.status === "committing" || draft.status === "succeeded") {
-      throw new ConflictException(
-        "This historical import can no longer be edited",
-      );
-    }
-    const storedWorkbook = this.storeWorkbook(draft, kind, file);
-    const nextDraft: HistoricalImportDraft = {
-      ...draft,
-      stagingDir: ensureStagingDirectory(importId),
-      ...(kind === "EA"
-        ? { eaFile: storedWorkbook }
-        : { efsFile: storedWorkbook }),
-      status: "draft",
-    };
-    const analysis = await this.analyzeWorkbook(nextDraft, storedWorkbook);
-    await this.saveDraft(nextDraft);
-    return { importId, workbook: analysis.summary };
-  }
-
-  async matchRankingWorkbook(
-    principal: Principal,
-    importId: string,
-    file: UploadedWorkbookFile,
-  ) {
-    this.assertAccess(principal);
-    const draft = await this.loadDraft(importId);
-    return this.matchRankingWorkbookForDraft(draft, file);
   }
 
   private async matchRankingWorkbookForDraft(
@@ -1933,23 +1741,6 @@ export class HistoricalImportService {
       unmatchedOrganizations,
       invalidRows,
     };
-  }
-
-  async validate(
-    principal: Principal,
-    importId: string,
-  ): Promise<HistoricalImportValidationSummary> {
-    this.assertAccess(principal);
-    const draft = await this.loadDraft(importId);
-    const summary = await this.validateDraft(draft);
-    await this.saveDraft(
-      {
-        ...draft,
-        status: summary.blockingErrorCount === 0 ? "validated" : "draft",
-      },
-      { output: summary as unknown as Prisma.InputJsonValue },
-    );
-    return summary;
   }
 
   private async validateDraft(
@@ -2169,50 +1960,6 @@ export class HistoricalImportService {
     }
   }
 
-  async getStatus(
-    principal: Principal,
-    importId: string,
-  ): Promise<HistoricalImportStatus> {
-    this.assertAccess(principal);
-    const record = await this.prisma.syncJob.findFirst({
-      where: {
-        provider: "historical-import",
-        externalId: importId,
-      },
-    });
-    if (!record) throw new NotFoundException("Historical import not found");
-    const draft = draftFromInput(record.input);
-    const validation =
-      record.output && typeof record.output === "object"
-        ? (record.output as unknown as HistoricalImportValidationSummary)
-        : undefined;
-    let projectName: string | undefined;
-    if (draft.projectId) {
-      const project = await this.prisma.project.findUnique({
-        where: { id: draft.projectId },
-        select: { name: true },
-      });
-      projectName = project?.name;
-    }
-    return {
-      importId,
-      status:
-        record.status === "SUCCEEDED"
-          ? "succeeded"
-          : record.status === "FAILED"
-            ? "failed"
-            : record.status === "RUNNING"
-              ? "committing"
-              : draft.status,
-      metadata: draft,
-      ...(validation ? { validation } : {}),
-      ...(draft.projectId ? { projectId: draft.projectId } : {}),
-      ...(draft.programId ? { programId: draft.programId } : {}),
-      ...(projectName ? { projectName } : {}),
-      ...(record.error ? { error: record.error } : {}),
-    };
-  }
-
   private async cleanupFailedImport(
     importPrefix: string,
     projectId: string,
@@ -2235,84 +1982,38 @@ export class HistoricalImportService {
       .catch(() => undefined);
   }
 
-  async commit(
+  private async commitDraft(
     principal: Principal,
-    importId: string,
+    draft: HistoricalImportDraft,
+    validation: HistoricalImportValidationSummary,
   ): Promise<HistoricalImportStatus> {
-    this.assertAccess(principal);
-    const draft = await this.loadDraft(importId);
+    const importId = draft.importId;
     const editing = Boolean(draft.programId);
-    if (!editing || draft.eaFile || draft.efsFile)
-      assertStoredWorkbooksReady(draft);
     const eaFile = draft.eaFile;
     const efsFile = draft.efsFile;
-
-    let validation: HistoricalImportValidationSummary;
-    const record = await this.prisma.syncJob.findFirst({
-      where: { provider: "historical-import", externalId: importId },
-      select: { output: true },
-    });
-    const cachedValidation =
-      record?.output && typeof record.output === "object"
-        ? (record.output as unknown as HistoricalImportValidationSummary)
-        : undefined;
-    if (
-      (draft.status === "validated" || draft.status === "committing") &&
-      cachedValidation?.blockingErrorCount === 0
-    ) {
-      validation = cachedValidation;
-    } else {
-      validation = await this.validate(principal, importId);
-    }
-    if (validation.blockingErrorCount > 0) {
-      throw new BadRequestException(
-        "Resolve validation errors before committing",
-      );
-    }
-    if (draft.status === "succeeded" && draft.projectId) {
-      return this.getStatus(principal, importId);
-    }
-
-    const commitIdempotencyKey =
-      draft.commitIdempotencyKey ?? `historical-import-commit:${importId}`;
     const importPrefix = importPrefixFor(importId);
     const generatedProjectId = deterministicUuid(`${importPrefix}:project`);
-    // A failed first attempt used to persist its generated project ID after
-    // cleanup deleted that project. Recognize it as a new-project import so the
-    // same import can be retried instead of treating the ID as a selection.
-    const selectedProjectId =
-      draft.projectId && draft.projectId !== generatedProjectId
-        ? draft.projectId
-        : undefined;
+    const selectedProjectId = draft.projectId;
     const creatingProject = !selectedProjectId;
     const projectId = selectedProjectId ?? generatedProjectId;
     const programId =
       draft.programId ?? deterministicUuid(`${importPrefix}:program`);
     const projectSlugBase = slugify(draft.projectName ?? draft.programName);
     let projectSlug = projectSlugBase;
-    let slugSuffix = 1;
-    while (
-      creatingProject &&
-      (await this.prisma.project.findUnique({
-        where: { slug: projectSlug },
-        select: { id: true },
-      }))
-    ) {
-      projectSlug = `${projectSlugBase}-${slugSuffix}`;
-      slugSuffix += 1;
-    }
-
-    await this.saveDraft(
-      {
-        ...draft,
-        status: "committing",
-        commitIdempotencyKey,
-        projectId,
-      },
-      { error: null },
-    );
 
     try {
+      if (!editing || eaFile || efsFile) assertStoredWorkbooksReady(draft);
+      let slugSuffix = 1;
+      while (
+        creatingProject &&
+        (await this.prisma.project.findUnique({
+          where: { slug: projectSlug },
+          select: { id: true },
+        }))
+      ) {
+        projectSlug = `${projectSlugBase}-${slugSuffix}`;
+        slugSuffix += 1;
+      }
       if (creatingProject) {
         await this.prisma.project.create({
           data: {
@@ -2516,24 +2217,16 @@ export class HistoricalImportService {
         },
       });
 
-      await this.saveDraft(
-        {
-          ...draft,
-          status: "succeeded",
-          commitIdempotencyKey,
-          projectId,
-          programId,
-        },
-        {
-          status: "succeeded",
-          output: validation as unknown as Prisma.InputJsonValue,
-          error: null,
-        },
-      );
-      if (existsSync(draft.stagingDir)) {
-        rmSync(draft.stagingDir, { recursive: true, force: true });
-      }
-      return await this.getStatus(principal, importId);
+      await this.updateAuditJob(importId, "SUCCEEDED", null);
+      return {
+        importId,
+        status: "succeeded",
+        metadata: publicMetadata({ ...draft, projectId, programId }),
+        validation,
+        projectId,
+        programId,
+        projectName: draft.projectName ?? draft.programName,
+      };
     } catch (error) {
       if (!editing)
         await this.cleanupFailedImport(
@@ -2542,27 +2235,11 @@ export class HistoricalImportService {
           programId,
           creatingProject,
         );
-      // Clear generated IDs after cleanup; retaining one makes a retry look
-      // like an import into an existing (now deleted) project.
-      const draftWithoutProjectId = { ...draft };
-      delete draftWithoutProjectId.projectId;
-      const failedDraft: HistoricalImportDraft = creatingProject
-        ? {
-            ...draftWithoutProjectId,
-            status: "failed",
-            commitIdempotencyKey,
-          }
-        : {
-            ...draft,
-            status: "failed",
-            commitIdempotencyKey,
-            projectId,
-          };
-      await this.saveDraft(failedDraft, {
-        status: "failed",
-        error:
-          error instanceof Error ? error.message : "Historical import failed",
-      });
+      await this.updateAuditJob(
+        importId,
+        "FAILED",
+        error instanceof Error ? error.message : "Historical import failed",
+      );
       throw toHttpException(error);
     }
   }
