@@ -140,13 +140,11 @@ export class CompatibilityPaymentService {
     organizationReference?: string,
   ) {
     const body = objectBody(rawBody);
-    const selectedCurrency = currency(body.currency);
+    const requestedCurrency =
+      body.currency === undefined ? undefined : currency(body.currency);
     const paymentMethod = body.paymentMethod ?? "card";
     if (paymentMethod !== "card" && paymentMethod !== "ach") {
       throw new BadRequestException("paymentMethod must be card or ach");
-    }
-    if (paymentMethod === "ach" && selectedCurrency !== "USD") {
-      throw new BadRequestException("ACH payments require USD");
     }
     const context = await this.context(
       principal,
@@ -154,6 +152,21 @@ export class CompatibilityPaymentService {
       organizationReference,
       false,
     );
+    const selectedCurrency = currency(
+      context.program?.currency ?? requestedCurrency,
+    );
+    if (
+      context.program?.currency &&
+      requestedCurrency &&
+      requestedCurrency !== selectedCurrency
+    ) {
+      throw new BadRequestException(
+        "Currency must match the selected program",
+      );
+    }
+    if (paymentMethod === "ach" && selectedCurrency !== "USD") {
+      throw new BadRequestException("ACH payments require USD");
+    }
     const catalogOrder = this.catalogOrder(body.items, context);
     if (context.program && !catalogOrder) {
       throw new BadRequestException(
@@ -333,9 +346,15 @@ export class CompatibilityPaymentService {
       );
     }
     const items = catalogOrder.items;
-    const selectedCurrency = currency(
-      body.currency ?? context.program.currency,
-    );
+    const selectedCurrency = currency(context.program.currency);
+    if (
+      body.currency !== undefined &&
+      currency(body.currency) !== selectedCurrency
+    ) {
+      throw new BadRequestException(
+        "Currency must match the selected program",
+      );
+    }
     const normalizedItems = items.map((item) => {
       const suffix = optionalString(item.keys.EV_Sorting_Filter);
       return {

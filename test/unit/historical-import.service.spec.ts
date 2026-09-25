@@ -707,6 +707,7 @@ describe("historical import service", () => {
           projectName: "Baton Rouge",
           programName: "Baton Rouge 2026",
           programYear: 2026,
+          currency: "GBP",
           efsLaunchDate: "2026-01-01",
           efsDeadline: "2026-12-31",
         },
@@ -718,6 +719,7 @@ describe("historical import service", () => {
         "11111111-1111-4111-8111-111111111111",
       );
       assert.equal(result.metadata.zohoProjectId, "zoho-project-1");
+      assert.equal(result.metadata.currency, "GBP");
     } finally {
       process.chdir(previousCwd);
       rmSync(root, { recursive: true, force: true });

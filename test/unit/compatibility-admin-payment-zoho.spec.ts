@@ -299,6 +299,7 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
           organization: { id: "org", stripeCustomerId: "cus_test" },
           program: {
             id: "program",
+            currency: "USD",
             metadata: {},
             fees: { "report-response-detail": 42500 },
           },
@@ -353,7 +354,7 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
         { ...body, paymentMethod: "ach", currency: "CAD" },
         "program",
       ),
-      /ACH payments require USD/,
+      /Currency must match the selected program/,
     );
     await assert.rejects(
       service.paymentIntent(
@@ -974,6 +975,7 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
                     Name: "Baton Rouge 2026",
                     Project: { id: "zoho-project-1", name: "Baton Rouge" },
                     Program_Year: "2026",
+                    Currency: "GBP",
                     EFS_Launch_Date: "2026-01-15",
                     EFS_end_Date: "2026-04-30",
                     Boutique_EE_Name: "Boutique",
@@ -1051,6 +1053,7 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
         id: "zoho-program-1",
         name: "Baton Rouge 2026",
         year: 2026,
+        currency: "GBP",
         projectId: "zoho-project-1",
         projectName: "Baton Rouge",
         projectAbbreviation: null,
@@ -1101,6 +1104,7 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
       },
     ]);
     assert.ok(requestedFields.get("Programs")?.includes("Program_Year"));
+    assert.ok(requestedFields.get("Programs")?.includes("Currency"));
     assert.ok(requestedFields.get("Programs")?.includes("Small_EE_Name"));
     assert.equal(requestedFields.has("Main_Projects"), false);
     assert.equal(requestedFields.has("Deals"), false);

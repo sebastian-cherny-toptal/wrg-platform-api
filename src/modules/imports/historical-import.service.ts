@@ -112,6 +112,7 @@ export interface HistoricalImportMetadata {
   zohoProgramId?: string;
   programName: string;
   programYear: number;
+  currency?: string;
   projectAbbreviation?: string;
   efsLaunchDate: string;
   efsDeadline: string;
@@ -455,6 +456,11 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
     );
   }
   const programName = requiredString(value, "programName");
+  const rawCurrency = optionalString(value, "currency");
+  const currency = rawCurrency?.toUpperCase();
+  if (currency && !/^[A-Z]{3}$/u.test(currency)) {
+    throw new BadRequestException("currency must be a three-letter ISO code");
+  }
   const yearValue = value.programYear;
   const programYear = Number(yearValue);
   const currentYear = new Date().getFullYear();
@@ -744,6 +750,7 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
     ...(zohoProgramId ? { zohoProgramId } : {}),
     programName,
     programYear,
+    ...(currency ? { currency } : {}),
     efsLaunchDate,
     efsDeadline,
     ...(zohoWinnerOrganizations ? { zohoWinnerOrganizations } : {}),
@@ -2080,6 +2087,7 @@ export class HistoricalImportService {
       const programData = {
         name: draft.programName,
         year: draft.programYear,
+        ...(draft.currency ? { currency: draft.currency } : {}),
         startsAt: new Date(`${draft.efsLaunchDate}T00:00:00.000Z`),
         endsAt: new Date(`${draft.efsDeadline}T23:59:59.999Z`),
         metadata: {
@@ -2164,7 +2172,6 @@ export class HistoricalImportService {
             id: programId,
             externalId: draft.zohoProgramId ?? `${importPrefix}:program`,
             projectId,
-            currency: "USD",
             ...programData,
           },
         });
