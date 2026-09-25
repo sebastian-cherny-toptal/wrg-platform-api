@@ -64,6 +64,13 @@ const adminStub = {
   uploadKeyImpactAnalysis: () => mark("uploadKeyImpactAnalysis"),
   deleteKeyImpactAnalysis: () => mark("deleteKeyImpactAnalysis"),
   deleteCustomReport: () => mark("deleteCustomReport"),
+  customReports: () => mark("customReports"),
+  uploadCustomReport: () => mark("uploadCustomReport"),
+  downloadCustomReport: (
+    _principal: Principal,
+    _id: string,
+    reply: { send: (value: unknown) => unknown },
+  ) => reply.send(mark("downloadCustomReport")),
   organizations: (_principal: Principal, reference: string | undefined) =>
     mark(reference ? "organization" : "organizations"),
   orderLogs: () => mark("orderLogs"),
@@ -1379,6 +1386,13 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
           url: "/admin/customReport/asset-1",
           headers,
         }),
+        app.inject({ method: "GET", url: "/admin/custom-reports", headers }),
+        app.inject({ method: "POST", url: "/admin/custom-reports", headers }),
+        app.inject({
+          method: "GET",
+          url: "/admin/custom-reports/asset-1/download",
+          headers,
+        }),
         app.inject({
           method: "GET",
           url: "/admin/getOrganizations",
@@ -1472,6 +1486,9 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
         uploadKeyImpactAnalysis: 1,
         deleteKeyImpactAnalysis: 1,
         deleteCustomReport: 1,
+        customReports: 1,
+        uploadCustomReport: 1,
+        downloadCustomReport: 1,
         organizations: 1,
         organization: 1,
         orderLogs: 1,

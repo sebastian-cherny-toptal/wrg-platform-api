@@ -102,6 +102,23 @@ function optionalString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
+const customReportContentTypes: Record<string, string> = {
+  ".csv": "text/csv",
+  ".pdf": "application/pdf",
+  ".pptx":
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+};
+
+function customReportExtension(filename: string): string | null {
+  const extension = /\.[^.]+$/u.exec(filename)?.[0]?.toLowerCase();
+  return extension && customReportContentTypes[extension] ? extension : null;
+}
+
+function attachmentFilename(filename: string): string {
+  return filename.replace(/[^a-zA-Z0-9._-]/gu, "_") || "custom-report";
+}
+
 function stringArray(value: unknown, key: string): string[] {
   if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) {
     throw new BadRequestException(`${key} must be an array of strings`);
@@ -586,6 +603,158 @@ export class CompatibilityAdminService {
       where: { id: { in: assets.map(({ id }) => id) } },
     });
     return { success: true, data: { deletedCount: assets.length } };
+  }
+
+  async customReports(principal: Principal) {
+    this.assertPermission(principal, "uploadDownloadCustomReportAccess");
+    const [enrollments, uploads] = await Promise.all([
+      this.prisma.organizationProgram.findMany({
+        include: { organization: true, program: true, project: true },
+        orderBy: [
+          { project: { name: "asc" } },
+          { program: { year: "desc" } },
+          { organization: { name: "asc" } },
+        ],
+      }),
+      this.prisma.customReportUpload.findMany({
+        include: {
+          organizationProgram: {
+            include: { organization: true, program: true, project: true },
+          },
+        },
+        orderBy: { uploadedAt: "desc" },
+      }),
+    ]);
+    return {
+      success: true,
+      data: {
+        targets: enrollments.map((enrollment) => ({
+          organizationId: enrollment.organizationId,
+          organizationName: enrollment.organization.name,
+          organizationProgramId: enrollment.id,
+          programId: enrollment.programId,
+          programName: enrollment.program.name,
+          programYear: enrollment.program.year,
+          projectId: enrollment.projectId,
+          projectName: enrollment.project.name,
+        })),
+        uploads: uploads.map((upload) => ({
+          id: upload.id,
+          organizationId: upload.organizationProgram.organizationId,
+          organizationName: upload.organizationProgram.organization.name,
+          organizationProgramId: upload.organizationProgramId,
+          programId: upload.organizationProgram.programId,
+          programName: upload.organizationProgram.program.name,
+          programYear: upload.organizationProgram.program.year,
+          projectId: upload.organizationProgram.projectId,
+          projectName: upload.organizationProgram.project.name,
+          reportName: upload.reportName,
+          description: upload.description,
+          sourceFileName: upload.sourceFileName,
+          sizeBytes: upload.sizeBytes,
+          uploadedByUsername: upload.uploadedByUsername,
+          uploadedAt: upload.uploadedAt.toISOString(),
+        })),
+      },
+    };
+  }
+
+  async uploadCustomReport(principal: Principal, request: FastifyRequest) {
+    this.assertPermission(principal, "uploadDownloadCustomReportAccess");
+    const { fields, files } = await multipartPayload(request);
+    const file = files[0];
+    if (!file) throw new BadRequestException("file is missing");
+    if (files.length !== 1) {
+      throw new BadRequestException("exactly one file is required");
+    }
+    const extension = customReportExtension(file.filename);
+    const contentType = extension
+      ? customReportContentTypes[extension]
+      : undefined;
+    if (!extension || !contentType) {
+      throw new BadRequestException("file must be a PPTX, CSV, XLSX, or PDF");
+    }
+    if (file.buffer.length === 0) {
+      throw new BadRequestException("file must not be empty");
+    }
+    if (file.buffer.length > 25 * 1024 * 1024) {
+      throw new BadRequestException("file must be 25 MB or smaller");
+    }
+    const organizationProgramId = requiredString(
+      fields,
+      "organizationProgramId",
+    );
+    const reportName = requiredString(fields, "reportName");
+    const description = requiredString(fields, "description");
+    if (reportName.length > 160) {
+      throw new BadRequestException(
+        "reportName must be 160 characters or fewer",
+      );
+    }
+    if (description.length > 1000) {
+      throw new BadRequestException(
+        "description must be 1000 characters or fewer",
+      );
+    }
+    const enrollment = await this.prisma.organizationProgram.findFirst({
+      where: referenceWhere(organizationProgramId),
+    });
+    if (!enrollment) {
+      throw new NotFoundException("Program organization not found");
+    }
+    const uploader = await this.prisma.user.findUnique({
+      where: { id: principal.sub },
+      select: { username: true },
+    });
+    const upload = await this.prisma.$transaction(async (transaction) => {
+      const created = await transaction.customReportUpload.create({
+        data: {
+          organizationProgramId: enrollment.id,
+          reportName,
+          description,
+          sourceFileName: file.filename,
+          contentType,
+          sizeBytes: file.buffer.length,
+          contents: Uint8Array.from(file.buffer),
+          uploadedByUsername: uploader?.username ?? null,
+        },
+      });
+      await transaction.organizationProgram.update({
+        where: { id: enrollment.id },
+        data: {
+          reportAccess: inputJson({
+            ...jsonObject(enrollment.reportAccess),
+            CR_Access: "yes",
+          }),
+        },
+      });
+      return created;
+    });
+    return {
+      success: true,
+      message: "uploaded successfully",
+      data: { id: upload.id },
+    };
+  }
+
+  async downloadCustomReport(
+    principal: Principal,
+    id: string,
+    reply: FastifyReply,
+  ) {
+    this.assertPermission(principal, "uploadDownloadCustomReportAccess");
+    if (!isUuid(id)) throw new NotFoundException("Custom report not found");
+    const upload = await this.prisma.customReportUpload.findUnique({
+      where: { id },
+    });
+    if (!upload) throw new NotFoundException("Custom report not found");
+    return reply
+      .header("Content-Type", upload.contentType)
+      .header(
+        "Content-Disposition",
+        `attachment; filename="${attachmentFilename(upload.sourceFileName)}"`,
+      )
+      .send(Buffer.from(upload.contents));
   }
 
   async organizations(
@@ -1612,6 +1781,30 @@ export class CompatibilityAdminController {
     @Param("id") id: string,
   ) {
     return this.admin.deleteCustomReport(principal, id);
+  }
+
+  @Get("custom-reports")
+  customReports(@CurrentUser() principal: Principal) {
+    return this.admin.customReports(principal);
+  }
+
+  @Post("custom-reports")
+  @HttpCode(200)
+  @ApiConsumes("multipart/form-data")
+  uploadCustomReport(
+    @CurrentUser() principal: Principal,
+    @Req() request: FastifyRequest,
+  ) {
+    return this.admin.uploadCustomReport(principal, request);
+  }
+
+  @Get("custom-reports/:id/download")
+  downloadCustomReport(
+    @CurrentUser() principal: Principal,
+    @Param("id") id: string,
+    @Res() reply: FastifyReply,
+  ) {
+    return this.admin.downloadCustomReport(principal, id, reply);
   }
 
   @Get("bulk-user-catalog")

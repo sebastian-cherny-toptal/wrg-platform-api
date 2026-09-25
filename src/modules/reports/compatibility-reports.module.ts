@@ -8,6 +8,7 @@ import {
   Injectable,
   Module,
   NotFoundException,
+  Param,
   Post,
   Query,
   Res,
@@ -2367,13 +2368,19 @@ export class CompatibilityReportsService {
         message: "Sample dashboard data",
         data: {
           top: [
-            { title: "I understand how my work contributes to our goals.", percentage: 88 },
+            {
+              title: "I understand how my work contributes to our goals.",
+              percentage: 88,
+            },
             { title: "My manager treats me with respect.", percentage: 84 },
             { title: "I have the tools needed to do my job.", percentage: 81 },
           ],
           bottom: [
             { title: "I see opportunities for career growth.", percentage: 55 },
-            { title: "Communication across teams is effective.", percentage: 58 },
+            {
+              title: "Communication across teams is effective.",
+              percentage: 58,
+            },
             { title: "I receive useful feedback on my work.", percentage: 61 },
           ],
           noteTop: "Sample statements from a fictional organization.",
@@ -3110,12 +3117,26 @@ export class CompatibilityReportsService {
   }
 
   async customReports(principal: Principal, query: ReportQuery) {
-    const context = await this.context(principal, query);
-    const assets = await this.prisma.asset.findMany({
-      where: { organizationId: context.organizationId },
-      orderBy: { createdAt: "desc" },
-    });
-    const data = assets
+    const context = await this.baseContext(principal, query);
+    if (
+      !principal.roles.includes("admin") &&
+      !principal.roles.includes("super_admin") &&
+      String(jsonObject(context.reportAccess).CR_Access ?? "").toLowerCase() !==
+        "yes"
+    ) {
+      throw new ForbiddenException("Custom reports are not available");
+    }
+    const [uploads, assets] = await Promise.all([
+      this.prisma.customReportUpload.findMany({
+        where: { organizationProgramId: context.enrollmentId },
+        orderBy: { uploadedAt: "desc" },
+      }),
+      this.prisma.asset.findMany({
+        where: { organizationId: context.organizationId },
+        orderBy: { createdAt: "desc" },
+      }),
+    ]);
+    const legacyReports = assets
       .filter((asset) => {
         const metadata = jsonObject(asset.metadata);
         return (
@@ -3132,10 +3153,55 @@ export class CompatibilityReportsService {
         createdAt: asset.createdAt,
         ...jsonObject(asset.metadata),
       }));
-    if (data.length === 0) {
-      throw new NotFoundException("no data found");
-    }
+    const uploadedReports = uploads.map((upload) => ({
+      _id: upload.id,
+      ReportTitle: upload.reportName,
+      ReportDescription: upload.description,
+      createdAt: upload.uploadedAt,
+      reportFormats: [
+        {
+          _id: upload.id,
+          fileName: upload.sourceFileName,
+          url: `/client/custom-reports/${upload.id}/download`,
+        },
+      ],
+    }));
+    const data = [...uploadedReports, ...legacyReports];
     return { success: true, message: "success", data };
+  }
+
+  async customReportDownload(
+    principal: Principal,
+    id: string,
+    reply: FastifyReply,
+  ) {
+    if (!isUuid(id)) throw new NotFoundException("Custom report not found");
+    const upload = await this.prisma.customReportUpload.findUnique({
+      where: { id },
+      include: { organizationProgram: { select: { programId: true } } },
+    });
+    if (!upload) throw new NotFoundException("Custom report not found");
+    const context = await this.baseContext(principal, {
+      selectedProgramId: upload.organizationProgram.programId,
+      isDummy: false,
+    });
+    if (
+      context.enrollmentId !== upload.organizationProgramId ||
+      (!principal.roles.includes("admin") &&
+        !principal.roles.includes("super_admin") &&
+        String(
+          jsonObject(context.reportAccess).CR_Access ?? "",
+        ).toLowerCase() !== "yes")
+    ) {
+      throw new ForbiddenException("Custom report is not available");
+    }
+    const filename =
+      upload.sourceFileName.replace(/[^a-zA-Z0-9._-]/gu, "_") ||
+      "custom-report";
+    return reply
+      .header("Content-Type", upload.contentType)
+      .header("Content-Disposition", `attachment; filename="${filename}"`)
+      .send(Buffer.from(upload.contents));
   }
 
   async employerBenchmark(principal: Principal, query: ReportQuery) {
@@ -3862,7 +3928,9 @@ export class CompatibilityReportsService {
       principal.roles.includes("promotional") &&
       (!query.isDummy || !promotionalDemoSupported)
     ) {
-      throw new ForbiddenException("Promotional sessions may only access sample reports");
+      throw new ForbiddenException(
+        "Promotional sessions may only access sample reports",
+      );
     }
     const programSelect = {
       id: true,
@@ -5754,6 +5822,15 @@ export class CompatibilityReportsController {
       principal,
       this.reportQuery(selectedProgramId, organizationId, isDummy),
     );
+  }
+
+  @Get("custom-reports/:id/download")
+  customReportDownload(
+    @CurrentUser() principal: Principal,
+    @Param("id") id: string,
+    @Res() reply: FastifyReply,
+  ) {
+    return this.reports.customReportDownload(principal, id, reply);
   }
 
   @Get("employerBenchmarkReportExcel")
