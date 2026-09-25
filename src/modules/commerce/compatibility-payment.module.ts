@@ -108,27 +108,6 @@ function currency(value: unknown): "USD" | "CAD" | "GBP" {
   return normalized as "USD" | "CAD" | "GBP";
 }
 
-function checkoutItems(value: unknown): CheckoutItem[] {
-  if (!Array.isArray(value) || value.length === 0) {
-    throw new BadRequestException("items must be a non-empty array");
-  }
-  return value.map((entry, index) => {
-    const item = objectBody(entry);
-    const title = optionalString(item.title);
-    if (!title)
-      throw new BadRequestException(`items[${index}].title is required`);
-    const keys =
-      item.keys && typeof item.keys === "object" && !Array.isArray(item.keys)
-        ? (item.keys as JsonRecord)
-        : {};
-    return {
-      title,
-      amount: money(item.amount, `items[${index}].amount`),
-      keys,
-    };
-  });
-}
-
 function paymentKeys(keys: JsonRecord) {
   return Object.fromEntries(
     Object.entries(keys).map(([key, value]) => [
@@ -176,6 +155,11 @@ export class CompatibilityPaymentService {
       false,
     );
     const catalogOrder = this.catalogOrder(body.items, context);
+    if (context.program && !catalogOrder) {
+      throw new BadRequestException(
+        "items must contain a valid report product",
+      );
+    }
     const amountMinor = catalogOrder
       ? catalogOrder.amountMinor +
         (paymentMethod === "card"
@@ -343,7 +327,12 @@ export class CompatibilityPaymentService {
     }
     const enrollment = context.enrollment;
     const catalogOrder = this.catalogOrder(body.items, context);
-    const items = catalogOrder?.items ?? checkoutItems(body.items);
+    if (!catalogOrder) {
+      throw new BadRequestException(
+        "items must contain a valid report product",
+      );
+    }
+    const items = catalogOrder.items;
     const selectedCurrency = currency(
       body.currency ?? context.program.currency,
     );
@@ -355,15 +344,7 @@ export class CompatibilityPaymentService {
         keys: paymentKeys(item.keys),
       };
     });
-    const totalMinor =
-      catalogOrder?.amountMinor ??
-      Math.round(
-        money(
-          body.total ??
-            normalizedItems.reduce((sum, item) => sum + item.amount, 0),
-          "total",
-        ) * 100,
-      );
+    const totalMinor = catalogOrder.amountMinor;
 
     if (useStripe) {
       const intent = await this.createIntent(
@@ -396,20 +377,15 @@ export class CompatibilityPaymentService {
         projectId: enrollment.projectId,
         programId: enrollment.programId,
         organizationProgramId: enrollment.id,
-        status: catalogOrder ? "PENDING" : "INVOICED",
+        status: "PENDING",
         currency: selectedCurrency,
         amountMinor: totalMinor,
         items: inputJson(normalizedItems),
         paymentMethod: "Needs Invoiced",
       },
     });
-    const mergedKeys = catalogOrder
-      ? this.crmFields(catalogOrder.items, "Needs Invoiced")
-      : (Object.assign(
-          {},
-          ...normalizedItems.map(({ keys }) => keys),
-        ) as JsonRecord);
-    const sortedFilter = catalogOrder?.items.find(
+    const mergedKeys = this.crmFields(catalogOrder.items, "Needs Invoiced");
+    const sortedFilter = catalogOrder.items.find(
       ({ productId }) => productId === SORTED_VERBATIMS_ID,
     )?.keys.EV_Sorting_Filter;
     await this.applyEnrollmentKeys(enrollment, {
@@ -459,10 +435,7 @@ export class CompatibilityPaymentService {
       });
       return;
     }
-    if (
-      order.paymentMethod === "card" ||
-      order.paymentMethod === "invoice"
-    ) {
+    if (order.paymentMethod === "card" || order.paymentMethod === "invoice") {
       throw new ConflictException(
         "Order was not created by the server-priced checkout",
       );

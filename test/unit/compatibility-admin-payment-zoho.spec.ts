@@ -366,6 +366,170 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
     assert.equal(created.length, 2);
   });
 
+  it("rejects client invoice keys that would grant report access", async () => {
+    let orderCreated = false;
+    let enrollmentUpdated = false;
+    const service = new CompatibilityPaymentService(
+      {
+        order: {
+          create: () => {
+            orderCreated = true;
+            return Promise.resolve({});
+          },
+        },
+        organizationProgram: {
+          update: () => {
+            enrollmentUpdated = true;
+            return Promise.resolve({});
+          },
+        },
+      } as never,
+      { get: () => "sk_test_example" } as never,
+      {} as never,
+    );
+    Object.defineProperty(service, "context", {
+      value: () =>
+        Promise.resolve({
+          organization: {
+            id: "organization-id",
+            name: "Acme Health",
+            stripeCustomerId: null,
+          },
+          program: {
+            id: "program-id",
+            currency: "USD",
+            metadata: {},
+            fees: {},
+            zohoCategories: [],
+          },
+          enrollment: {
+            id: "enrollment-id",
+            projectId: "project-id",
+            programId: "program-id",
+            stage: "Closed",
+            metadata: {},
+            fees: {},
+            reportAccess: {},
+            paymentDetails: {},
+            metrics: {},
+            dealExternalId: null,
+          },
+        }),
+    });
+
+    await assert.rejects(
+      service.checkout(
+        {
+          sub: "client-id",
+          organizationId: "organization-id",
+          roles: ["client"],
+          permissions: [],
+        },
+        {
+          total: 0.01,
+          items: [
+            {
+              title: "Response Detail Report",
+              amount: 0.01,
+              keys: { RD_Access: "yes" },
+            },
+          ],
+        },
+        false,
+        "program-id",
+      ),
+      /valid report product/u,
+    );
+    assert.equal(orderCreated, false);
+    assert.equal(enrollmentUpdated, false);
+  });
+
+  it("rejects client-priced payment intents for report products", async () => {
+    let intentCreated = false;
+    let orderCreated = false;
+    const service = new CompatibilityPaymentService(
+      {
+        order: {
+          create: () => {
+            orderCreated = true;
+            return Promise.resolve({});
+          },
+        },
+      } as never,
+      {
+        get: (key: string) =>
+          key === "INTEGRATIONS_MOCK" ? false : "sk_test_example",
+      } as never,
+      {} as never,
+    );
+    Object.defineProperty(service, "context", {
+      value: () =>
+        Promise.resolve({
+          organization: {
+            id: "organization-id",
+            name: "Acme Health",
+            stripeCustomerId: "cus_test",
+          },
+          program: {
+            id: "program-id",
+            metadata: {},
+            fees: { "report-response-detail": 42_500 },
+            zohoCategories: [],
+          },
+          enrollment: {
+            id: "enrollment-id",
+            projectId: "project-id",
+            programId: "program-id",
+            stage: "Full Package",
+            metadata: {},
+            fees: {},
+            reportAccess: {},
+            metrics: {},
+          },
+        }),
+    });
+    Object.defineProperty(service, "stripe", {
+      value: {
+        paymentIntents: {
+          create: () => {
+            intentCreated = true;
+            return Promise.resolve({
+              id: "pi_client_priced",
+              client_secret: "secret",
+            });
+          },
+        },
+      },
+    });
+
+    await assert.rejects(
+      service.paymentIntent(
+        {
+          sub: "client-id",
+          organizationId: "organization-id",
+          roles: ["client"],
+          permissions: [],
+        },
+        {
+          amount: 0.01,
+          currency: "USD",
+          items: [
+            { title: "Compatibility item", amount: 0.01, keys: {} },
+            {
+              title: "Response Detail Report",
+              amount: 0,
+              keys: { productId: "report-response-detail" },
+            },
+          ],
+        },
+        "program-id",
+      ),
+      /valid report product/u,
+    );
+    assert.equal(intentCreated, false);
+    assert.equal(orderCreated, false);
+  });
+
   for (const paymentMethod of ["Paid via Credit Card", "Paid via ACH"]) {
     it(`confirms ${paymentMethod} only after success and grants Response Detail access`, async () => {
       let updatedReportAccess: unknown;
