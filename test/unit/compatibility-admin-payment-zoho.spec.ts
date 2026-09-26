@@ -282,7 +282,7 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
     );
   });
 
-  it("creates method-specific intents with server-priced ACH totals and rejects non-USD ACH", async () => {
+  it("creates fee-free card intents and rejects disabled payment methods", async () => {
     const created: Record<string, unknown>[] = [];
     const orders: Record<string, unknown>[] = [];
     const service = new CompatibilityPaymentService(
@@ -344,24 +344,17 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
       currency: "USD",
       items: [{ amount: 1, keys: { productId: "report-response-detail" } }],
     };
-    await service.paymentIntent(
-      principal,
-      { ...body, paymentMethod: "ach" },
-      "program",
-    );
     await service.paymentIntent(principal, body, "program");
     assert.equal(created[0]?.amount, 42500);
-    assert.deepEqual(created[0].payment_method_types, ["us_bank_account"]);
-    assert.equal(orders[0]?.paymentMethod, "Paid via ACH");
-    assert.equal(created[1]?.amount, 43775);
-    assert.deepEqual(created[1].payment_method_types, ["card"]);
+    assert.deepEqual(created[0].payment_method_types, ["card"]);
+    assert.equal(orders[0]?.paymentMethod, "Paid via Credit Card");
     await assert.rejects(
       service.paymentIntent(
         principal,
-        { ...body, paymentMethod: "ach", currency: "CAD" },
+        { ...body, paymentMethod: "ach" },
         "program",
       ),
-      /Currency must match the selected program/,
+      /paymentMethod must be card/,
     );
     await assert.rejects(
       service.paymentIntent(
@@ -371,7 +364,8 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
       ),
       /paymentMethod must be/,
     );
-    assert.equal(created.length, 2);
+    assert.equal(created.length, 1);
+    assert.equal(orders.length, 1);
   });
 
   it("keeps impersonated dashboard previews read-only", async () => {

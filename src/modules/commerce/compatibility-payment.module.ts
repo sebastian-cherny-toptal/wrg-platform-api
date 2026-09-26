@@ -144,8 +144,8 @@ export class CompatibilityPaymentService {
     const requestedCurrency =
       body.currency === undefined ? undefined : currency(body.currency);
     const paymentMethod = body.paymentMethod ?? "card";
-    if (paymentMethod !== "card" && paymentMethod !== "ach") {
-      throw new BadRequestException("paymentMethod must be card or ach");
+    if (paymentMethod !== "card") {
+      throw new BadRequestException("paymentMethod must be card");
     }
     const context = await this.context(
       principal,
@@ -163,9 +163,6 @@ export class CompatibilityPaymentService {
     ) {
       throw new BadRequestException("Currency must match the selected program");
     }
-    if (paymentMethod === "ach" && selectedCurrency !== "USD") {
-      throw new BadRequestException("ACH payments require USD");
-    }
     const catalogOrder = this.catalogOrder(body.items, context);
     if (context.program && !catalogOrder) {
       throw new BadRequestException(
@@ -173,10 +170,7 @@ export class CompatibilityPaymentService {
       );
     }
     const amountMinor = catalogOrder
-      ? catalogOrder.amountMinor +
-        (paymentMethod === "card"
-          ? Math.round(catalogOrder.amountMinor * 0.03)
-          : 0)
+      ? catalogOrder.amountMinor
       : Math.round(money(body.amount, "amount") * 100);
     const intent = await this.createIntent(
       context.organization,
@@ -201,8 +195,7 @@ export class CompatibilityPaymentService {
               ? body.items
               : [{ amount: body.amount }]),
         ),
-        paymentMethod:
-          paymentMethod === "ach" ? "Paid via ACH" : "Paid via Credit Card",
+        paymentMethod: "Paid via Credit Card",
       },
     });
     return intent;
@@ -729,7 +722,7 @@ export class CompatibilityPaymentService {
     },
     amountMinor: number,
     selectedCurrency: "USD" | "CAD" | "GBP",
-    paymentMethod?: "card" | "ach",
+    paymentMethod?: "card",
   ) {
     if (this.config.get("INTEGRATIONS_MOCK", { infer: true })) {
       const id = `pi_mock_${crypto.randomUUID()}`;
@@ -767,9 +760,7 @@ export class CompatibilityPaymentService {
         customer: customerId,
         ...(paymentMethod
           ? {
-              payment_method_types: [
-                paymentMethod === "ach" ? "us_bank_account" : "card",
-              ],
+              payment_method_types: ["card"],
             }
           : {}),
         metadata: { organizationId: organization.id },
