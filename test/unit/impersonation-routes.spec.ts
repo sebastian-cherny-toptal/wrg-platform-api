@@ -29,6 +29,7 @@ const jwtSecret = "test-secret-that-is-at-least-32-characters";
 const serviceStub = {
   eligibleUsers: () => ({ users: [{ id: "target", fullName: "Demo Client" }] }),
   start: () => ({ url: "http://client.test/admin-preview?grant=opaque" }),
+  startUser: () => ({ url: "http://client.test/admin-preview?grant=user" }),
   exchange: () => ({
     accessToken: "preview-token",
     session: { impersonation: {} },
@@ -71,6 +72,7 @@ async function createTestApp(): Promise<NestFastifyApplication> {
     exclude: [
       { path: "admin/:one", method: RequestMethod.ALL },
       { path: "admin/:one/:two", method: RequestMethod.ALL },
+      { path: "admin/:one/:two/:three", method: RequestMethod.ALL },
     ],
   });
   app.enableVersioning({ type: VersioningType.URI, defaultVersion: "1" });
@@ -107,6 +109,13 @@ describe("secure admin dashboard previews", () => {
         },
       });
       assert.equal(started.statusCode, 201, started.body);
+
+      const userStarted = await app.inject({
+        method: "POST",
+        url: "/admin/impersonations/users/target",
+        headers,
+      });
+      assert.equal(userStarted.statusCode, 201, userStarted.body);
 
       const missingTarget = await app.inject({
         method: "POST",
@@ -235,6 +244,71 @@ describe("secure admin dashboard previews", () => {
     );
   });
 
+  it("creates a user-scoped grant only for included assigned programs", async () => {
+    let grantData: Record<string, unknown> | undefined;
+    const prisma = {
+      user: {
+        findFirst: (input: { where: { id?: string } }) =>
+          Promise.resolve(
+            input.where.id === "target-id"
+              ? {
+                  id: "target-id",
+                  fullName: "Portal User",
+                  username: "portal-user",
+                  email: "portal@example.test",
+                  organization: { id: "org-id", name: "Organization" },
+                  programs: [
+                    { programId: "program-1" },
+                    { programId: "program-2" },
+                  ],
+                }
+              : {
+                  id: "admin-id",
+                  fullName: "Administrator",
+                  username: "admin",
+                  email: "admin@example.test",
+                },
+          ),
+      },
+      organizationProgram: {
+        findMany: () =>
+          Promise.resolve([
+            { programId: "program-1" },
+            { programId: "program-2" },
+          ]),
+      },
+      impersonationGrant: {
+        create: ({ data }: { data: Record<string, unknown> }) => {
+          grantData = data;
+          return Promise.resolve(data);
+        },
+      },
+      auditLog: { create: (input: unknown) => Promise.resolve(input) },
+      $transaction: (operations: Promise<unknown>[]) => Promise.all(operations),
+    };
+    const service = new ImpersonationService(
+      prisma as never,
+      {} as never,
+      { get: () => "http://localhost:5173" } as never,
+    );
+
+    const result = await service.startUser(
+      {
+        sub: "admin-id",
+        organizationId: null,
+        roles: ["admin"],
+        permissions: ["previewClientsDashboardAccess"],
+      },
+      "target-id",
+    );
+
+    assert.ok(grantData);
+    assert.equal(grantData.scope, "USER");
+    assert.equal(grantData.programId, null);
+    assert.equal(grantData.targetUserId, "target-id");
+    assert.match(result.url, /\/admin-preview\?grant=/u);
+  });
+
   it("issues a program-scoped client identity with the target user's exact access", async () => {
     const secret = "single-use-preview-secret";
     const tokenHash = await hash(secret);
@@ -250,6 +324,7 @@ describe("secure admin dashboard previews", () => {
             targetUserId: "8e99998f-10bd-45af-bdd1-61e11b50297c",
             organizationId: "9fa9998f-10bd-45af-bdd1-61e11b50297d",
             programId: "afb9998f-10bd-45af-bdd1-61e11b50297e",
+            scope: "PROGRAM",
             tokenHash,
             expiresAt,
             consumedAt: null,
@@ -272,12 +347,6 @@ describe("secure admin dashboard previews", () => {
             organization: {
               id: "9fa9998f-10bd-45af-bdd1-61e11b50297d",
               name: "Canonical Organization",
-            },
-            program: {
-              id: "afb9998f-10bd-45af-bdd1-61e11b50297e",
-              name: "2026 Program",
-              year: 2026,
-              currency: "USD",
             },
             target: {
               id: "8e99998f-10bd-45af-bdd1-61e11b50297c",
@@ -307,22 +376,30 @@ describe("secure admin dashboard previews", () => {
         updateMany: () => Promise.resolve({ count: 1 }),
       },
       organizationProgram: {
-        findUnique: () =>
-          Promise.resolve({
-            id: "b0c9998f-10bd-45af-bdd1-61e11b50297f",
-            isIncluded: true,
-            isWinner: null,
-            reportAccess: {
-              WFR_Access: "yes",
-              benefitsBestPractices: "yes",
-              RD_Access: "no",
+        findMany: () =>
+          Promise.resolve([
+            {
+              id: "b0c9998f-10bd-45af-bdd1-61e11b50297f",
+              isWinner: null,
+              reportAccess: {
+                WFR_Access: "yes",
+                benefitsBestPractices: "yes",
+                RD_Access: "no",
+              },
+              metrics: {
+                Source_Organization_Name: "Client-Facing Organization",
+                KIA_Order_Status: "Purchased",
+                SEV_Filter: "Leadership",
+              },
+              metadata: {},
+              program: {
+                id: "afb9998f-10bd-45af-bdd1-61e11b50297e",
+                name: "2026 Program",
+                year: 2026,
+                currency: "USD",
+              },
             },
-            metrics: {
-              Source_Organization_Name: "Client-Facing Organization",
-              KIA_Order_Status: "Purchased",
-              SEV_Filter: "Leadership",
-            },
-          }),
+          ]),
       },
     };
     const auth = {
@@ -350,8 +427,13 @@ describe("secure admin dashboard previews", () => {
     );
 
     assert.ok(issuedPrincipal);
+    assert.ok(issuedPrincipal.impersonation);
     assert.deepEqual(issuedPrincipal.roles, ["client"]);
     assert.deepEqual(issuedPrincipal.permissions, []);
+    assert.equal(issuedPrincipal.impersonation.scope, "program");
+    assert.deepEqual(issuedPrincipal.impersonation.programIds, [
+      "afb9998f-10bd-45af-bdd1-61e11b50297e",
+    ]);
     assert.match(issuedLifetime, /^\d+s$/u);
     assert.equal(result.session.expiresAt, expiresAt.toISOString());
     const [program] = result.session.user.programs;
@@ -372,5 +454,123 @@ describe("secure admin dashboard previews", () => {
       SEV_Filter: "Leadership",
       KIA_Order_Status: "Purchased",
     });
+  });
+
+  it("impersonates a user with every assigned program and its own access", async () => {
+    const secret = "user-impersonation-secret";
+    const tokenHash = await hash(secret);
+    let issuedPrincipal: Principal | undefined;
+    const program = (id: string, year: number) => ({
+      id,
+      name: `Program ${year}`,
+      year,
+      currency: "USD",
+    });
+    const prisma = {
+      impersonationGrant: {
+        findUnique: () =>
+          Promise.resolve({
+            id: "grant-id",
+            actorUserId: "admin-id",
+            targetUserId: "target-id",
+            organizationId: "organization-id",
+            programId: null,
+            scope: "USER",
+            tokenHash,
+            expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+            consumedAt: null,
+            revokedAt: null,
+            actor: {
+              id: "admin-id",
+              fullName: "Administrator",
+              status: "ACTIVE",
+              roles: [
+                {
+                  role: {
+                    key: "admin",
+                    permissions: [
+                      { permission: { key: "previewClientsDashboardAccess" } },
+                    ],
+                  },
+                },
+              ],
+            },
+            organization: { id: "organization-id", name: "Organization" },
+            target: {
+              id: "target-id",
+              fullName: "Multi Program User",
+              email: "multi@example.test",
+              status: "ACTIVE",
+              organizationId: "organization-id",
+              organizationProgramId: "enrollment-2025",
+              roles: [{ role: { key: "client", permissions: [] } }],
+              programs: [
+                { program: program("program-2025", 2025) },
+                { program: program("program-2026", 2026) },
+              ],
+            },
+          }),
+        updateMany: () => Promise.resolve({ count: 1 }),
+      },
+      organizationProgram: {
+        findMany: () =>
+          Promise.resolve([
+            {
+              id: "enrollment-2025",
+              isWinner: true,
+              reportAccess: { WFR_Access: "yes", RD_Access: "no" },
+              metrics: {},
+              metadata: {},
+              program: program("program-2025", 2025),
+            },
+            {
+              id: "enrollment-2026",
+              isWinner: false,
+              reportAccess: { WFR_Access: "no", RD_Access: "yes" },
+              metrics: {},
+              metadata: {},
+              program: program("program-2026", 2026),
+            },
+          ]),
+      },
+    };
+    const auth = {
+      principalForUserId: () =>
+        Promise.resolve({
+          sub: "target-id",
+          organizationId: "organization-id",
+          roles: ["client"],
+          permissions: [],
+        } satisfies Principal),
+      issueAccessToken: (principal: Principal) => {
+        issuedPrincipal = principal;
+        return Promise.resolve("user-preview-token");
+      },
+    };
+    const service = new ImpersonationService(
+      prisma as never,
+      auth as never,
+      { get: () => false } as never,
+    );
+
+    const result = await service.exchange(`grant-id.${secret}`);
+
+    assert.ok(issuedPrincipal?.impersonation);
+    assert.equal(issuedPrincipal.impersonation.scope, "user");
+    assert.deepEqual(issuedPrincipal.impersonation.programIds, [
+      "program-2025",
+      "program-2026",
+    ]);
+    assert.deepEqual(
+      result.session.user.programs.map(({ id }) => id),
+      ["program-2025", "program-2026"],
+    );
+    const [firstProgram, secondProgram] = result.session.user.programs;
+    assert.ok(firstProgram);
+    assert.ok(secondProgram);
+    assert.equal(firstProgram.entitlements.WFR_Access, "yes");
+    assert.equal(firstProgram.entitlements.RD_Access, "no");
+    assert.equal(secondProgram.entitlements.WFR_Access, "no");
+    assert.equal(secondProgram.entitlements.RD_Access, "yes");
   });
 });

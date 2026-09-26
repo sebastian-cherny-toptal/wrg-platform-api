@@ -28,13 +28,24 @@ export interface Principal {
   permissions: string[];
   localAuthBypass?: boolean;
   impersonation?: {
+    scope: "program" | "user";
     grantId: string;
     actorUserId: string;
     actorDisplayName: string;
     organizationId: string;
-    programId: string;
+    programIds: string[];
     startedAt: string;
   };
+}
+
+export function impersonationAllowsProgram(
+  principal: Principal,
+  programId: string,
+): boolean {
+  return (
+    !principal.impersonation ||
+    principal.impersonation.programIds.includes(programId)
+  );
 }
 
 class LoginDto {
@@ -137,14 +148,27 @@ class JwtStrategy extends PassportStrategy(Strategy) {
           targetUserId: principal.sub,
           actorUserId: principal.impersonation.actorUserId,
           organizationId: principal.impersonation.organizationId,
-          programId: principal.impersonation.programId,
           consumedAt: { not: null },
           revokedAt: null,
           expiresAt: { gt: new Date() },
         },
-        select: { id: true },
+        select: { id: true, scope: true, programId: true },
       });
-      if (!activeGrant) {
+      const uniqueProgramIds = new Set(principal.impersonation.programIds);
+      const scopeMatches =
+        activeGrant?.scope.toLowerCase() === principal.impersonation.scope;
+      const programScopeMatches =
+        principal.impersonation.scope === "program"
+          ? activeGrant?.programId === principal.impersonation.programIds[0] &&
+            principal.impersonation.programIds.length === 1
+          : activeGrant?.programId === null;
+      if (
+        !activeGrant ||
+        !scopeMatches ||
+        !programScopeMatches ||
+        uniqueProgramIds.size !== principal.impersonation.programIds.length ||
+        uniqueProgramIds.size === 0
+      ) {
         throw new UnauthorizedException("Dashboard preview has ended");
       }
     }

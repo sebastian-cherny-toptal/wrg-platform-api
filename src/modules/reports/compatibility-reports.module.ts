@@ -39,6 +39,7 @@ import { PrismaService } from "../../database/prisma.service.js";
 import {
   AuthModule,
   CurrentUser,
+  impersonationAllowsProgram,
   JwtAuthGuard,
   type Principal,
 } from "../auth/auth.module.js";
@@ -3984,6 +3985,11 @@ export class CompatibilityReportsService {
           })
         )?.organizationProgram?.program;
     if (!program) throw new NotFoundException("Program not found");
+    if (!impersonationAllowsProgram(principal, program.id)) {
+      throw new ForbiddenException(
+        "This program is outside the impersonation scope",
+      );
+    }
 
     let organizationId = principal.organizationId;
     if (

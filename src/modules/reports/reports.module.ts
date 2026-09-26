@@ -12,6 +12,7 @@ import { ApiBearerAuth, ApiQuery, ApiTags } from "@nestjs/swagger";
 import { PrismaService } from "../../database/prisma.service.js";
 import {
   CurrentUser,
+  impersonationAllowsProgram,
   JwtAuthGuard,
   type Principal,
 } from "../auth/auth.module.js";
@@ -55,7 +56,12 @@ class ReportsController {
       where: {
         isIncluded: true,
         organizationId,
-        program: { surveys: { some: { id: surveyId } } },
+        program: {
+          ...(principal.impersonation
+            ? { id: { in: principal.impersonation.programIds } }
+            : {}),
+          surveys: { some: { id: surveyId } },
+        },
       },
       select: { id: true, metadata: true },
     });
@@ -129,8 +135,20 @@ class ReportCatalogController {
     @CurrentUser() principal: Principal,
     @Query("programId") programId?: string,
   ) {
+    if (programId && !impersonationAllowsProgram(principal, programId)) {
+      throw new ForbiddenException(
+        "This program is outside the impersonation scope",
+      );
+    }
     const programs = await this.prisma.userProgram.findMany({
-      where: { userId: principal.sub, ...(programId ? { programId } : {}) },
+      where: {
+        userId: principal.sub,
+        ...(programId
+          ? { programId }
+          : principal.impersonation
+            ? { programId: { in: principal.impersonation.programIds } }
+            : {}),
+      },
       orderBy: { program: { year: "desc" } },
       select: {
         program: {

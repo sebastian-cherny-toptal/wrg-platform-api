@@ -11,6 +11,7 @@ import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
 import { PrismaService } from "../../database/prisma.service.js";
 import {
   CurrentUser,
+  impersonationAllowsProgram,
   JwtAuthGuard,
   type Principal,
 } from "../auth/auth.module.js";
@@ -34,10 +35,11 @@ class SurveysController {
         organizationId: principal.organizationId ?? "__none__",
         program: { surveys: { some: { id } } },
       },
-      select: { metadata: true },
+      select: { metadata: true, programId: true },
     });
     if (
       !enrollment ||
+      !impersonationAllowsProgram(principal, enrollment.programId) ||
       portalAccessMode(enrollment.metadata, principal.roles) === "promotional"
     ) {
       throw new ForbiddenException(

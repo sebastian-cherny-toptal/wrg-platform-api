@@ -380,11 +380,12 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
       roles: ["client"],
       permissions: [],
       impersonation: {
+        scope: "program",
         grantId: "grant",
         actorUserId: "admin",
         actorDisplayName: "Administrator",
         organizationId: "org",
-        programId: "program",
+        programIds: ["program"],
         startedAt: new Date().toISOString(),
       },
     } satisfies Principal;

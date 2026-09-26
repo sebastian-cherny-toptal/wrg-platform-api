@@ -51,6 +51,7 @@ import {
   AuthModule,
   AuthService,
   CurrentUser,
+  impersonationAllowsProgram,
   JwtAuthGuard,
   type Principal,
 } from "../auth/auth.module.js";
@@ -263,6 +264,7 @@ const listUserFields = new Set([
   "mobile",
   "username",
   "role",
+  "roles",
   "roleId",
   "projects",
   "programs",
@@ -684,11 +686,9 @@ export class ClientLoginService {
         organizationId: user.organizationId,
         isIncluded: true,
         programId: {
-          in: principal.impersonation
-            ? allowedProgramIds.filter(
-                (id) => id === principal.impersonation?.programId,
-              )
-            : allowedProgramIds,
+          in: allowedProgramIds.filter((id) =>
+            impersonationAllowsProgram(principal, id),
+          ),
         },
       },
       select: { programId: true, metrics: true },
@@ -1712,6 +1712,7 @@ export class UsersService {
           mobile: typeof metadata.mobile === "string" ? metadata.mobile : null,
           username: user.username,
           role: role?.key ?? null,
+          roles: user.roles.map(({ role: assignedRole }) => assignedRole.key),
           roleId: role ? (role.legacyId ?? role.id) : null,
           programs: user.programs.map(({ programId }) => programId),
           programDetails: user.programs.map(({ programId, program }) => ({
