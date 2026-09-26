@@ -193,7 +193,8 @@ describe("client login endpoint", () => {
               legacyId: "legacy-organization-program-id",
               dealExternalId: "deal-id",
               stage: "active",
-              reportAccess: { BBP_Access: "yes" },
+              isWinner: null,
+              reportAccess: { BBP_Access: "yes", WBC_Access: "yes" },
               paymentDetails: {},
               metrics: {
                 SEV_Filter: "department",
@@ -255,13 +256,18 @@ describe("client login endpoint", () => {
     const organizationPrograms = response.data.userData
       .organizationProgram as Array<{
       programId: { _id: string };
-      reportAccess: { BBP_Access: string };
+      reportAccess: { BBP_Access: string; WBC_Access: string };
+      benchmarkReportsAvailable: boolean;
+      accessMode: "client" | "promotional";
       metrics: { SEV_Filter: string; KIA_Order_Status: string };
     }>;
     const enrollment = organizationPrograms[0];
     assert.ok(enrollment);
     assert.equal(enrollment.programId._id, "legacy-program-id");
     assert.equal(enrollment.reportAccess.BBP_Access, "yes");
+    assert.equal(enrollment.reportAccess.WBC_Access, "yes");
+    assert.equal(enrollment.benchmarkReportsAvailable, false);
+    assert.equal(enrollment.accessMode, "client");
     assert.equal(enrollment.metrics.SEV_Filter, "department");
     assert.equal(enrollment.metrics.KIA_Order_Status, "Delivered");
     assert.equal(organizationUpdates, 1);

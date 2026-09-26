@@ -41,6 +41,7 @@ class TestJwtStrategy extends PassportStrategy(Strategy) {
 }
 
 it("hides an assigned user's real data while Promotional and exposes it after a fresh Client login", async () => {
+  let enrollmentPortalAccess: "client" | "promotional" | undefined;
   const prisma = {
     program: {
       findFirst: () => ({
@@ -58,8 +59,16 @@ it("hides an assigned user's real data while Promotional and exposes it after a 
         id: "enrollment-1",
         reportAccess: { WFR_Access: "yes" },
         metrics: { Surveys_Sent: 98765 },
-        metadata: {},
+        metadata: enrollmentPortalAccess
+          ? { portalAccess: enrollmentPortalAccess }
+          : {},
         organization: { name: realSentinel },
+      }),
+      findFirstOrThrow: () => ({
+        id: "enrollment-1",
+        metadata: enrollmentPortalAccess
+          ? { portalAccess: enrollmentPortalAccess }
+          : {},
       }),
       findMany: () => [],
     },
@@ -243,6 +252,29 @@ it("hides an assigned user's real data while Promotional and exposes it after a 
       data: { sendSurvey: number };
     };
     assert.equal(clientPayload.data.sendSurvey, 98765);
+
+    enrollmentPortalAccess = "promotional";
+    const mixedYearLiveResponse = await get("client", "surveyResponseRate");
+    assert.equal(mixedYearLiveResponse.statusCode, 403);
+    const mixedYearSampleResponse = await get(
+      "client",
+      "surveyResponseRate",
+      true,
+    );
+    assert.equal(mixedYearSampleResponse.statusCode, 200);
+    for (const url of [
+      "/organizations/organization-1/reports/wfr?surveyId=survey-1",
+      "/surveys/survey-1",
+      "/surveys/survey-1/summary",
+    ]) {
+      const response = await app.inject({
+        method: "GET",
+        url,
+        headers: { authorization: `Bearer ${token("client")}` },
+      });
+      assert.equal(response.statusCode, 403, `${url}: ${response.body}`);
+    }
+    enrollmentPortalAccess = undefined;
 
     const workbookBuffer = await app
       .get(CompatibilityReportsService)

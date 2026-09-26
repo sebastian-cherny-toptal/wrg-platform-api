@@ -70,13 +70,14 @@ import {
 } from "./response-pattern-cells.js";
 import {
   usesDefaultBenchmarkCategory,
-  defaultZohoCategoryOrder,
   normalizeZohoCategory,
+  programZohoCategoryTiers,
 } from "../programs/program-zoho-category.js";
 import {
   definitionAnswer,
   rawSurveyAnswer,
 } from "../imports/survey-definition.js";
+import { portalAccessMode, type PortalAccessMode } from "./report-catalog.js";
 
 const privacyThreshold = 5;
 const promotionalPreviewAccess = new Set([
@@ -298,7 +299,7 @@ const categoryOrder = [
   "Culture and Belonging",
   "Survey Questions",
 ];
-const sizeOrder = ["All", ...defaultZohoCategoryOrder];
+const sizeOrder = ["All", ...programZohoCategoryTiers, "Super"];
 
 class CategoryDto {
   @ApiProperty({ type: String })
@@ -399,6 +400,7 @@ interface ResponsePatternQueryInput {
 
 interface BaseReportContext {
   isDummy: boolean;
+  accessMode: PortalAccessMode;
   organizationId: string;
   enrollmentId: string;
   reportAccess: Prisma.JsonValue;
@@ -415,6 +417,12 @@ interface BaseReportContext {
     startsAt: Date | null;
     metadata: Prisma.JsonValue;
     project: { id: string; name: string };
+    zohoCategories?: Array<{
+      tier: string;
+      zohoCategoryName: string;
+      employeeSize: string;
+      sortOrder: number;
+    }>;
   };
   organizationPrograms: Array<{
     organizationId: string;
@@ -489,6 +497,7 @@ export interface DetailedRespondent {
 interface BenchmarkGroup {
   key: string;
   size: string;
+  employeeSize: string | null;
   winner: "Yes" | "No";
   organizationIds: string[];
   hidden: boolean;
@@ -2773,8 +2782,18 @@ export class CompatibilityReportsService {
     );
     return createBenchmarkWorkbook({
       metadata: await this.reportWorkbookMetadata(principal, query),
-      headerTypes: report.data.tableHeaders.flatMap(({ type }) =>
-        typeof type === "string" ? [type] : [],
+      headers: report.data.tableHeaders.flatMap((header) =>
+        typeof header.type === "string" && typeof header.title === "string"
+          ? [
+              {
+                type: header.type,
+                title: header.title,
+                ...(typeof header.employeeSize === "string"
+                  ? { employeeSize: header.employeeSize }
+                  : {}),
+              },
+            ]
+          : [],
       ),
       categories: report.data.data.map((category) => ({
         title: typeof category.title === "string" ? category.title : "",
@@ -3924,14 +3943,6 @@ export class CompatibilityReportsService {
     query: ReportQuery,
     promotionalDemoSupported = false,
   ): Promise<BaseReportContext> {
-    if (
-      principal.roles.includes("promotional") &&
-      (!query.isDummy || !promotionalDemoSupported)
-    ) {
-      throw new ForbiddenException(
-        "Promotional sessions may only access sample reports",
-      );
-    }
     const programSelect = {
       id: true,
       projectId: true,
@@ -3940,6 +3951,15 @@ export class CompatibilityReportsService {
       startsAt: true,
       metadata: true,
       project: { select: { id: true, name: true } },
+      zohoCategories: {
+        orderBy: { sortOrder: "asc" as const },
+        select: {
+          tier: true,
+          zohoCategoryName: true,
+          employeeSize: true,
+          sortOrder: true,
+        },
+      },
     } satisfies Prisma.ProgramSelect;
     const program = query.selectedProgramId
       ? await this.prisma.program.findFirst({
@@ -4002,6 +4022,15 @@ export class CompatibilityReportsService {
         "You are not authorized to access this program",
       );
     }
+    const accessMode = portalAccessMode(enrollment.metadata, principal.roles);
+    if (
+      accessMode === "promotional" &&
+      (!query.isDummy || !promotionalDemoSupported)
+    ) {
+      throw new ForbiddenException(
+        "Promotional sessions may only access sample reports",
+      );
+    }
     const organizationPrograms = await this.prisma.organizationProgram.findMany(
       {
         where: { programId: program.id, isIncluded: true },
@@ -4022,6 +4051,7 @@ export class CompatibilityReportsService {
     );
     return {
       isDummy: query.isDummy,
+      accessMode,
       organizationId,
       enrollmentId: enrollment.id,
       reportAccess: enrollment.reportAccess,
@@ -4045,9 +4075,13 @@ export class CompatibilityReportsService {
       | "KIA_Access"
       | "SEV_Access",
   ): false {
+    const isAdmin =
+      principal.roles.includes("admin") ||
+      principal.roles.includes("super_admin");
     if (
       context.isDummy &&
-      principal.roles.includes("client") &&
+      !isAdmin &&
+      context.accessMode === "client" &&
       !clientDemoAccess.has(accessKey)
     ) {
       throw new ForbiddenException(
@@ -4055,13 +4089,11 @@ export class CompatibilityReportsService {
       );
     }
     if (
-      principal.roles.includes("admin") ||
-      principal.roles.includes("super_admin") ||
+      isAdmin ||
       (context.isDummy &&
-        ((principal.roles.includes("promotional") &&
+        ((context.accessMode === "promotional" &&
           promotionalPreviewAccess.has(accessKey)) ||
-          (principal.roles.includes("client") &&
-            clientDemoAccess.has(accessKey))))
+          (context.accessMode === "client" && clientDemoAccess.has(accessKey))))
     )
       return false;
     if (accessKey === "EV_Access") return false;
@@ -4242,11 +4274,36 @@ export class CompatibilityReportsService {
         },
       ];
     });
+    const configuredNames = (context.program.zohoCategories ?? []).map(
+      ({ zohoCategoryName }) => zohoCategoryName,
+    );
+    const metadataNames = Array.isArray(
+      jsonObject(context.program.metadata).benchmarkCategories,
+    )
+      ? (
+          jsonObject(context.program.metadata).benchmarkCategories as unknown[]
+        ).filter((value): value is string => typeof value === "string")
+      : [];
+    const configuredOrder = [...configuredNames, ...metadataNames];
+    const configuredIndex = (category: string) =>
+      configuredOrder.findIndex(
+        (candidate) =>
+          candidate.trim().toLocaleLowerCase("en") ===
+          category.trim().toLocaleLowerCase("en"),
+      );
     const observedSizes = [
       ...new Set(
         categorized.flatMap(({ category }) => (category ? [category] : [])),
       ),
     ].sort((left, right) => {
+      const leftConfigured = configuredIndex(left);
+      const rightConfigured = configuredIndex(right);
+      if (leftConfigured !== -1 || rightConfigured !== -1) {
+        return (
+          (leftConfigured === -1 ? Number.MAX_SAFE_INTEGER : leftConfigured) -
+          (rightConfigured === -1 ? Number.MAX_SAFE_INTEGER : rightConfigured)
+        );
+      }
       const leftIndex = sizeOrder.indexOf(left);
       const rightIndex = sizeOrder.indexOf(right);
       return (
@@ -4268,6 +4325,12 @@ export class CompatibilityReportsService {
           return {
             key: `${size.replace(/\s+/gu, "")}${winner}`,
             size,
+            employeeSize:
+              context.program.zohoCategories?.find(
+                ({ zohoCategoryName }) =>
+                  zohoCategoryName.trim().toLocaleLowerCase("en") ===
+                  size.trim().toLocaleLowerCase("en"),
+              )?.employeeSize ?? null,
             winner,
             organizationIds,
             hidden: organizationIds.length < privacyThreshold,
@@ -5182,6 +5245,7 @@ export class CompatibilityReportsService {
           : `${group.size} Employers`,
       type: `${group.size}_${group.winner}`,
       color: headerColors[group.winner],
+      ...(group.employeeSize ? { employeeSize: group.employeeSize } : {}),
     }));
   }
 
@@ -5195,6 +5259,12 @@ export class CompatibilityReportsService {
       const result: Record<string, unknown> = {
         title: size === "All" ? "All Size Categories" : `${size} Employers`,
         subTitle: "Survey Average",
+        ...(groups.find((group) => group.size === size)?.employeeSize
+          ? {
+              employeeSize: groups.find((group) => group.size === size)
+                ?.employeeSize,
+            }
+          : {}),
       };
       for (const winner of ["Yes", "No"] as const) {
         const group = groups.find(

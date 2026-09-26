@@ -31,8 +31,14 @@ import {
   JwtAuthGuard,
   type Principal,
 } from "./auth.module.js";
+import { portalAccessMode } from "../reports/report-catalog.js";
 
 const previewLifetimeMs = 15 * 60 * 1000;
+const previewRoleKeys = ["admin", "super_admin"] as const;
+const previewPermissionKeys = [
+  "ops.manage",
+  "previewClientsDashboardAccess",
+] as const;
 const entitlementKeys = [
   "WFR_Access",
   "EV_Access",
@@ -40,6 +46,7 @@ const entitlementKeys = [
   "BBP_Access",
   "RD_Access",
   "KIA_Access",
+  "SEV_Access",
   "CR_Access",
 ] as const;
 
@@ -52,10 +59,9 @@ class StartImpersonationDto {
   @MinLength(1)
   programId!: string;
 
-  @IsOptional()
   @IsString()
   @MinLength(1)
-  targetUserId?: string;
+  targetUserId!: string;
 
   @IsOptional()
   @IsString()
@@ -135,18 +141,34 @@ export class ImpersonationService {
 
   async start(principal: Principal, input: StartImpersonationDto) {
     this.assertPreviewAccess(principal);
+    const actorWhere: Prisma.UserWhereInput = {
+      status: "ACTIVE",
+      OR: [
+        { roles: { some: { role: { key: { in: [...previewRoleKeys] } } } } },
+        {
+          roles: {
+            some: {
+              role: {
+                permissions: {
+                  some: {
+                    permission: { key: { in: [...previewPermissionKeys] } },
+                  },
+                },
+              },
+            },
+          },
+        },
+      ],
+    };
     const actorLookup =
       principal.sub === "bypass-login-auth"
         ? this.prisma.user.findFirst({
-            where: {
-              status: "ACTIVE",
-              roles: { some: { role: { key: "admin" } } },
-            },
+            where: actorWhere,
             orderBy: { createdAt: "asc" },
             select: { id: true, fullName: true, username: true, email: true },
           })
-        : this.prisma.user.findUnique({
-            where: { id: principal.sub },
+        : this.prisma.user.findFirst({
+            where: { ...actorWhere, id: principal.sub },
             select: { id: true, fullName: true, username: true, email: true },
           });
     const [actor, context] = await Promise.all([
@@ -156,24 +178,13 @@ export class ImpersonationService {
     if (!actor) throw new UnauthorizedException("Administrator not found");
     const { organization, program, enrollment } = context;
 
-    const target = input.targetUserId
-      ? await this.prisma.user.findFirst({
-          where: {
-            ...this.eligibleUserWhere(
-              organization.id,
-              program.id,
-              enrollment.id,
-            ),
-            id: input.targetUserId,
-          },
-          select: { id: true, fullName: true, username: true, email: true },
-        })
-      : await this.genericPreviewUser(
-          organization.id,
-          program.id,
-          program.projectId,
-          enrollment.id,
-        );
+    const target = await this.prisma.user.findFirst({
+      where: {
+        ...this.eligibleUserWhere(organization.id, program.id, enrollment.id),
+        id: input.targetUserId,
+      },
+      select: { id: true, fullName: true, username: true, email: true },
+    });
     if (!target) {
       throw new NotFoundException(
         "Selected portal user does not have access to this program",
@@ -238,9 +249,29 @@ export class ImpersonationService {
     const grant = await this.prisma.impersonationGrant.findUnique({
       where: { id },
       include: {
-        actor: { select: { id: true, fullName: true } },
+        actor: {
+          select: {
+            id: true,
+            fullName: true,
+            status: true,
+            roles: {
+              select: {
+                role: {
+                  select: {
+                    key: true,
+                    permissions: {
+                      select: { permission: { select: { key: true } } },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
         organization: { select: { id: true, name: true } },
-        program: { select: { id: true, name: true, year: true } },
+        program: {
+          select: { id: true, name: true, year: true, currency: true },
+        },
         target: {
           include: {
             roles: {
@@ -264,6 +295,64 @@ export class ImpersonationService {
     ) {
       throw new UnauthorizedException("Preview grant is invalid or expired");
     }
+
+    const actorRoleKeys = grant.actor.roles.map(({ role }) => role.key);
+    const actorPermissionKeys = grant.actor.roles.flatMap(({ role }) =>
+      role.permissions.map(({ permission }) => permission.key),
+    );
+    if (
+      grant.actor.status !== "ACTIVE" ||
+      !this.hasPreviewAccess(actorRoleKeys, actorPermissionKeys)
+    ) {
+      throw new ForbiddenException(
+        "Administrator is no longer allowed to preview dashboards",
+      );
+    }
+    const enrollment = await this.prisma.organizationProgram.findUnique({
+      where: {
+        organizationId_programId: {
+          organizationId: grant.organization.id,
+          programId: grant.program.id,
+        },
+      },
+      select: {
+        id: true,
+        isIncluded: true,
+        isWinner: true,
+        reportAccess: true,
+        metrics: true,
+        metadata: true,
+      },
+    });
+    if (!enrollment?.isIncluded) {
+      throw new ForbiddenException(
+        "Organization is not included in this program",
+      );
+    }
+    const targetIsEligible =
+      grant.target.status === "ACTIVE" &&
+      grant.target.organizationId === grant.organization.id &&
+      grant.target.roles.some(({ role }) =>
+        ["client", "promotional"].includes(role.key),
+      ) &&
+      (grant.target.organizationProgramId === enrollment.id ||
+        grant.target.programs.some(
+          ({ program }) => program.id === grant.program.id,
+        ));
+    if (!targetIsEligible) {
+      throw new ForbiddenException(
+        "Selected portal user no longer has access to this program",
+      );
+    }
+
+    const basePrincipal = await this.auth.principalForUserId(
+      grant.targetUserId,
+    );
+    if (basePrincipal.organizationId !== grant.organization.id) {
+      throw new ForbiddenException(
+        "Selected portal user no longer belongs to this organization",
+      );
+    }
     const consumed = await this.prisma.impersonationGrant.updateMany({
       where: {
         id: grant.id,
@@ -277,12 +366,11 @@ export class ImpersonationService {
       throw new UnauthorizedException("Preview grant has already been used");
     }
 
-    const basePrincipal = await this.auth.principalForUserId(
-      grant.targetUserId,
-    );
     const startedAt = new Date().toISOString();
     const principal: Principal = {
       ...basePrincipal,
+      roles: ["client"],
+      permissions: [],
       ...(this.config.get("BYPASS_LOGIN_AUTH", { infer: true })
         ? { localAuthBypass: true }
         : {}),
@@ -295,27 +383,35 @@ export class ImpersonationService {
         startedAt,
       },
     };
-    const accessToken = await this.auth.issueAccessToken(principal, "15m");
-    const enrollment = await this.prisma.organizationProgram.findUnique({
-      where: {
-        organizationId_programId: {
-          organizationId: grant.organization.id,
-          programId: grant.program.id,
-        },
-      },
-      select: { isIncluded: true, reportAccess: true },
-    });
-    if (enrollment?.isIncluded === false) {
-      throw new ForbiddenException("Organization is not included in this program");
-    }
-    const reportAccess = jsonObject(enrollment?.reportAccess ?? {});
+    const remainingSeconds = Math.max(
+      1,
+      Math.floor((grant.expiresAt.getTime() - Date.now()) / 1000),
+    );
+    const accessToken = await this.auth.issueAccessToken(
+      principal,
+      `${remainingSeconds}s`,
+    );
+    const reportAccess = jsonObject(enrollment.reportAccess);
+    const metrics = jsonObject(enrollment.metrics);
     const entitlements = Object.fromEntries(
       entitlementKeys.map((key) => [
         key,
-        reportAccess[key] === "no" ? "no" : "yes",
+        key === "BBP_Access"
+          ? reportAccess.BBP_Access === "yes" ||
+            reportAccess.benefitsBestPractices === "yes"
+            ? "yes"
+            : "no"
+          : key === "KIA_Access" && typeof metrics.KIA_Order_Status === "string"
+            ? "yes"
+            : reportAccess[key] === "yes"
+              ? "yes"
+              : "no",
       ]),
     );
-    const expiresAt = new Date(Date.now() + previewLifetimeMs).toISOString();
+    const organizationName =
+      typeof metrics.Source_Organization_Name === "string"
+        ? metrics.Source_Organization_Name
+        : grant.organization.name;
     return {
       accessToken,
       session: {
@@ -324,19 +420,33 @@ export class ImpersonationService {
           displayName: grant.target.fullName,
           email: grant.target.email,
           role: "client" as const,
-          permissions: basePrincipal.permissions,
+          permissions: [],
           programs: [
             {
               id: grant.program.id,
               name: grant.program.name,
               year: grant.program.year ?? new Date().getUTCFullYear(),
-              organizationName: grant.organization.name,
+              currency: grant.program.currency,
+              organizationName,
+              accessMode: portalAccessMode(
+                enrollment.metadata,
+                grant.target.roles.map(({ role }) => role.key),
+              ),
+              benchmarkReportsAvailable: enrollment.isWinner != null,
               entitlements,
+              reportSelections: {
+                ...(typeof metrics.SEV_Filter === "string"
+                  ? { SEV_Filter: metrics.SEV_Filter }
+                  : {}),
+                ...(typeof metrics.KIA_Order_Status === "string"
+                  ? { KIA_Order_Status: metrics.KIA_Order_Status }
+                  : {}),
+              },
             },
           ],
         },
         verifiedAt: startedAt,
-        expiresAt,
+        expiresAt: grant.expiresAt.toISOString(),
         impersonation: {
           actorId: grant.actor.id,
           actorDisplayName: grant.actor.fullName,
@@ -386,14 +496,18 @@ export class ImpersonationService {
   }
 
   private assertPreviewAccess(principal: Principal): void {
-    if (
-      !principal.roles.includes("admin") &&
-      !principal.roles.includes("super_admin") &&
-      !principal.permissions.includes("ops.manage") &&
-      !principal.permissions.includes("previewClientsDashboardAccess")
-    ) {
+    if (!this.hasPreviewAccess(principal.roles, principal.permissions)) {
       throw new ForbiddenException("Dashboard preview permission is required");
     }
+  }
+
+  private hasPreviewAccess(roles: string[], permissions: string[]): boolean {
+    return (
+      previewRoleKeys.some((role) => roles.includes(role)) ||
+      previewPermissionKeys.some((permission) =>
+        permissions.includes(permission),
+      )
+    );
   }
 
   private eligibleUserWhere(
@@ -409,65 +523,6 @@ export class ImpersonationService {
     };
   }
 
-  private async genericPreviewUser(
-    organizationId: string,
-    programId: string,
-    projectId: string,
-    organizationProgramId: string,
-  ): Promise<{
-    id: string;
-    fullName: string;
-    username: string | null;
-    email: string;
-  }> {
-    const externalId = `generic-dashboard-preview-${organizationProgramId}`;
-    const clientRole = await this.prisma.role.upsert({
-      where: { key: "client" },
-      update: {},
-      create: { key: "client", name: "Client" },
-    });
-    const user = await this.prisma.user.upsert({
-      where: { externalId },
-      update: {
-        organizationId,
-        organizationProgramId,
-        status: "ACTIVE",
-      },
-      create: {
-        externalId,
-        organizationId,
-        organizationProgramId,
-        email: `dashboard-preview+${organizationProgramId}@example.invalid`,
-        username: `dashboard-preview-${organizationProgramId}`,
-        fullName: "Generic Dashboard Preview",
-        passwordHash: await hash(randomBytes(32).toString("base64url")),
-        status: "ACTIVE",
-        metadata: { genericDashboardPreview: true },
-      },
-      select: { id: true, fullName: true, username: true, email: true },
-    });
-    await Promise.all([
-      this.prisma.userRole.upsert({
-        where: {
-          userId_roleId: { userId: user.id, roleId: clientRole.id },
-        },
-        update: {},
-        create: { userId: user.id, roleId: clientRole.id },
-      }),
-      this.prisma.userProject.upsert({
-        where: { userId_projectId: { userId: user.id, projectId } },
-        update: {},
-        create: { userId: user.id, projectId },
-      }),
-      this.prisma.userProgram.upsert({
-        where: { userId_programId: { userId: user.id, programId } },
-        update: {},
-        create: { userId: user.id, programId },
-      }),
-    ]);
-    return user;
-  }
-
   private async previewContext(
     organizationReference: string,
     programReference: string,
@@ -479,7 +534,7 @@ export class ImpersonationService {
       }),
       this.prisma.program.findFirst({
         where: referenceWhere(programReference),
-        select: { id: true, name: true, projectId: true },
+        select: { id: true, name: true },
       }),
     ]);
     if (!organization) throw new NotFoundException("Organization not found");

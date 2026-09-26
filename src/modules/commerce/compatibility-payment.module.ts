@@ -139,6 +139,7 @@ export class CompatibilityPaymentService {
     programReference?: string,
     organizationReference?: string,
   ) {
+    this.assertWritableSession(principal);
     const body = objectBody(rawBody);
     const requestedCurrency =
       body.currency === undefined ? undefined : currency(body.currency);
@@ -160,9 +161,7 @@ export class CompatibilityPaymentService {
       requestedCurrency &&
       requestedCurrency !== selectedCurrency
     ) {
-      throw new BadRequestException(
-        "Currency must match the selected program",
-      );
+      throw new BadRequestException("Currency must match the selected program");
     }
     if (paymentMethod === "ach" && selectedCurrency !== "USD") {
       throw new BadRequestException("ACH payments require USD");
@@ -328,6 +327,7 @@ export class CompatibilityPaymentService {
     programReference?: string,
     organizationReference?: string,
   ) {
+    this.assertWritableSession(principal);
     const body = objectBody(rawBody);
     const context = await this.context(
       principal,
@@ -351,9 +351,7 @@ export class CompatibilityPaymentService {
       body.currency !== undefined &&
       currency(body.currency) !== selectedCurrency
     ) {
-      throw new BadRequestException(
-        "Currency must match the selected program",
-      );
+      throw new BadRequestException("Currency must match the selected program");
     }
     const normalizedItems = items.map((item) => {
       const suffix = optionalString(item.keys.EV_Sorting_Filter);
@@ -482,6 +480,10 @@ export class CompatibilityPaymentService {
     const enrollment = order.organizationProgram;
     const reportAccess = { ...jsonObject(enrollment.reportAccess) };
     const metrics = { ...jsonObject(enrollment.metrics) };
+    const metadata = {
+      ...jsonObject(enrollment.metadata),
+      portalAccess: "client",
+    };
     let stage = enrollment.stage;
     for (const { productId } of items) {
       if (productId === STANDARD_PACKAGE_ID) {
@@ -519,6 +521,7 @@ export class CompatibilityPaymentService {
           reportAccess: inputJson(reportAccess),
           paymentDetails: inputJson(paymentDetails),
           metrics: inputJson(metrics),
+          metadata: inputJson(metadata),
         },
       }),
       this.prisma.order.update({
@@ -538,6 +541,7 @@ export class CompatibilityPaymentService {
     principal: Principal,
     rawBody: unknown,
   ): Promise<{ success: true; status: "paid" }> {
+    this.assertWritableSession(principal);
     const body = objectBody(rawBody);
     const paymentIntentId = optionalString(body.paymentIntentId);
     if (!paymentIntentId) {
@@ -774,6 +778,14 @@ export class CompatibilityPaymentService {
         idempotencyKey: `compatibility-checkout:${organization.id}:${crypto.randomUUID()}`,
       },
     );
+  }
+
+  private assertWritableSession(principal: Principal): void {
+    if (principal.impersonation) {
+      throw new ForbiddenException(
+        "Dashboard previews are read-only and cannot make purchases",
+      );
+    }
   }
 
   private async context(

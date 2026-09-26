@@ -13,6 +13,7 @@ import {
 } from "@nestjs/platform-fastify";
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { hash } from "argon2";
 import { ExtractJwt, Strategy } from "passport-jwt";
 import {
   JwtAuthGuard,
@@ -107,13 +108,13 @@ describe("secure admin dashboard previews", () => {
       });
       assert.equal(started.statusCode, 201, started.body);
 
-      const genericStarted = await app.inject({
+      const missingTarget = await app.inject({
         method: "POST",
         url: "/admin/impersonations",
         headers,
         payload: { organizationId: "org", programId: "program" },
       });
-      assert.equal(genericStarted.statusCode, 201, genericStarted.body);
+      assert.equal(missingTarget.statusCode, 400, missingTarget.body);
 
       const unauthenticatedEligibleUsers = await app.inject({
         method: "GET",
@@ -162,20 +163,16 @@ describe("secure admin dashboard previews", () => {
     let createdActorId = "";
     const prisma = {
       user: {
-        findUnique: (input: { where: { id: string } }) => {
+        findFirst: (input: { where: { id?: string; status?: string } }) => {
           lookedUpSyntheticId ||= input.where.id === "bypass-login-auth";
-          return Promise.resolve(null);
-        },
-        findFirst: (input: {
-          where: { id?: string; roles?: { some: { role: { key: string } } } };
-        }) =>
-          Promise.resolve(
-            input.where.roles?.some.role.key === "admin"
-              ? { id: actorId, fullName: "Local Admin" }
-              : input.where.id === targetId
-                ? { id: targetId, fullName: "Demo Client" }
+          return Promise.resolve(
+            input.where.id === targetId
+              ? { id: targetId, fullName: "Demo Client" }
+              : input.where.status === "ACTIVE"
+                ? { id: actorId, fullName: "Local Admin" }
                 : null,
-          ),
+          );
+        },
       },
       organization: {
         findFirst: () =>
@@ -236,5 +233,144 @@ describe("secure admin dashboard previews", () => {
       result.url,
       /^http:\/\/localhost:5173\/admin-preview\?grant=/u,
     );
+  });
+
+  it("issues a program-scoped client identity with the target user's exact access", async () => {
+    const secret = "single-use-preview-secret";
+    const tokenHash = await hash(secret);
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+    let issuedPrincipal: Principal | undefined;
+    let issuedLifetime = "";
+    const prisma = {
+      impersonationGrant: {
+        findUnique: () =>
+          Promise.resolve({
+            id: "6c79998f-10bd-45af-bdd1-61e11b50297a",
+            actorUserId: "7d89998f-10bd-45af-bdd1-61e11b50297b",
+            targetUserId: "8e99998f-10bd-45af-bdd1-61e11b50297c",
+            organizationId: "9fa9998f-10bd-45af-bdd1-61e11b50297d",
+            programId: "afb9998f-10bd-45af-bdd1-61e11b50297e",
+            tokenHash,
+            expiresAt,
+            consumedAt: null,
+            revokedAt: null,
+            actor: {
+              id: "7d89998f-10bd-45af-bdd1-61e11b50297b",
+              fullName: "Administrator",
+              status: "ACTIVE",
+              roles: [
+                {
+                  role: {
+                    key: "admin",
+                    permissions: [
+                      { permission: { key: "previewClientsDashboardAccess" } },
+                    ],
+                  },
+                },
+              ],
+            },
+            organization: {
+              id: "9fa9998f-10bd-45af-bdd1-61e11b50297d",
+              name: "Canonical Organization",
+            },
+            program: {
+              id: "afb9998f-10bd-45af-bdd1-61e11b50297e",
+              name: "2026 Program",
+              year: 2026,
+              currency: "USD",
+            },
+            target: {
+              id: "8e99998f-10bd-45af-bdd1-61e11b50297c",
+              fullName: "Specific Client",
+              email: "client@example.test",
+              status: "ACTIVE",
+              organizationId: "9fa9998f-10bd-45af-bdd1-61e11b50297d",
+              organizationProgramId: "b0c9998f-10bd-45af-bdd1-61e11b50297f",
+              roles: [
+                { role: { key: "client", permissions: [] } },
+                {
+                  role: {
+                    key: "admin",
+                    permissions: [{ permission: { key: "ops.manage" } }],
+                  },
+                },
+              ],
+              programs: [
+                {
+                  program: {
+                    id: "afb9998f-10bd-45af-bdd1-61e11b50297e",
+                  },
+                },
+              ],
+            },
+          }),
+        updateMany: () => Promise.resolve({ count: 1 }),
+      },
+      organizationProgram: {
+        findUnique: () =>
+          Promise.resolve({
+            id: "b0c9998f-10bd-45af-bdd1-61e11b50297f",
+            isIncluded: true,
+            isWinner: null,
+            reportAccess: {
+              WFR_Access: "yes",
+              benefitsBestPractices: "yes",
+              RD_Access: "no",
+            },
+            metrics: {
+              Source_Organization_Name: "Client-Facing Organization",
+              KIA_Order_Status: "Purchased",
+              SEV_Filter: "Leadership",
+            },
+          }),
+      },
+    };
+    const auth = {
+      principalForUserId: () =>
+        Promise.resolve({
+          sub: "8e99998f-10bd-45af-bdd1-61e11b50297c",
+          organizationId: "9fa9998f-10bd-45af-bdd1-61e11b50297d",
+          roles: ["client", "admin"],
+          permissions: ["ops.manage"],
+        } satisfies Principal),
+      issueAccessToken: (principal: Principal, lifetime: string) => {
+        issuedPrincipal = principal;
+        issuedLifetime = lifetime;
+        return Promise.resolve("scoped-preview-token");
+      },
+    };
+    const service = new ImpersonationService(
+      prisma as never,
+      auth as never,
+      { get: () => false } as never,
+    );
+
+    const result = await service.exchange(
+      `6c79998f-10bd-45af-bdd1-61e11b50297a.${secret}`,
+    );
+
+    assert.ok(issuedPrincipal);
+    assert.deepEqual(issuedPrincipal.roles, ["client"]);
+    assert.deepEqual(issuedPrincipal.permissions, []);
+    assert.match(issuedLifetime, /^\d+s$/u);
+    assert.equal(result.session.expiresAt, expiresAt.toISOString());
+    const [program] = result.session.user.programs;
+    assert.ok(program);
+    assert.equal(program.accessMode, "client");
+    assert.deepEqual(program.entitlements, {
+      WFR_Access: "yes",
+      EV_Access: "no",
+      WBC_Access: "no",
+      BBP_Access: "yes",
+      RD_Access: "no",
+      KIA_Access: "yes",
+      SEV_Access: "no",
+      CR_Access: "no",
+    });
+    assert.equal(program.organizationName, "Client-Facing Organization");
+    assert.deepEqual(program.reportSelections, {
+      SEV_Filter: "Leadership",
+      KIA_Order_Status: "Purchased",
+    });
   });
 });

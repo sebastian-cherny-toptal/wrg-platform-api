@@ -48,6 +48,12 @@ export interface BenchmarkWorkbookCategory {
   questions: Array<{ text: string; values: Array<number | string> }>;
 }
 
+export interface BenchmarkWorkbookHeader {
+  title: string;
+  type: string;
+  employeeSize?: string;
+}
+
 export interface BenefitsWorkbookSection {
   title: string;
   questions: Array<{
@@ -646,29 +652,24 @@ export async function createWorkforceFeedbackWorkbook(input: {
 
 export async function createBenchmarkWorkbook(input: {
   metadata: ReportWorkbookMetadata;
-  headerTypes: string[];
+  headers: BenchmarkWorkbookHeader[];
   categories: BenchmarkWorkbookCategory[];
   surveyAverage: Array<number | string>;
   cohortOrganizationCount?: number;
 }): Promise<Buffer> {
   const workbook = await loadTemplate("benchmark-comparison.xlsx");
-  const groupTypes = {
-    ALL_WINNER: "All_Yes",
-    ALL_NON_WINNER: "All_No",
-    SMALL_WINNER: "Small_Yes",
-    SMALL_NON_WINNER: "Small_No",
-    MEDIUM_WINNER: "Medium_Yes",
-    MEDIUM_NON_WINNER: "Medium_No",
-    LARGE_WINNER: "Large_Yes",
-    LARGE_NON_WINNER: "Large_No",
+  const groupSlots = {
+    ALL_WINNER: 0,
+    ALL_NON_WINNER: 1,
+    SMALL_WINNER: 2,
+    SMALL_NON_WINNER: 3,
+    MEDIUM_WINNER: 4,
+    MEDIUM_NON_WINNER: 5,
+    LARGE_WINNER: 6,
+    LARGE_NON_WINNER: 7,
   } as const;
-  type GroupToken = keyof typeof groupTypes;
-  const groupIndex = (token: GroupToken): number => {
-    const expected = groupTypes[token].replaceAll("_", "").toLowerCase();
-    return input.headerTypes.findIndex(
-      (type) => type.replaceAll("_", "").toLowerCase() === expected,
-    );
-  };
+  type GroupToken = keyof typeof groupSlots;
+  const groupIndex = (token: GroupToken): number => groupSlots[token];
   const groupValue = (
     values: Array<number | string> | undefined,
     token: GroupToken,
@@ -724,6 +725,25 @@ export async function createBenchmarkWorkbook(input: {
     }
     return null;
   });
+  const sheet = workbook.getWorksheet("Workforce Benchmark Comparisons");
+  if (!sheet) throw new Error("Benchmark template has no worksheet");
+  for (let pair = 0; pair < 4; pair += 1) {
+    const winner = input.headers[pair * 2];
+    const nonWinner = input.headers[pair * 2 + 1];
+    const firstColumn = 2 + pair * 2;
+    for (const column of [firstColumn, firstColumn + 1]) {
+      sheet.getCell(4, column).value = winner?.title ?? null;
+      sheet.getCell(5, column).value = pair === 0
+        ? input.cohortOrganizationCount ?? null
+        : winner?.employeeSize ? `(${winner.employeeSize} Employees)` : null;
+    }
+    sheet.getCell(6, firstColumn).value = winner
+      ? `${winner.title.replace(/\s+Employers$/iu, "")} Winners`
+      : null;
+    sheet.getCell(6, firstColumn + 1).value = nonWinner
+      ? `${nonWinner.title.replace(/\s+Employers$/iu, "")} Non-Winners`
+      : null;
+  }
   return workbookBuffer(workbook);
 }
 

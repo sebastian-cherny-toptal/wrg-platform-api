@@ -24,6 +24,7 @@ import {
   productIsOwned,
   STANDARD_PACKAGE_ID,
   standardPackagePriceCents,
+  portalAccessMode,
 } from "./report-catalog.js";
 
 @ApiTags("reports")
@@ -50,17 +51,21 @@ class ReportsController {
       averageScore: number | null;
     }>;
   }> {
-    if (principal.roles.includes("promotional")) {
-      throw new ForbiddenException("Promotional sessions may only access sample reports");
-    }
-    await this.prisma.organizationProgram.findFirstOrThrow({
+    const enrollment = await this.prisma.organizationProgram.findFirstOrThrow({
       where: {
         isIncluded: true,
         organizationId,
         program: { surveys: { some: { id: surveyId } } },
       },
-      select: { id: true },
+      select: { id: true, metadata: true },
     });
+    if (
+      portalAccessMode(enrollment.metadata, principal.roles) === "promotional"
+    ) {
+      throw new ForbiddenException(
+        "Promotional sessions may only access sample reports",
+      );
+    }
     const [total, completed, questions] = await Promise.all([
       this.prisma.respondent.count({ where: { surveyId, organizationId } }),
       this.prisma.respondent.count({

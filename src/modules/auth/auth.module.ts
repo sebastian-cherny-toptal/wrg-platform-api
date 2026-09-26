@@ -123,10 +123,21 @@ class JwtStrategy extends PassportStrategy(Strategy) {
       ? { ...payload, localAuthBypass: true }
       : payload;
     if (principal.impersonation) {
+      if (
+        principal.organizationId !== principal.impersonation.organizationId ||
+        principal.roles.includes("admin") ||
+        principal.roles.includes("super_admin") ||
+        principal.permissions.includes("ops.manage")
+      ) {
+        throw new UnauthorizedException("Invalid dashboard preview identity");
+      }
       const activeGrant = await this.prisma.impersonationGrant.findFirst({
         where: {
           id: principal.impersonation.grantId,
           targetUserId: principal.sub,
+          actorUserId: principal.impersonation.actorUserId,
+          organizationId: principal.impersonation.organizationId,
+          programId: principal.impersonation.programId,
           consumedAt: { not: null },
           revokedAt: null,
           expiresAt: { gt: new Date() },

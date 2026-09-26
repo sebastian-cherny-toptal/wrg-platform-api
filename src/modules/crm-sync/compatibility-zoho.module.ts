@@ -346,6 +346,9 @@ export class CompatibilityZohoService {
         return {
           tier,
           pricingCategoryName: pricingCategoryNameByTier[tier],
+          zohoCategoryName: text(record, `${tier}_EE_Name`) ?? tier,
+          employeeSize:
+            text(record, `${tier}_EE_Size`) ?? pricingCategoryNameByTier[tier],
           priceCents:
             amount !== null && Number.isFinite(amount)
               ? Math.max(0, Math.round(amount * 100))

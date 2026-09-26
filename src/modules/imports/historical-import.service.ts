@@ -81,6 +81,8 @@ export const categoryPricingTiers = programZohoCategoryTiers;
 export interface HistoricalCategoryPricing {
   tier: (typeof categoryPricingTiers)[number];
   pricingCategoryName: string;
+  zohoCategoryName?: string;
+  employeeSize?: string;
   priceCents: number;
 }
 
@@ -716,6 +718,8 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
               optionalString(entry, "pricingCategoryName") ??
               optionalString(entry, "employeeSize") ??
               tier;
+            const zohoCategoryName = optionalString(entry, "zohoCategoryName") ?? tier;
+            const employeeSize = optionalString(entry, "employeeSize") ?? pricingCategoryName;
             const priceCents =
               entry.priceCents === null || entry.priceCents === ""
                 ? Number.NaN
@@ -728,6 +732,8 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
             return {
               tier: tier as (typeof categoryPricingTiers)[number],
               pricingCategoryName,
+              zohoCategoryName,
+              employeeSize,
               priceCents,
             };
           },
@@ -2184,8 +2190,8 @@ export class HistoricalImportService {
           data: draft.categoryPricing.map((category, sortOrder) => ({
             programId,
             tier: category.tier,
-            zohoCategoryName: category.pricingCategoryName,
-            employeeSize: category.pricingCategoryName,
+            zohoCategoryName: category.zohoCategoryName ?? category.pricingCategoryName,
+            employeeSize: category.employeeSize ?? category.pricingCategoryName,
             priceCents: category.priceCents,
             sortOrder,
           })),

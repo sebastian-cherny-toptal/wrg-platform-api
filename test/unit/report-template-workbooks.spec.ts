@@ -461,15 +461,15 @@ describe("benchmark workbook generation", () => {
         programName: "Test program",
         surveyDates: "2026",
       },
-      headerTypes: [
-        "All_Yes",
-        "All_No",
-        "Small_Yes",
-        "Small_No",
-        "Medium_Yes",
-        "Medium_No",
-        "Large_Yes",
-        "Large_No",
+      headers: [
+        { title: "All Size Categories", type: "All_Yes" },
+        { title: "All Size Categories", type: "All_No" },
+        { title: "Small Employers", type: "Small_Yes", employeeSize: "15-49 US" },
+        { title: "Small Employers", type: "Small_No", employeeSize: "15-49 US" },
+        { title: "Medium Employers", type: "Medium_Yes", employeeSize: "50-249 US" },
+        { title: "Medium Employers", type: "Medium_No", employeeSize: "50-249 US" },
+        { title: "Large Employers", type: "Large_Yes", employeeSize: "250+ US" },
+        { title: "Large Employers", type: "Large_No", employeeSize: "250+ US" },
       ],
       categories: [
         {

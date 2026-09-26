@@ -55,6 +55,7 @@ import {
   type Principal,
 } from "../auth/auth.module.js";
 import { sortedVerbatimsEntitlementData } from "../reports/sorted-verbatims-entitlement.js";
+import { portalAccessMode } from "../reports/report-catalog.js";
 
 class ClientLoginDto {
   @ApiProperty({ type: String })
@@ -466,6 +467,7 @@ export class ClientLoginService {
           legacyId: true,
           dealExternalId: true,
           stage: true,
+          isWinner: true,
           reportAccess: true,
           paymentDetails: true,
           metrics: true,
@@ -621,6 +623,11 @@ export class ClientLoginService {
           id: item.id,
           DealId: item.dealExternalId,
           stage: item.stage,
+          accessMode: portalAccessMode(
+            item.metadata,
+            user.roles.map(({ role: assignedRole }) => assignedRole.key),
+          ),
+          benchmarkReportsAvailable: item.isWinner !== null,
           reportAccess: {
             ...reportAccess,
             BBP_Access: benefitsAccess ? "yes" : "no",

@@ -1383,6 +1383,61 @@ describe("compatibility report categories", () => {
     });
   }
 
+  it("orders benchmark cohorts by configured tier, shows employee sizes, and divides by respondents who answered", async () => {
+    const question = benchmarkQuestion("q-core", "Core Employee Experience", 1);
+    const organizationIds = Array.from({ length: 88 }, (_, index) => `organization-${index + 1}`);
+    const prisma = {
+      program: { findFirst: () => ({
+        id: "program-1", projectId: "project-1", name: "UK Campaign 2026", year: 2026,
+        startsAt: null, metadata: { benchmarkCategories: ["Small", "Boutique"] },
+        project: { id: "project-1", name: "UK Campaign" },
+        zohoCategories: [
+          { tier: "Boutique", zohoCategoryName: "Boutique", employeeSize: "15-34 UK", sortOrder: 0 },
+          { tier: "Small", zohoCategoryName: "Small", employeeSize: "35-74 UK", sortOrder: 1 },
+        ],
+      }) },
+      organizationProgram: {
+        findFirst: () => ({ id: "enrollment-1", reportAccess: { WBC_Access: "yes" }, metrics: {}, metadata: {}, organization: { name: "Example Organization" } }),
+        findMany: () => organizationIds.map((organizationId, index) => ({
+          organizationId, isWinner: "Y", currentZohoCategory: index < 5 ? "Boutique" : "Small",
+          benchmarkCategory: null, metrics: {}, organization: { metadata: {} },
+        })),
+      },
+      survey: { findFirst: () => ({ id: "survey-1", title: "Employee Feedback Survey", startsAt: null, endsAt: null }) },
+      question: { findMany: () => [question] },
+      response: { findMany: () => organizationIds.slice(0, 87).map((organizationId, index) => ({
+        questionId: question.id, value: index < 73 ? "Agree" : "Disagree", score: null,
+        respondent: { organizationId },
+      })) },
+    } as unknown as PrismaService;
+    const service = new CompatibilityReportsService(prisma);
+    const principal = { sub: "client-1", organizationId: organizationIds[0] ?? null, roles: ["client"], permissions: [] };
+    const query = { selectedProgramId: "program-1", isDummy: false };
+
+    const report = await service.workforceComparison(principal, query);
+    assert.deepEqual(report.data.tableHeaders.slice(2, 6).map(({ title, employeeSize }) => ({ title, employeeSize })), [
+      { title: "Boutique Employers", employeeSize: "15-34 UK" },
+      { title: "Boutique Employers", employeeSize: "15-34 UK" },
+      { title: "Small Employers", employeeSize: "35-74 UK" },
+      { title: "Small Employers", employeeSize: "35-74 UK" },
+    ]);
+    assert.equal(
+      (report.data.data[0]?.dataValues as Array<number | string> | undefined)?.[0],
+      (73 * 100) / 87,
+      "73 positive answers must be divided by 87 answers, not 88 cohort members",
+    );
+
+    const workbook = new ExcelJS.Workbook();
+    const workbookBytes = await service.benchmarkWorkbook(principal, query);
+    await workbook.xlsx.load(workbookBytes as unknown as Parameters<typeof workbook.xlsx.load>[0]);
+    const sheet = workbook.getWorksheet("Workforce Benchmark Comparisons");
+    assert.ok(sheet);
+    assert.equal(sheet.getCell("D4").text, "Boutique Employers");
+    assert.equal(sheet.getCell("D5").text, "(15-34 UK Employees)");
+    assert.equal(sheet.getCell("F4").text, "Small Employers");
+    assert.equal(sheet.getCell("F5").text, "(35-74 UK Employees)");
+  });
+
   it("excludes raw N/A and unmapped answers from benchmark figures and the workbook", async () => {
     const legacy = benchmarkQuestion("legacy", "Core Employee Experience", 1);
     const configured = benchmarkQuestion(

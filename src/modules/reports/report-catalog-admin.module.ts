@@ -22,6 +22,7 @@ import {
 import {
   jsonObject,
   parseReportCatalog,
+  portalAccessMode,
   reportProductTemplates,
 } from "./report-catalog.js";
 import { pricingCategoryNameByTier } from "../programs/program-zoho-category.js";
@@ -241,6 +242,7 @@ export class ReportCatalogAdminController {
       success: true,
       data: {
         inherited: !Array.isArray(override),
+        accessMode: portalAccessMode(enrollment.metadata, []),
         products: Array.isArray(override)
           ? override
           : Array.isArray(inherited)
@@ -267,6 +269,16 @@ export class ReportCatalogAdminController {
       },
     });
     const metadata = jsonObject(enrollment.metadata);
+    if (
+      value.accessMode !== undefined &&
+      value.accessMode !== "client" &&
+      value.accessMode !== "promotional"
+    ) {
+      throw new BadRequestException("accessMode must be client or promotional");
+    }
+    if (value.accessMode === "client" || value.accessMode === "promotional") {
+      metadata.portalAccess = value.accessMode;
+    }
     let fees = { ...jsonObject(enrollment.fees) };
     if (value.inherit === true) {
       delete metadata.reportCatalog;
@@ -292,7 +304,11 @@ export class ReportCatalogAdminController {
     return {
       success: true,
       message: "Organization catalog saved",
-      data: { inherited: value.inherit === true, products: effective },
+      data: {
+        inherited: value.inherit === true,
+        accessMode: portalAccessMode(metadata, []),
+        products: effective,
+      },
     };
   }
 }

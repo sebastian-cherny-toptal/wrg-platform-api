@@ -4,6 +4,7 @@ import {
   effectiveReportCatalog,
   hasStandardPackage,
   parseReportCatalog,
+  portalAccessMode,
   reportProductTemplates,
   standardPackagePriceCents,
 } from "../../src/modules/reports/report-catalog.js";
@@ -13,6 +14,19 @@ describe("report catalog configuration", () => {
     assert.deepEqual(
       parseReportCatalog(reportProductTemplates),
       reportProductTemplates,
+    );
+  });
+
+  it("lets a program enrollment override the user's default portal role", () => {
+    assert.equal(portalAccessMode({}, ["client"]), "client");
+    assert.equal(portalAccessMode({}, ["promotional"]), "promotional");
+    assert.equal(
+      portalAccessMode({ portalAccess: "promotional" }, ["client"]),
+      "promotional",
+    );
+    assert.equal(
+      portalAccessMode({ portalAccess: "client" }, ["promotional"]),
+      "client",
     );
   });
 

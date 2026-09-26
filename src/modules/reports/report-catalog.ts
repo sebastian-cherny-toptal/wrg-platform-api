@@ -188,6 +188,19 @@ export function jsonObject(value: unknown): Record<string, unknown> {
     : {};
 }
 
+export type PortalAccessMode = "client" | "promotional";
+
+export function portalAccessMode(
+  metadata: unknown,
+  roles: readonly string[],
+): PortalAccessMode {
+  const configured = jsonObject(metadata).portalAccess;
+  if (configured === "client" || configured === "promotional") {
+    return configured;
+  }
+  return roles.includes("promotional") ? "promotional" : "client";
+}
+
 function numeric(value: unknown): number | null {
   const normalized = String(value ?? "")
     .replace(/[^0-9.-]+/gu, "")

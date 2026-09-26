@@ -14,6 +14,7 @@ import {
   JwtAuthGuard,
   type Principal,
 } from "../auth/auth.module.js";
+import { portalAccessMode } from "../reports/report-catalog.js";
 
 @ApiTags("surveys")
 @ApiBearerAuth()
@@ -22,11 +23,32 @@ import {
 class SurveysController {
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
-  @Get(":id")
-  get(@Param("id") id: string, @CurrentUser() principal: Principal) {
-    if (principal.roles.includes("promotional")) {
-      throw new ForbiddenException("Promotional sessions may only access sample reports");
+  private async assertLiveAccess(id: string, principal: Principal) {
+    if (
+      principal.roles.includes("admin") ||
+      principal.roles.includes("super_admin")
+    )
+      return;
+    const enrollment = await this.prisma.organizationProgram.findFirst({
+      where: {
+        organizationId: principal.organizationId ?? "__none__",
+        program: { surveys: { some: { id } } },
+      },
+      select: { metadata: true },
+    });
+    if (
+      !enrollment ||
+      portalAccessMode(enrollment.metadata, principal.roles) === "promotional"
+    ) {
+      throw new ForbiddenException(
+        "Promotional sessions may only access sample reports",
+      );
     }
+  }
+
+  @Get(":id")
+  async get(@Param("id") id: string, @CurrentUser() principal: Principal) {
+    await this.assertLiveAccess(id, principal);
     return this.prisma.survey.findFirstOrThrow({
       where: {
         id,
@@ -49,9 +71,7 @@ class SurveysController {
 
   @Get(":id/summary")
   async summary(@Param("id") id: string, @CurrentUser() principal: Principal) {
-    if (principal.roles.includes("promotional")) {
-      throw new ForbiddenException("Promotional sessions may only access sample reports");
-    }
+    await this.assertLiveAccess(id, principal);
     const [survey, total, completed] = await Promise.all([
       this.prisma.survey.findFirstOrThrow({
         where: {

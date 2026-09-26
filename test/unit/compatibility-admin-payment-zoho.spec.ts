@@ -374,6 +374,41 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
     assert.equal(created.length, 2);
   });
 
+  it("keeps impersonated dashboard previews read-only", async () => {
+    const service = new CompatibilityPaymentService(
+      {} as never,
+      { get: () => "sk_test_example" } as never,
+      {} as never,
+    );
+    const principal = {
+      sub: "client",
+      organizationId: "org",
+      roles: ["client"],
+      permissions: [],
+      impersonation: {
+        grantId: "grant",
+        actorUserId: "admin",
+        actorDisplayName: "Administrator",
+        organizationId: "org",
+        programId: "program",
+        startedAt: new Date().toISOString(),
+      },
+    } satisfies Principal;
+
+    await assert.rejects(
+      service.paymentIntent(principal, {}),
+      /Dashboard previews are read-only/,
+    );
+    await assert.rejects(
+      service.checkout(principal, {}, true),
+      /Dashboard previews are read-only/,
+    );
+    await assert.rejects(
+      service.confirmPaidOrder(principal, {}),
+      /Dashboard previews are read-only/,
+    );
+  });
+
   it("rejects client invoice keys that would grant report access", async () => {
     let orderCreated = false;
     let enrollmentUpdated = false;
@@ -1080,31 +1115,43 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
           {
             tier: "Boutique",
             pricingCategoryName: "15-24",
+            zohoCategoryName: "Boutique",
+            employeeSize: "15-24",
             priceCents: 45_000,
           },
           {
             tier: "Small",
             pricingCategoryName: "25-99",
+            zohoCategoryName: "Small/Medium",
+            employeeSize: "25-49",
             priceCents: 55_000,
           },
           {
             tier: "Medium",
             pricingCategoryName: "100-199",
+            zohoCategoryName: "Medium",
+            employeeSize: "100-199",
             priceCents: 65_000,
           },
           {
             tier: "Large",
             pricingCategoryName: "200-499",
+            zohoCategoryName: "Large",
+            employeeSize: "200-499",
             priceCents: 75_000,
           },
           {
             tier: "Mega",
             pricingCategoryName: "500-999",
+            zohoCategoryName: "Mega",
+            employeeSize: "500-999",
             priceCents: 85_000,
           },
           {
             tier: "Major",
             pricingCategoryName: "1000+",
+            zohoCategoryName: "Major",
+            employeeSize: "1000+",
             priceCents: 95_000,
           },
         ],
@@ -1160,7 +1207,15 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
     });
 
     assert.deepEqual(programs[0]?.benchmarkCategories, ["Small"]);
-    assert.deepEqual(programs[0].categoryPricing, [
+    const pricingFields = (program: (typeof programs)[number]) =>
+      program.categoryPricing.map(
+        ({ tier, pricingCategoryName, priceCents }) => ({
+          tier,
+          pricingCategoryName,
+          priceCents,
+        }),
+      );
+    assert.deepEqual(pricingFields(programs[0]), [
       {
         tier: "Boutique",
         pricingCategoryName: "15-24",
@@ -1177,7 +1232,7 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
       "Small-Medium",
       "Medium",
     ]);
-    assert.deepEqual(programs[1].categoryPricing, [
+    assert.deepEqual(pricingFields(programs[1]), [
       {
         tier: "Boutique",
         pricingCategoryName: "15-24",
@@ -1197,6 +1252,32 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
       { tier: "Mega", pricingCategoryName: "500-999", priceCents: null },
       { tier: "Major", pricingCategoryName: "1000+", priceCents: null },
     ]);
+    assert.deepEqual(
+      programs[1].categoryPricing
+        .slice(0, 3)
+        .map(({ tier, zohoCategoryName, employeeSize }) => ({
+          tier,
+          zohoCategoryName,
+          employeeSize,
+        })),
+      [
+        {
+          tier: "Boutique",
+          zohoCategoryName: "Small",
+          employeeSize: "15-34 US",
+        },
+        {
+          tier: "Small",
+          zohoCategoryName: "Small-Medium",
+          employeeSize: "35-74 US",
+        },
+        {
+          tier: "Medium",
+          zohoCategoryName: "Medium",
+          employeeSize: "75-249 US",
+        },
+      ],
+    );
   });
 
   it("loads only the programs for the selected Zoho project", async () => {

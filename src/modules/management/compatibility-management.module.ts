@@ -1081,8 +1081,10 @@ export class CompatibilityManagementService {
       metadata.benchmarkCategories,
     );
     const categoryPricing = program.zohoCategories?.length
-      ? program.zohoCategories.map(({ tier, priceCents }) => ({
+      ? program.zohoCategories.map(({ tier, zohoCategoryName, employeeSize, priceCents }) => ({
           tier,
+          zohoCategoryName,
+          employeeSize,
           pricingCategoryName:
             pricingCategoryNameByTier[
               tier as keyof typeof pricingCategoryNameByTier
