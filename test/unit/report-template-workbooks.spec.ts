@@ -191,6 +191,88 @@ describe("annual trends workbook generation", () => {
 });
 
 describe("workforce feedback workbook generation", () => {
+  it("omits sections whose response counts are zero in every column", async () => {
+    const buffer = await createWorkforceFeedbackWorkbook({
+      metadata: {
+        organizationName: "Test organization",
+        programName: "Test program",
+        surveyDates: "2026",
+      },
+      demographics: [
+        {
+          title: "Office Location",
+          groupLabel: "Office Location",
+          options: [{ label: "North", count: 4 }],
+        },
+      ],
+      sections: [
+        {
+          title: "Empty section",
+          questions: [
+            {
+              text: "Unanswered question",
+              agreement: 0,
+              neutral: 0,
+              disagreement: 0,
+              responseCount: 0,
+              demographicResponseCount: {
+                "Office Location": { North: 0 },
+              },
+            },
+          ],
+        },
+        {
+          title: "Demographic responses",
+          questions: [
+            {
+              text: "Answered by a demographic group",
+              agreement: 75,
+              neutral: 0,
+              disagreement: 25,
+              responseCount: 0,
+              demographicAgreement: {
+                "Office Location": { North: 75 },
+              },
+              demographicResponseCount: {
+                "Office Location": { North: 4 },
+              },
+            },
+          ],
+        },
+        {
+          title: "Overall responses",
+          questions: [
+            {
+              text: "Answered overall",
+              agreement: 80,
+              neutral: 10,
+              disagreement: 10,
+              responseCount: 5,
+            },
+          ],
+        },
+      ],
+      totalResponses: 5,
+    });
+
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer as never);
+    const sheet = workbook.getWorksheet("Workforce Feedback Results");
+    assert.ok(sheet);
+    assert.equal(sheet.getCell("B5").value, "Demographic responses");
+    assert.equal(sheet.getCell("B6").value, "Answered by a demographic group");
+    assert.equal(sheet.getCell("B16").value, "Overall responses");
+    assert.equal(sheet.getCell("B17").value, "Answered overall");
+    const values: unknown[] = [];
+    sheet.eachRow((row) => {
+      row.eachCell((cell) => {
+        values.push(cell.value);
+      });
+    });
+    assert.ok(!values.includes("Empty section"));
+    assert.ok(!values.includes("Unanswered question"));
+  });
+
   it("uses the supplied survey demographics instead of template defaults", async () => {
     const buffer = await createWorkforceFeedbackWorkbook({
       metadata: {

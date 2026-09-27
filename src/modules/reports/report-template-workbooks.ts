@@ -427,6 +427,18 @@ function weightedAverage(
   return average(values.map((item) => item.value));
 }
 
+function sectionHasResponses(section: FeedbackWorkbookSection): boolean {
+  return section.questions.some((question) => {
+    const counts = [
+      question.responseCount,
+      ...Object.values(question.demographicResponseCount ?? {}).flatMap(
+        (group) => Object.values(group),
+      ),
+    ].filter((count): count is number => typeof count === "number");
+    return counts.length === 0 || counts.some((count) => count > 0);
+  });
+}
+
 const responsePatternFills = {
   positive: {
     type: "pattern",
@@ -620,7 +632,8 @@ export async function createWorkforceFeedbackWorkbook(input: {
   setWorkforceFeedbackDemographics(workbook, input.demographics);
   clearWorkforceFeedbackPlaceholders(workbook);
   rotateWorkforceFeedbackHeaders(workbook);
-  const questions = input.sections.flatMap((section) => section.questions);
+  const sections = input.sections.filter(sectionHasResponses);
+  const questions = sections.flatMap((section) => section.questions);
   fillTokens(workbook, (name, cell) => {
     if (name === "ORGANIZATION_NAME") return input.metadata.organizationName;
     if (name === "PROGRAM_NAME") return input.metadata.programName;
@@ -640,25 +653,25 @@ export async function createWorkforceFeedbackWorkbook(input: {
     }
     const categoryMatch = /^CATEGORY_(\d+)_TITLE$/u.exec(name);
     if (categoryMatch)
-      return input.sections[Number(categoryMatch[1]) - 1]?.title;
+      return sections[Number(categoryMatch[1]) - 1]?.title;
     const categoryQuestionMatch = /^CATEGORY_(\d+)_QUESTION_(\d+)_TEXT$/u.exec(
       name,
     );
     if (categoryQuestionMatch) {
-      return input.sections[Number(categoryQuestionMatch[1]) - 1]?.questions[
+      return sections[Number(categoryQuestionMatch[1]) - 1]?.questions[
         Number(categoryQuestionMatch[2]) - 1
       ]?.text;
     }
     const averageTitleMatch = /^CATEGORY_(\d+)_AVERAGE_TITLE$/u.exec(name);
     if (averageTitleMatch) {
-      const title = input.sections[Number(averageTitleMatch[1]) - 1]?.title;
+      const title = sections[Number(averageTitleMatch[1]) - 1]?.title;
       return title ? `${title.toUpperCase()} - AVERAGE` : null;
     }
     const averageValueMatch = /^CATEGORY_(\d+)_AVERAGE_VALUE_(\d+)$/u.exec(
       name,
     );
     if (averageValueMatch) {
-      const section = input.sections[Number(averageValueMatch[1]) - 1];
+      const section = sections[Number(averageValueMatch[1]) - 1];
       if (!section) return null;
       const valueIndex = Number(averageValueMatch[2]);
       const agreement = weightedAverage(
