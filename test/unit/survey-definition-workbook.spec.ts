@@ -35,17 +35,17 @@ test("default survey definition workbook contains both sheets and effective answ
   );
   definition.push(
     {
-      dataLabel: "126. Company Size",
+      dataLabel: "124. Company Size",
       caption: "Company Size",
       type: "demographic",
-      position: 126,
+      position: 124,
       options: [{ Id: "1", Caption: "1–49", Position: 1 }],
     },
     {
-      dataLabel: "127. Sample size",
+      dataLabel: "125. Sample size",
       caption: "Sample size",
       type: "demographic",
-      position: 127,
+      position: 125,
       options: [{ Id: "1", Caption: "1–49", Position: 1 }],
     },
   );
@@ -66,8 +66,8 @@ test("default survey definition workbook contains both sheets and effective answ
   for (const sheetName of ["Questions", "Answers"]) {
     const keys = workbook.getWorksheet(sheetName)?.getColumn(1).values;
     assert.ok(keys);
-    assert.equal(keys.includes("126. Company Size"), false);
-    assert.equal(keys.includes("127. Sample size"), false);
+    assert.equal(keys.includes("124. Company Size"), false);
+    assert.equal(keys.includes("125. Sample size"), false);
   }
 });
 

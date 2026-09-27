@@ -39,10 +39,8 @@ const employeeSurvey: Prisma.SurveyWhereInput = {
   ],
 };
 
-const excludedSurveyDefinitionKeys = new Set([
-  "126. Company Size",
-  "127. Sample size",
-]);
+const excludedSurveyDefinitionKey =
+  /^\d+\.\s*(?:Company Size|Sample size)$/iu;
 
 const defaultSurveyDefinitionFile = "Default_Questions_and_Answers.xlsx";
 let defaultSurveyDefinitionPromise: Promise<SurveyDefinition> | undefined;
@@ -258,7 +256,7 @@ export async function surveyDefinitionWorkbook(
     "score",
   ]);
   for (const question of definition) {
-    if (excludedSurveyDefinitionKeys.has(question.dataLabel)) continue;
+    if (excludedSurveyDefinitionKey.test(question.dataLabel)) continue;
     questions.addRow([
       question.dataLabel,
       question.caption,
