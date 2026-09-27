@@ -390,6 +390,110 @@ describe("compatibility report categories", () => {
     );
   });
 
+  it("builds Workforce Feedback demographics from the imported survey definition", async () => {
+    const demographic = {
+      id: "office-location",
+      legacyId: null,
+      externalId: null,
+      dataLabel: "custom_office_location",
+      caption: "Office Location",
+      type: "demographic",
+      position: 1,
+      metadata: {
+        QuestionTypeId: 2,
+        filterLabel: "Office Location",
+        surveyDefinition: true,
+        surveyDefinitionAnswers: true,
+        QuestionResponses: [
+          { Id: "north", Caption: "North", Position: 1 },
+          { Id: "south", Caption: "South", Position: 2 },
+        ],
+      },
+    };
+    const question = benchmarkQuestion(
+      "core",
+      "Core Employee Experience",
+      2,
+    );
+    const prisma = {
+      program: {
+        findFirst: () => ({
+          id: "program-1",
+          projectId: "project-1",
+          name: "Custom program",
+          year: 2026,
+          startsAt: null,
+          metadata: {},
+          project: { id: "project-1", name: "Test project" },
+        }),
+      },
+      organizationProgram: {
+        findFirst: () => ({
+          id: "enrollment-1",
+          reportAccess: { WFR_Access: "yes" },
+          metrics: {},
+          metadata: {},
+        }),
+        findMany: () => [],
+      },
+      survey: {
+        findFirst: () => ({
+          id: "survey-1",
+          title: "Test survey",
+          startsAt: null,
+          endsAt: null,
+        }),
+      },
+      question: { findMany: () => [demographic, question] },
+      respondent: {
+        findMany: () => [
+          {
+            id: "respondent-1",
+            legacyId: null,
+            externalId: null,
+            metadata: {},
+            responses: [
+              {
+                questionId: demographic.id,
+                value: "north",
+                score: null,
+                question: demographic,
+              },
+              {
+                questionId: question.id,
+                value: 4,
+                score: null,
+                question,
+              },
+            ],
+          },
+        ],
+      },
+    } as unknown as PrismaService;
+    const service = new CompatibilityReportsService(prisma);
+    const buffer = await service.feedbackWorkbook(
+      {
+        sub: "client-1",
+        organizationId: "organization-1",
+        roles: ["client"],
+        permissions: [],
+      },
+      { selectedProgramId: "program-1", isDummy: false },
+      false,
+    );
+
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer as never);
+    const sheet = workbook.getWorksheet("Workforce Feedback Results");
+    assert.ok(sheet);
+    assert.equal(sheet.getCell("G2").value, "OFFICE LOCATION");
+    assert.equal(sheet.getCell("G3").value, "North");
+    assert.equal(sheet.getCell("H3").value, "South");
+    assert.equal(sheet.getCell("G4").value, 1);
+    assert.equal(sheet.getCell("H4").value, 0);
+    assert.equal(sheet.getCell("J2").value, null);
+  });
+
   it("uses displayed Likert counts as the denominator and excludes N/A and unmapped codes", async () => {
     const question = benchmarkQuestion("core", "Core Employee Experience", 1);
     const values = [1, 2, 3, 4, 5, 6, 7, 99];

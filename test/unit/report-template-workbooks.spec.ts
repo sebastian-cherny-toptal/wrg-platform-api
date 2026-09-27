@@ -191,6 +191,61 @@ describe("annual trends workbook generation", () => {
 });
 
 describe("workforce feedback workbook generation", () => {
+  it("uses the supplied survey demographics instead of template defaults", async () => {
+    const buffer = await createWorkforceFeedbackWorkbook({
+      metadata: {
+        organizationName: "Test organization",
+        programName: "Custom program",
+        surveyDates: "2026",
+      },
+      demographics: [
+        {
+          title: "Office Location",
+          groupLabel: "Office Location",
+          options: [
+            { label: "North", count: 8 },
+            { label: "South", count: 2 },
+          ],
+        },
+      ],
+      sections: [
+        {
+          title: "Test section",
+          questions: [
+            {
+              text: "Test question",
+              agreement: 80,
+              neutral: 10,
+              disagreement: 10,
+              responseCount: 10,
+              demographicAgreement: {
+                "Office Location": { North: 75, South: 100 },
+              },
+              demographicResponseCount: {
+                "Office Location": { North: 8, South: 2 },
+              },
+            },
+          ],
+        },
+      ],
+      totalResponses: 10,
+    });
+
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer as never);
+    const sheet = workbook.getWorksheet("Workforce Feedback Results");
+    assert.ok(sheet);
+    assert.equal(sheet.getCell("G2").value, "OFFICE LOCATION");
+    assert.equal(sheet.getCell("G3").value, "North");
+    assert.equal(sheet.getCell("H3").value, "South");
+    assert.equal(sheet.getCell("G4").value, 8);
+    assert.equal(sheet.getCell("H4").value, 2);
+    assert.equal(sheet.getCell("G6").value, 75);
+    assert.equal(sheet.getCell("H6").value, "x");
+    assert.equal(sheet.getCell("I2").value, null);
+    assert.equal(sheet.getCell("J2").value, null);
+  });
+
   it("limits High Agreement highlights to legacy agreement cells", async () => {
     const buffer = await createWorkforceFeedbackWorkbook({
       metadata: {
@@ -292,7 +347,16 @@ describe("workforce feedback workbook generation", () => {
         programName: "Test program",
         surveyDates: "2026",
       },
-      demographics: [],
+      demographics: [
+        {
+          title: "Office Location",
+          groupLabel: "Office Location",
+          options: [
+            { label: "North", count: 6 },
+            { label: "South", count: 4 },
+          ],
+        },
+      ],
       sections: [
         {
           title: "Test section",
@@ -327,7 +391,7 @@ describe("workforce feedback workbook generation", () => {
     const sheet = workbook.getWorksheet("Workforce Feedback Results");
     assert.ok(sheet);
 
-    for (const address of ["D3", "E3", "G3", "H3", "BM3"]) {
+    for (const address of ["D3", "E3", "G3", "H3"]) {
       assert.equal(sheet.getCell(address).alignment.textRotation, 90, address);
     }
     assert.notEqual(sheet.getCell("F3").alignment.textRotation, 90);
@@ -336,8 +400,8 @@ describe("workforce feedback workbook generation", () => {
       assert.equal(sheet.getCell(1, column).value, null);
     }
     assert.equal(sheet.getCell("B2").value, null);
-    assert.equal(sheet.getCell("G4").value, 0);
-    for (const column of [1, 3, 6, 11]) {
+    assert.equal(sheet.getCell("G4").value, 6);
+    for (const column of [1, 3, 6, 9]) {
       for (let row = 1; row <= sheet.rowCount; row += 1) {
         assert.equal(sheet.getCell(row, column).value, null);
       }

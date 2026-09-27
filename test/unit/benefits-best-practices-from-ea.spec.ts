@@ -383,7 +383,7 @@ describe("Benefits & Best Practices generation from EA", () => {
     const buffer = await createBenefitsWorkbook({
       headers: generated.headers.map(({ title }) => title),
       columnHeaders: ["All Winners", "All Non-Winners"],
-      programName: "Baton Rouge 2026",
+      programName: "Example Region 2026",
       sections: generated.sections.map((section) => ({
         title: section.title,
         questions: section.questions.map((question) => ({
@@ -401,7 +401,7 @@ describe("Benefits & Best Practices generation from EA", () => {
     await workbook.xlsx.load(buffer as never);
     const sheet = workbook.getWorksheet("Benefits & Best Practices");
     assert.ok(sheet);
-    assert.equal(sheet.getCell("A6").value, "PROGRAM: Baton Rouge 2026");
+    assert.equal(sheet.getCell("A6").value, "PROGRAM: Example Region 2026");
     let funRow = 0;
     sheet.eachRow((row, rowNumber) => {
       if (String(row.getCell(1).value ?? "").includes("Fun")) {
@@ -422,11 +422,11 @@ describe("Benefits & Best Practices generation from EA", () => {
         findFirst: () => ({
           id: "program-1",
           projectId: "project-1",
-          name: "Baton Rouge 2026",
+          name: "Example Region 2026",
           year: 2026,
           startsAt: null,
           metadata: {} as Prisma.JsonValue,
-          project: { id: "project-1", name: "Baton Rouge" },
+          project: { id: "project-1", name: "Example Region" },
         }),
       },
       organizationProgram: {
@@ -456,14 +456,14 @@ describe("Benefits & Best Practices generation from EA", () => {
           ) {
             return {
               id: "ea-survey",
-              title: "Baton Rouge 2026 Employer Assessment",
+              title: "Example Region 2026 Employer Assessment",
               startsAt: null,
               endsAt: null,
             };
           }
           return {
             id: "efs-survey",
-            title: "Baton Rouge 2026 Employee Feedback Survey",
+            title: "Example Region 2026 Employee Feedback Survey",
             startsAt: null,
             endsAt: null,
           };

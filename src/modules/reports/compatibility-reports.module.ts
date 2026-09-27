@@ -2499,11 +2499,11 @@ export class CompatibilityReportsService {
         ([key]) => key !== "responsePatterns",
       ),
     );
-    const questions = await this.benchmarkQuestions(context.survey.id);
-    const respondents = await this.organizationRespondents(
-      context,
-      respondentFilter,
-    );
+    const [questions, respondents, demographicQuestions] = await Promise.all([
+      this.benchmarkQuestions(context.survey.id),
+      this.organizationRespondents(context, respondentFilter),
+      this.surveyDemographicQuestions(context.survey.id),
+    ]);
     const confidential =
       Object.keys(respondentFilter).length > 0 &&
       respondents.length < privacyThreshold;
@@ -2513,6 +2513,7 @@ export class CompatibilityReportsService {
     const demographics = this.workbookDemographicsFromRespondents(
       respondents,
       context.program.year,
+      demographicQuestions,
     );
     const metadata = await this.reportWorkbookMetadata(
       principal,
@@ -2537,12 +2538,13 @@ export class CompatibilityReportsService {
     const context = await this.context(principal, query, true);
     this.requiresDemo(principal, context, "WFR_Access");
     const sample = query.isDummy ? dummyFeedbackWorkbookData() : undefined;
-    const questions = sample
-      ? []
-      : await this.benchmarkQuestions(context.survey.id);
-    const respondents = sample
-      ? []
-      : await this.organizationRespondents(context);
+    const [questions, respondents, demographicQuestions] = sample
+      ? [[], [], []]
+      : await Promise.all([
+          this.benchmarkQuestions(context.survey.id),
+          this.organizationRespondents(context),
+          this.surveyDemographicQuestions(context.survey.id),
+        ]);
     // Response Patterns has no demographic filter. The legacy flow allowed
     // unfiltered reports below five total respondents while suppressing any
     // small demographic cohorts inside the workbook.
@@ -2559,6 +2561,7 @@ export class CompatibilityReportsService {
         this.workbookDemographicsFromRespondents(
           respondents,
           context.program.year,
+          demographicQuestions,
         ),
       sections,
       totalResponses: sample?.totalResponses ?? respondents.length,
@@ -2731,8 +2734,11 @@ export class CompatibilityReportsService {
   private workbookDemographicsFromRespondents(
     respondents: DetailedRespondent[],
     programYear?: number | null,
+    demographicQuestions: DetailedResponse["question"][] = [],
   ): ReportWorkbookDemographic[] {
-    const questions = new Map<string, DetailedResponse["question"]>();
+    const questions = new Map(
+      demographicQuestions.map((question) => [question.id, question]),
+    );
     const counts = new Map<string, Map<string, number>>();
     for (const respondent of respondents) {
       for (const response of respondent.responses) {
@@ -2757,12 +2763,42 @@ export class CompatibilityReportsService {
         groupLabel: jsonObject(question.metadata).surveyDefinition
           ? this.demographicLabel(question)
           : demographicGroupFromDataLabel(question.dataLabel),
-        options: [...(counts.get(questionId) ?? new Map<string, number>())]
-          .sort(([left], [right]) =>
+        options: [
+          ...new Set([
+            ...demographicOptionOrder(question, programYear),
+            ...(counts.get(questionId)?.keys() ?? []),
+          ]),
+        ]
+          .sort((left, right) =>
             compareDemographicOptions(left, right, question, programYear),
           )
-          .map(([label, count]) => ({ label, count })),
+          .map((label) => ({
+            label,
+            count: counts.get(questionId)?.get(label) ?? 0,
+          })),
       }));
+  }
+
+  private async surveyDemographicQuestions(
+    surveyId: string,
+  ): Promise<DetailedResponse["question"][]> {
+    const questions = await this.prisma.question.findMany({
+      where: { surveyId },
+      orderBy: { position: "asc" },
+      select: {
+        id: true,
+        legacyId: true,
+        externalId: true,
+        dataLabel: true,
+        caption: true,
+        type: true,
+        position: true,
+        metadata: true,
+      },
+    });
+    return questions.filter((question) =>
+      this.isDemographicQuestion(question),
+    );
   }
 
   async benchmarkWorkbook(

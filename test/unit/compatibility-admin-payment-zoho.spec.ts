@@ -813,14 +813,14 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
         id: `project-${year}`,
         legacyId: null,
         externalId: null,
-        name: "Baton Rouge",
+        name: "Example Region",
       },
       program: {
         id: `program-${year}`,
         legacyId: null,
         externalId: null,
         metadata: {},
-        name: `Baton Rouge ${year}`,
+        name: `Example Region ${year}`,
         year,
         currency: "USD",
       },
@@ -875,17 +875,17 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
         {
           selectionId: "enrollment-2024",
           name: "AccuTemp Services",
-          programs: ["Baton Rouge 2024"],
+          programs: ["Example Region 2024"],
         },
         {
           selectionId: "enrollment-2025",
           name: "Adams and Reese",
-          programs: ["Baton Rouge 2025"],
+          programs: ["Example Region 2025"],
         },
         {
           selectionId: "enrollment-2026",
           name: "Advanced Office Systems",
-          programs: ["Baton Rouge 2026"],
+          programs: ["Example Region 2026"],
         },
       ],
     );
@@ -1009,8 +1009,8 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
               ? [
                   {
                     id: "zoho-program-1",
-                    Name: "Baton Rouge 2026",
-                    Project: { id: "zoho-project-1", name: "Baton Rouge" },
+                    Name: "Example Region 2026",
+                    Project: { id: "zoho-project-1", name: "Example Region" },
                     Program_Year: "2026",
                     Currency: "GBP",
                     EFS_Launch_Date: "2026-01-15",
@@ -1039,7 +1039,7 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
                 ? [
                     {
                       id: "zoho-project-1",
-                      Name: "Baton Rouge",
+                      Name: "Example Region",
                       Project_Abbreviation: "BR",
                     },
                   ]
@@ -1048,11 +1048,11 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
                       id: "zoho-deal-1",
                       Program: {
                         id: "zoho-program-1",
-                        name: "Baton Rouge 2026",
+                        name: "Example Region 2026",
                       },
                       Account_Name: { id: "zoho-account-1", name: "Acme" },
                       Deal_Organization_ID: "49",
-                      Alias_Name: "Acme - Baton Rouge",
+                      Alias_Name: "Acme - Example Region",
                       Current_Year_Winner: "Yes",
                       Current_Year_Category: "Large",
                       Report_Category: "25-99",
@@ -1062,11 +1062,11 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
                       id: "zoho-deal-2",
                       Program: {
                         id: "zoho-program-1",
-                        name: "Baton Rouge 2026",
+                        name: "Example Region 2026",
                       },
                       Account_Name: { id: "zoho-account-2", name: "Beta" },
                       Deal_Organization_ID: "50",
-                      Alias_Name: "Beta - Baton Rouge",
+                      Alias_Name: "Beta - Example Region",
                       Current_Year_Winner: "No",
                       Current_Year_Category: "Small",
                       Report_Category: "100-199",
@@ -1088,11 +1088,11 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
     assert.deepEqual(programs, [
       {
         id: "zoho-program-1",
-        name: "Baton Rouge 2026",
+        name: "Example Region 2026",
         year: 2026,
         currency: "GBP",
         projectId: "zoho-project-1",
-        projectName: "Baton Rouge",
+        projectName: "Example Region",
         projectAbbreviation: null,
         efsLaunchDate: "2026-01-15",
         efsDeadline: "2026-04-30",
@@ -1180,8 +1180,8 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
               Category_100_199_Fee: null,
             },
             {
-              id: "baton-rouge-2026",
-              Name: "Baton Rouge 2026",
+              id: "example-region-2026",
+              Name: "Example Region 2026",
               Program_Year: "2026",
               Boutique_EE_Name: null,
               Boutique_EE_Size: null,
@@ -1287,8 +1287,8 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
               ? [
                   {
                     id: "zoho-program-1",
-                    Name: "Baton Rouge 2026",
-                    Project: { id: "zoho-project-1", name: "Baton Rouge" },
+                    Name: "Example Region 2026",
+                    Project: { id: "zoho-project-1", name: "Example Region" },
                     Program_Year: "2026",
                   },
                 ]
@@ -1335,10 +1335,10 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
           return Promise.resolve([
             {
               id: "zoho-deal-1",
-              Program: { id: "zoho-program-1", name: "Baton Rouge 2026" },
+              Program: { id: "zoho-program-1", name: "Example Region 2026" },
               Deal_Organization_ID: 460737994,
               Alias_Name:
-                "Acme-460737994-Best Places to Work in Baton Rouge 2026",
+                "Acme-460737994-Best Places to Work in Example Region 2026",
               Current_Year_Winner: "Yes",
               Current_Year_Category: "Large",
               Category_Online: "Category 25 – 99",
@@ -1375,9 +1375,9 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
     assert.deepEqual(organizations, [
       {
         id: "zoho-deal-1",
-        Program: { id: "zoho-program-1", name: "Baton Rouge 2026" },
+        Program: { id: "zoho-program-1", name: "Example Region 2026" },
         Deal_Organization_ID: 460737994,
-        Alias_Name: "Acme-460737994-Best Places to Work in Baton Rouge 2026",
+        Alias_Name: "Acme-460737994-Best Places to Work in Example Region 2026",
         Current_Year_Winner: "Yes",
         Current_Year_Category: "Large",
         Category_Online: "Category 25 – 99",

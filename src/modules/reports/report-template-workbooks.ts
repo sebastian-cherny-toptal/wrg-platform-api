@@ -488,6 +488,84 @@ function rotateWorkforceFeedbackHeaders(workbook: ExcelJS.Workbook): void {
   });
 }
 
+function workforceFeedbackDemographicToken(
+  value: ExcelJS.CellValue,
+  optionIndex: number,
+): ExcelJS.CellValue {
+  if (typeof value !== "string") return value;
+  return value
+    .replace(
+      /DEMOGRAPHIC_COUNT_\d+/gu,
+      `DEMOGRAPHIC_COUNT_${optionIndex + 2}`,
+    )
+    .replace(/_VALUE_\d+/gu, `_VALUE_${optionIndex + 3}`);
+}
+
+/** Replace the template's default demographics with the imported survey definition. */
+function setWorkforceFeedbackDemographics(
+  workbook: ExcelJS.Workbook,
+  demographics: ReportWorkbookDemographic[],
+): void {
+  const sheet = workbook.getWorksheet("Workforce Feedback Results");
+  if (!sheet) throw new Error("Workforce Feedback template has no worksheet");
+  const rowCount = sheet.rowCount;
+  const templateColumnCount = sheet.columnCount;
+  const example = Array.from({ length: rowCount }, (_, index) => {
+    const cell = sheet.getCell(index + 1, 7);
+    return { value: cell.value, style: cell.style };
+  });
+  const spacer = Array.from({ length: rowCount }, (_, index) => {
+    const cell = sheet.getCell(index + 1, 11);
+    return { value: cell.value, style: cell.style };
+  });
+  const exampleWidth = sheet.getColumn(7).width;
+  const spacerWidth = sheet.getColumn(11).width;
+
+  for (const merge of [...sheet.model.merges]) {
+    const match = /^([A-Z]+)2:/u.exec(merge);
+    if (match?.[1] && columnNumber(match[1]) >= 7) sheet.unMergeCells(merge);
+  }
+  sheet.spliceColumns(7, templateColumnCount - 6);
+
+  let column = 7;
+  let optionIndex = 0;
+  for (const demographic of demographics) {
+    if (demographic.options.length === 0) continue;
+    const start = column;
+    for (const option of demographic.options) {
+      if (exampleWidth !== undefined) {
+        sheet.getColumn(column).width = exampleWidth;
+      }
+      for (let row = 1; row <= rowCount; row += 1) {
+        const source = example[row - 1];
+        if (!source) continue;
+        const cell = sheet.getCell(row, column);
+        cell.value = workforceFeedbackDemographicToken(
+          source.value,
+          optionIndex,
+        );
+        cell.style = source.style;
+      }
+      sheet.getCell(2, column).value = safeValue(
+        demographic.title.toUpperCase(),
+      );
+      sheet.getCell(3, column).value = safeValue(option.label);
+      column += 1;
+      optionIndex += 1;
+    }
+    if (column > start + 1) sheet.mergeCells(2, start, 2, column - 1);
+    if (spacerWidth !== undefined) sheet.getColumn(column).width = spacerWidth;
+    for (let row = 1; row <= rowCount; row += 1) {
+      const source = spacer[row - 1];
+      if (!source) continue;
+      const cell = sheet.getCell(row, column);
+      cell.value = source.value;
+      cell.style = source.style;
+    }
+    column += 1;
+  }
+}
+
 function clearWorkforceFeedbackPlaceholders(workbook: ExcelJS.Workbook): void {
   const sheet = workbook.getWorksheet("Workforce Feedback Results");
   if (!sheet) return;
@@ -539,6 +617,7 @@ export async function createWorkforceFeedbackWorkbook(input: {
   responsePatternRanges?: ResponsePatternRanges;
 }): Promise<Buffer> {
   const workbook = await loadTemplate("workforce-feedback-results.xlsx");
+  setWorkforceFeedbackDemographics(workbook, input.demographics);
   clearWorkforceFeedbackPlaceholders(workbook);
   rotateWorkforceFeedbackHeaders(workbook);
   const questions = input.sections.flatMap((section) => section.questions);
