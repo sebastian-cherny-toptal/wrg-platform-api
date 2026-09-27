@@ -273,6 +273,102 @@ describe("workforce feedback workbook generation", () => {
     assert.ok(!values.includes("Unanswered question"));
   });
 
+  it("omits zero-response demographic groups but keeps zero-count options in populated groups", async () => {
+    const buffer = await createWorkforceFeedbackWorkbook({
+      metadata: {
+        organizationName: "Test organization",
+        programName: "Custom program",
+        surveyDates: "2026",
+      },
+      demographics: [
+        {
+          title: "Job Level",
+          groupLabel: "Job Level",
+          options: [
+            { label: "Director or Above", count: 22 },
+            { label: "Salaried - Individual Contributor", count: 0 },
+          ],
+        },
+        {
+          title: "Job Level",
+          groupLabel: "Job Level",
+          options: [
+            { label: "CEO/President/Owner", count: 0 },
+            { label: "Department Manager/Supervisor", count: 0 },
+          ],
+        },
+        {
+          title: "Department",
+          groupLabel: "Department",
+          options: [{ label: "Administration/Management", count: 0 }],
+        },
+        {
+          title: "Department",
+          groupLabel: "Department",
+          options: [
+            { label: "Finance", count: 31 },
+            { label: "Information Technology", count: 0 },
+          ],
+        },
+        {
+          title: "Survey Questions",
+          groupLabel: "Survey Questions",
+          options: [{ label: "3", count: 0 }],
+        },
+      ],
+      sections: [
+        {
+          title: "Test section",
+          questions: [
+            {
+              text: "Test question",
+              agreement: 80,
+              neutral: 10,
+              disagreement: 10,
+              responseCount: 53,
+              demographicAgreement: {
+                "Job Level": { "Director or Above": 75 },
+                Department: { Finance: 80 },
+              },
+              demographicResponseCount: {
+                "Job Level": { "Director or Above": 22 },
+                Department: { Finance: 31 },
+              },
+            },
+          ],
+        },
+      ],
+      totalResponses: 53,
+    });
+
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer as never);
+    const sheet = workbook.getWorksheet("Workforce Feedback Results");
+    assert.ok(sheet);
+    assert.equal(sheet.getCell("G2").value, "JOB LEVEL");
+    assert.equal(sheet.getCell("G3").value, "Director or Above");
+    assert.equal(sheet.getCell("H3").value, "Salaried - Individual Contributor");
+    assert.equal(sheet.getCell("G4").value, 22);
+    assert.equal(sheet.getCell("H4").value, 0);
+    assert.equal(sheet.getCell("G6").value, 75);
+    assert.equal(sheet.getCell("H6").value, "x");
+    assert.equal(sheet.getCell("J2").value, "DEPARTMENT");
+    assert.equal(sheet.getCell("J3").value, "Finance");
+    assert.equal(sheet.getCell("K3").value, "Information Technology");
+    assert.equal(sheet.getCell("J4").value, 31);
+    assert.equal(sheet.getCell("K4").value, 0);
+    assert.equal(sheet.getCell("M2").value, null);
+    const headerValues = [2, 3].flatMap((row) =>
+      Array.from(
+        { length: sheet.columnCount },
+        (_, index) => sheet.getCell(row, index + 1).value,
+      ),
+    );
+    assert.ok(!headerValues.includes("CEO/President/Owner"));
+    assert.ok(!headerValues.includes("Administration/Management"));
+    assert.ok(!headerValues.includes("SURVEY QUESTIONS"));
+  });
+
   it("uses the supplied survey demographics instead of template defaults", async () => {
     const buffer = await createWorkforceFeedbackWorkbook({
       metadata: {

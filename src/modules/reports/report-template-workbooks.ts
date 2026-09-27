@@ -439,6 +439,12 @@ function sectionHasResponses(section: FeedbackWorkbookSection): boolean {
   });
 }
 
+function demographicHasResponses(
+  demographic: ReportWorkbookDemographic,
+): boolean {
+  return demographic.options.some((option) => option.count > 0);
+}
+
 const responsePatternFills = {
   positive: {
     type: "pattern",
@@ -629,7 +635,8 @@ export async function createWorkforceFeedbackWorkbook(input: {
   responsePatternRanges?: ResponsePatternRanges;
 }): Promise<Buffer> {
   const workbook = await loadTemplate("workforce-feedback-results.xlsx");
-  setWorkforceFeedbackDemographics(workbook, input.demographics);
+  const demographics = input.demographics.filter(demographicHasResponses);
+  setWorkforceFeedbackDemographics(workbook, demographics);
   clearWorkforceFeedbackPlaceholders(workbook);
   rotateWorkforceFeedbackHeaders(workbook);
   const sections = input.sections.filter(sectionHasResponses);
@@ -645,7 +652,7 @@ export async function createWorkforceFeedbackWorkbook(input: {
       if (typeof label !== "string") return 0;
       const count =
         demographicCount(
-          input.demographics,
+          demographics,
           label,
           demographicGroupLabel(cell),
         ) ?? 0;
@@ -689,7 +696,7 @@ export async function createWorkforceFeedbackWorkbook(input: {
       if (valueIndex === 1) return agreement;
       if (valueIndex === 2) return disagreement;
       return demographicAverageValue(
-        input.demographics,
+        demographics,
         cell,
         agreement,
         section.questions.map((item) => item.demographicAgreement),
@@ -704,7 +711,7 @@ export async function createWorkforceFeedbackWorkbook(input: {
       if (valueIndex === 1) return question.agreement;
       if (valueIndex === 2) return question.disagreement;
       return demographicValue(
-        input.demographics,
+        demographics,
         cell,
         question.agreement,
         question.demographicAgreement,
@@ -728,7 +735,7 @@ export async function createWorkforceFeedbackWorkbook(input: {
       if (valueIndex === 1) return agreement;
       if (valueIndex === 2) return disagreement;
       return demographicAverageValue(
-        input.demographics,
+        demographics,
         cell,
         agreement,
         questions.map((question) => question.demographicAgreement),

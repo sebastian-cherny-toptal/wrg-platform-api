@@ -1111,8 +1111,8 @@ describe("Florida 2026 imported report endpoint values", () => {
         assert.equal(body.message, "success");
         assert.equal(body.isConfidential, false);
         assert.equal(body.isFallback, false);
-        assert.equal(body.data.percentage.positivePercentage, 44.32);
-        assert.equal(body.data.percentage.greenPercentage, 44.32);
+        assert.equal(body.data.percentage.positivePercentage, 64.9);
+        assert.equal(body.data.percentage.greenPercentage, 64.9);
         assert.equal(body.data.percentage.neutralPercentage, 0);
         assert.equal(body.data.percentage.negativePercentage, 0);
         assert.equal(body.data.percentage.bluePercentage, 0);
@@ -1130,8 +1130,8 @@ describe("Florida 2026 imported report endpoint values", () => {
           ),
         );
         const body = response.json as HeatMapPreviewBody;
-        assert.equal(body.data.percentage.neutralPercentage, 7.12);
-        assert.equal(body.data.percentage.bluePercentage, 7.12);
+        assert.equal(body.data.percentage.neutralPercentage, 10.45);
+        assert.equal(body.data.percentage.bluePercentage, 10.45);
         assert.equal(body.data.percentage.positivePercentage, 0);
         assert.equal(body.data.percentage.negativePercentage, 0);
       });
@@ -1146,8 +1146,8 @@ describe("Florida 2026 imported report endpoint values", () => {
           ),
         );
         const body = response.json as HeatMapPreviewBody;
-        assert.equal(body.data.percentage.negativePercentage, 0.02);
-        assert.equal(body.data.percentage.redPercentage, 0.02);
+        assert.equal(body.data.percentage.negativePercentage, 0.03);
+        assert.equal(body.data.percentage.redPercentage, 0.03);
         assert.equal(body.data.percentage.positivePercentage, 0);
         assert.equal(body.data.percentage.neutralPercentage, 0);
       });
@@ -1163,12 +1163,12 @@ describe("Florida 2026 imported report endpoint values", () => {
         );
         const body = response.json as HeatMapPreviewBody;
         assert.deepEqual(body.data.percentage, {
-          positivePercentage: 44.32,
-          neutralPercentage: 7.12,
-          negativePercentage: 0.02,
-          greenPercentage: 44.32,
-          bluePercentage: 7.12,
-          redPercentage: 0.02,
+          positivePercentage: 64.9,
+          neutralPercentage: 10.45,
+          negativePercentage: 0.03,
+          greenPercentage: 64.9,
+          bluePercentage: 10.45,
+          redPercentage: 0.03,
         });
         for (const cell of body.data.heatmapPreview as Array<{
           row: number;
