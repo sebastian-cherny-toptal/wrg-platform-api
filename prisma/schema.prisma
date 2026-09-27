@@ -395,6 +395,7 @@ model Response {
   question     Question   @relation(fields: [questionId], references: [id], onDelete: Cascade)
 
   @@unique([respondentId, questionId])
+  @@index([questionId])
 }
 
 model Order {
