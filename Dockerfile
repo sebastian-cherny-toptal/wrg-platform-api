@@ -15,11 +15,7 @@ COPY --from=build /app/dist ./dist
 COPY --from=build /app/node_modules/.prisma ./node_modules/.prisma
 COPY prisma ./prisma
 COPY prisma.config.ts ./prisma.config.ts
-# Railway pre-deploy containers cannot access mounted volumes, so keep the
-# explicitly committed production seed inputs in the runtime image.
-COPY secure ./secure
 COPY ["Default_Questions_and_Answers.xlsx", "./Default_Questions_and_Answers.xlsx"]
-COPY ["BR 2026 Ranking Data Extract.xlsx", "./BR 2026 Ranking Data Extract.xlsx"]
 RUN mkdir -p var/historical-imports && chown -R node:node var
 USER node
 CMD ["node", "--max-old-space-size=3000", "dist/main.js"]

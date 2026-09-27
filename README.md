@@ -18,87 +18,6 @@ Point `REACT_APP_API_ENDPOINT` at this service the same way you pointed it at `w
 3. `npm run db:deploy && npm run db:seed` (roles and permissions only).
 4. `npm run start:dev`.
 
-### Baton Rouge XLSX-backed local data
-
-The Baton Rouge Medallia exports and published report workbooks can be loaded
-into PostgreSQL as deterministic local data. Report endpoints never substitute
-in-code examples: all rendered values come from these imported rows and program
-snapshots. Administrative and identity columns before `Score %` are excluded;
-report questions and answers after it, including employee verbatims, are
-preserved exactly.
-
-With the repository's `Baton Rouge 24-26.zip` in the parent directory:
-
-```sh
-npm run db:seed:baton-rouge -- --source "../Baton Rouge 24-26.zip"
-```
-
-To validate the files without connecting to PostgreSQL:
-
-```sh
-npm run db:seed:baton-rouge -- --source "../Baton Rouge 24-26.zip" --dry-run
-```
-
-The Docker Compose one-shot service applies migrations and imports the same file:
-
-```sh
-docker compose --profile baton-rouge run --rm seed-baton-rouge
-```
-
-Use `--report-source <directory>` or `BR_REPORT_SOURCE` when the published
-workbooks are not beside the raw ZIP. Every non-dry run automatically reconciles
-survey/question/response totals, round-trips the published XLSX snapshots, and
-asserts that the report user has every imported program grant.
-
-The seed imports `BR_SEED_ORGANIZATIONS_COUNT` organizations from each raw
-workbook (10 by default when the value is missing or is not a positive integer).
-Commerce Title & Abstract Company is always selected first, and `test.baton`
-remains scoped only to that organization.
-
-The seed reads `BR 2026 Ranking Data Extract.xlsx` from the repository root and
-matches its `Alias Name` values to 2026 organizations. Use
-`--ranking-source <file>` or `BR_RANKING_SOURCE` to override that path. Valid
-`CY Winner` values (`Yes` or `No`) set each matching organization-program's
-winner status; other values are ignored.
-
-Before writing, the command compares the `test.baton` user, its project and
-program links, and the seeded organization-program count with the incoming
-seed's expected metrics. When every metric matches, it skips the rebuild. Set
-`BR_SEED_FORCE_UPDATE=true` to force the existing `seed-br` records to be
-deleted and recreated. When a rebuild is needed, only records in the `seed-br`
-namespace are replaced, leaving ordinary application data untouched. The ZIP
-can instead be an extracted directory when passed via `--source` or
-`BR_SEED_SOURCE`. The
-reusable parser lives in `src/modules/imports/xlsx-survey-importer.ts`; a future
-multipart endpoint can save an upload to a temporary path and use the same
-definition/row iteration API as the seed CLI.
-
-To regenerate the sanitized web E2E fixture without copying raw survey data
-into Git, run:
-
-```sh
-npm run fixture:baton-rouge -- \
-  --source "../Baton Rouge 24-26.zip" \
-  --report-source .. \
-  --output "../wrg-platform-web/apps/client/e2e/fixtures/baton-rouge-test-data.zip"
-```
-
-The generated archive preserves numeric survey inputs and aggregate reports,
-but replaces row-level identifiers, categorical strings, and free text with
-deterministic synthetic values.
-
-That sanitized archive is only a regression/E2E fixture. The production image
-bundles the explicitly committed inputs under `secure/`. To seed a deployed
-environment, set `BR_SEED_SOURCE` to
-`/app/secure/seed-data/Baton Rouge 24-26.zip` and `BR_REPORT_SOURCE` to
-`/app/secure/report-data`; otherwise the production deployment command applies
-migrations without creating demo data.
-
-The seed creates a client user with access to every imported Baton Rouge program:
-
-- Username: `test.baton`
-- Email: `test.baton@example.test`
-
 - Nest API: `http://localhost:3000/api/v1` (Swagger at `/docs`)
 - Frontend-compatible routes: `http://localhost:3000/user/login`, `/client/...`, etc.
 
@@ -125,9 +44,7 @@ projects, programs, surveys, entitlements, and orders must be created in this
 platform.
 
 1. Provision an empty PostgreSQL database and Redis instance.
-2. Configure the production environment without `BR_SEED_SOURCE` unless the
-   explicitly committed Baton Rouge dataset is intentionally required.
-   Set `FRONTEND_URL` and `ADMIN_FRONTEND_URL` to the public application
+2. Set `FRONTEND_URL` and `ADMIN_FRONTEND_URL` to the public application
    origins, and list any additional Railway testing origins in the
    comma-separated `CORS_ALLOWED_ORIGINS` variable.
 3. Run `npm run db:deploy` to create the schema from the committed Prisma

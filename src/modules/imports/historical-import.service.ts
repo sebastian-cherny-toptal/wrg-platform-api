@@ -2553,9 +2553,8 @@ export class HistoricalImportService {
         );
       });
       const reusableOrganization = existingOrganizations.find((candidate) => {
-        // Workbook organization IDs are scoped to a program. For example,
-        // Baton Rouge ID 3 belongs to different companies in 2024, 2025, and
-        // 2026, so it must never be used as a cross-program identity.
+        // Workbook organization IDs are scoped to a program and must never be
+        // used as a cross-program identity.
         return normalizeOrganizationName(candidate.name) === normalizedName;
       });
       const organizationId =

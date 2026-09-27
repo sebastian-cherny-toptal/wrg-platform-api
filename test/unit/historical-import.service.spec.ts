@@ -1,4 +1,3 @@
-import AdmZip from "adm-zip";
 import ExcelJS from "exceljs";
 import assert from "node:assert/strict";
 import {
@@ -6,7 +5,6 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
-  writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -14,11 +12,9 @@ import { describe, it } from "node:test";
 import {
   HistoricalImportService,
   historicalQuestionMetadata,
-  loadBundledWorkforceQuestionTemplates,
   missingQuestionTemplateLabels,
   mergeHistoricalQuestionTemplate,
 } from "../../src/modules/imports/historical-import.service.js";
-import { readXlsxSurveyDefinition } from "../../src/modules/imports/xlsx-survey-importer.js";
 
 async function writeWorkbook(
   filePath: string,
@@ -685,7 +681,7 @@ describe("historical import service", () => {
           )
             ? {
                 id: "11111111-1111-4111-8111-111111111111",
-                name: "Baton Rouge",
+                name: "Example Region",
               }
             : null;
         },
@@ -704,8 +700,8 @@ describe("historical import service", () => {
         {
           projectId: null,
           zohoProjectId: "zoho-project-1",
-          projectName: "Baton Rouge",
-          programName: "Baton Rouge 2026",
+          projectName: "Example Region",
+          programName: "Example Region 2026",
           programYear: 2026,
           currency: "GBP",
           efsLaunchDate: "2026-01-01",
@@ -747,9 +743,9 @@ describe("historical import service", () => {
         },
         {
           zohoProjectId: "zoho-project-1",
-          projectName: "Baton Rouge",
+          projectName: "Example Region",
           zohoProgramId: "zoho-program-1",
-          programName: "Baton Rouge 2026",
+          programName: "Example Region 2026",
           programYear: 2026,
           efsLaunchDate: "2026-01-01",
           efsDeadline: "2026-12-31",
@@ -851,48 +847,6 @@ describe("historical import service", () => {
     assert.deepEqual(missingQuestionTemplateLabels([question], new Set()), [
       question.dataLabel,
     ]);
-  });
-
-  it("loads EFS question templates without relying on an existing program", async () => {
-    const root = mkdtempSync(join(tmpdir(), "historical-import-efs-template-"));
-    const fileName = "BR 2026 - EFS ORD.xlsx";
-    const filePath = join(root, fileName);
-    const fixture = new AdmZip(
-      join(process.cwd(), "secure", "seed-data", "Baton Rouge 24-26.zip"),
-    ).readFile(fileName);
-    assert.ok(fixture, `${fileName} is missing from the seed archive`);
-    writeFileSync(filePath, fixture);
-
-    try {
-      const definition = await readXlsxSurveyDefinition({
-        fileName,
-        filePath,
-        questionId: (dataLabel) => dataLabel,
-      });
-      const likertQuestions = definition.questions.filter(
-        ({ type }) => type === "likert",
-      );
-      const templates = await loadBundledWorkforceQuestionTemplates(
-        2026,
-        definition.questions,
-      );
-
-      assert.equal(templates.size, likertQuestions.length);
-      assert.equal(
-        templates.get("q_CoreEmployeeExperience_1")?.caption,
-        "This organization's culture allows me to do my best work",
-      );
-      assert.equal(
-        (
-          templates.get("q_CoreEmployeeExperience_1")?.metadata as {
-            categoryLabel?: string;
-          }
-        ).categoryLabel,
-        "Core Employee Experience",
-      );
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
   });
 
   it("matches ranking workbooks without creating a persisted draft", async () => {
