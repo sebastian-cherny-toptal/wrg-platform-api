@@ -1881,6 +1881,15 @@ export class CompatibilityAdminController {
     return this.payments.validateAchOrder(principal, orderId);
   }
 
+  @Post("orders/:orderId/confirm-invoice")
+  @HttpCode(200)
+  confirmInvoiceOrder(
+    @CurrentUser() principal: Principal,
+    @Param("orderId") orderId: string,
+  ) {
+    return this.payments.confirmInvoiceOrder(principal, orderId);
+  }
+
   @Get("system/log")
   systemLogs(
     @CurrentUser() principal: Principal,

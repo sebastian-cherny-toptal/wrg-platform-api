@@ -19,6 +19,10 @@ export const SORTED_VERBATIMS_ID = "report-verbatims-sorted";
 export const KEY_IMPACT_ID = "report-kia";
 export const RESPONSE_DETAIL_ID = "report-response-detail";
 
+export function storePriceIsPurchasable(priceCents: number | null): boolean {
+  return priceCents !== null && priceCents > 100;
+}
+
 export const standardReportAccessKeys = [
   "WFR_Access",
   "EV_Access",
@@ -307,8 +311,10 @@ export function productIsOwned(
   if (productId === RESPONSE_DETAIL_ID) return access.RD_Access === "yes";
   if (productId === KEY_IMPACT_ID) {
     const status = jsonObject(metrics).KIA_Order_Status;
-    return access.KIA_Access === "yes" ||
-      (typeof status === "string" && status.trim().length > 0);
+    return (
+      access.KIA_Access === "yes" ||
+      (typeof status === "string" && status.trim().length > 0)
+    );
   }
   return false;
 }

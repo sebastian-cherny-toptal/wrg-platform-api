@@ -25,6 +25,7 @@ import {
   productIsOwned,
   STANDARD_PACKAGE_ID,
   standardPackagePriceCents,
+  storePriceIsPurchasable,
   portalAccessMode,
 } from "./report-catalog.js";
 
@@ -204,10 +205,10 @@ class ReportCatalogController {
         );
         const programFees = jsonObject(program.fees);
         const organizationFees = jsonObject(enrollment?.fees);
-        const standardOwned = hasStandardPackage(
-          enrollment?.reportAccess,
-          enrollment?.stage,
-        );
+        const standardOwned =
+          hasStandardPackage(enrollment?.reportAccess, enrollment?.stage) &&
+          portalAccessMode(enrollment?.metadata, principal.roles) !==
+            "promotional";
         const standardPrice = standardPackagePriceCents(
           {
             ...metadata,
@@ -230,20 +231,27 @@ class ReportCatalogController {
                   configured >= 0
                 ? configured
                 : entry.priceCents;
-          const owned = productIsOwned(
-            entry.id,
-            enrollment?.reportAccess,
-            enrollment?.stage,
-            enrollment?.metrics,
-          );
+          const owned =
+            productIsOwned(
+              entry.id,
+              enrollment?.reportAccess,
+              enrollment?.stage,
+              enrollment?.metrics,
+            ) &&
+            !(
+              entry.id === STANDARD_PACKAGE_ID &&
+              portalAccessMode(enrollment?.metadata, principal.roles) ===
+                "promotional"
+            );
           availableProducts.push({
             ...entry,
             priceCents,
-            priceAvailable: priceCents !== null && priceCents > 0,
+            priceAvailable: storePriceIsPurchasable(priceCents),
             owned,
             standardPackageOwned: standardOwned,
             purchasable:
               entry.purchaseMode === "checkout" &&
+              storePriceIsPurchasable(priceCents) &&
               !owned &&
               (entry.id === STANDARD_PACKAGE_ID || standardOwned),
             deliveryMessage:

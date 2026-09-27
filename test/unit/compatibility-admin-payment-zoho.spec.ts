@@ -86,6 +86,7 @@ const paymentStub = {
   confirmPaidOrder: () => mark("confirmPaidOrder"),
   reconcilePaidOrders: () => mark("reconcilePaidOrders"),
   validateAchOrder: () => mark("validateAchOrder"),
+  confirmInvoiceOrder: () => mark("confirmInvoiceOrder"),
 };
 
 const zohoStub = {
@@ -366,6 +367,127 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
     );
     assert.equal(created.length, 1);
     assert.equal(orders.length, 1);
+  });
+
+  it("allows a promotional enrollment to buy the standard package despite legacy report entitlements", async () => {
+    let orderCreated = false;
+    const service = new CompatibilityPaymentService(
+      {
+        order: {
+          create: () => {
+            orderCreated = true;
+            return Promise.resolve({});
+          },
+        },
+      } as never,
+      {
+        get: (key: string) =>
+          key === "INTEGRATIONS_MOCK" ? false : "sk_test_example",
+      } as never,
+      {} as never,
+    );
+    Object.defineProperty(service, "context", {
+      value: () =>
+        Promise.resolve({
+          organization: {
+            id: "org",
+            name: "Org",
+            stripeCustomerId: "cus_test",
+          },
+          program: {
+            id: "program",
+            currency: "USD",
+            metadata: {},
+            fees: {},
+            zohoCategories: [{ tier: "small", priceCents: 10_000 }],
+          },
+          enrollment: {
+            id: "enrollment",
+            projectId: "project",
+            programId: "program",
+            metadata: { portalAccess: "promotional" },
+            fees: {},
+            reportAccess: {
+              WFR_Access: "yes",
+              EV_Access: "yes",
+              WBC_Access: "yes",
+              BBP_Access: "yes",
+            },
+            metrics: { Report_Category: "25-99" },
+            stage: "Full Package",
+          },
+          principalRoles: ["promotional"],
+        }),
+    });
+    Object.defineProperty(service, "stripe", {
+      value: {
+        paymentIntents: {
+          create: () =>
+            Promise.resolve({ id: "pi_standard", client_secret: "secret" }),
+        },
+      },
+    });
+
+    await service.paymentIntent(
+      {
+        sub: "buyer",
+        organizationId: "org",
+        roles: ["promotional"],
+        permissions: [],
+      },
+      { items: [{ keys: { productId: "report-standard-package" } }] },
+      "program",
+    );
+
+    assert.equal(orderCreated, true);
+  });
+
+  it("rejects a configured store price of one dollar", async () => {
+    const service = new CompatibilityPaymentService(
+      {} as never,
+      { get: () => "sk_test_example" } as never,
+      {} as never,
+    );
+    Object.defineProperty(service, "context", {
+      value: () =>
+        Promise.resolve({
+          organization: {
+            id: "org",
+            name: "Org",
+            stripeCustomerId: "cus_test",
+          },
+          program: {
+            id: "program",
+            currency: "USD",
+            metadata: {},
+            fees: { "report-response-detail": 100 },
+            zohoCategories: [],
+          },
+          enrollment: {
+            id: "enrollment",
+            metadata: {},
+            fees: {},
+            reportAccess: {},
+            metrics: {},
+            stage: "Full Package",
+          },
+          principalRoles: ["client"],
+        }),
+    });
+
+    await assert.rejects(
+      service.paymentIntent(
+        {
+          sub: "buyer",
+          organizationId: "org",
+          roles: ["client"],
+          permissions: [],
+        },
+        { items: [{ keys: { productId: "report-response-detail" } }] },
+        "program",
+      ),
+      /price is unavailable/iu,
+    );
   });
 
   it("keeps impersonated dashboard previews read-only", async () => {
@@ -739,6 +861,88 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
     assert.ok(audit);
     assert.equal(audit.actorUserId, "admin-1");
     assert.equal(audit.action, "order.ach_payment_validated");
+  });
+
+  it("confirms an invoice and promotes the paid program enrollment to client access", async () => {
+    let enrollmentUpdate: Record<string, unknown> | undefined;
+    let orderUpdate: Record<string, unknown> | undefined;
+    const order = {
+      id: "invoice-order-id",
+      organizationId: "organization-id",
+      status: "PENDING",
+      paymentMethod: "Needs Invoiced",
+      paymentIntentId: null,
+      items: [
+        {
+          productId: "report-standard-package",
+          title: "The Feedback Data Dashboard",
+          amount: 100,
+          amountMinor: 10_000,
+          keys: { productId: "report-standard-package" },
+        },
+      ],
+      organizationProgram: {
+        id: "enrollment-id",
+        stage: "Closed",
+        reportAccess: {
+          WFR_Access: "no",
+          EV_Access: "no",
+          WBC_Access: "no",
+          BBP_Access: "no",
+        },
+        metrics: {},
+        paymentDetails: {},
+        metadata: { portalAccess: "promotional" },
+        dealExternalId: null,
+      },
+    };
+    const service = new CompatibilityPaymentService(
+      {
+        order: {
+          findFirst: () => Promise.resolve(order),
+          updateMany: () => Promise.resolve({ count: 1 }),
+          update: ({ data }: { data: Record<string, unknown> }) => {
+            orderUpdate = data;
+            return Promise.resolve({});
+          },
+        },
+        organizationProgram: {
+          update: ({ data }: { data: Record<string, unknown> }) => {
+            enrollmentUpdate = data;
+            return Promise.resolve({});
+          },
+        },
+        auditLog: { create: () => Promise.resolve({}) },
+        $transaction: (operations: Array<Promise<unknown>>) =>
+          Promise.all(operations),
+      } as never,
+      { get: () => "sk_test_example" } as never,
+      {} as never,
+    );
+
+    const result = await service.confirmInvoiceOrder(
+      { sub: "admin", organizationId: null, roles: ["admin"], permissions: [] },
+      "invoice-order-id",
+    );
+
+    assert.deepEqual(result, {
+      success: true,
+      status: "paid",
+      alreadyPaid: false,
+    });
+    assert.ok(enrollmentUpdate);
+    assert.deepEqual(enrollmentUpdate.metadata, { portalAccess: "client" });
+    assert.deepEqual(enrollmentUpdate.reportAccess, {
+      WFR_Access: "yes",
+      EV_Access: "yes",
+      WBC_Access: "yes",
+      BBP_Access: "yes",
+    });
+    assert.equal(enrollmentUpdate.stage, "Full Package");
+    assert.deepEqual(orderUpdate, {
+      status: "PAID",
+      paymentMethod: "Paid via Check",
+    });
   });
 
   it("persists KIA ownership while the purchased report is awaiting upload", async () => {
@@ -1485,6 +1689,11 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
           url: "/admin/orders/order-1/validate-ach",
           headers,
         }),
+        app.inject({
+          method: "POST",
+          url: "/admin/orders/order-1/confirm-invoice",
+          headers,
+        }),
         app.inject({ method: "GET", url: "/admin/system/log", headers }),
         app.inject({ method: "GET", url: "/admin/loginSession/log", headers }),
         app.inject({
@@ -1569,6 +1778,7 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
         organization: 1,
         orderLogs: 1,
         validateAchOrder: 1,
+        confirmInvoiceOrder: 1,
         systemLogs: 1,
         loginSessions: 1,
         resortOrganization: 1,

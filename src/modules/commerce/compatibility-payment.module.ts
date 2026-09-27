@@ -42,6 +42,8 @@ import {
   STANDARD_PACKAGE_ID,
   standardPackagePriceCents,
   standardReportAccessKeys,
+  storePriceIsPurchasable,
+  portalAccessMode,
 } from "../reports/report-catalog.js";
 
 type JsonRecord = Record<string, unknown>;
@@ -164,7 +166,11 @@ export class CompatibilityPaymentService {
     ) {
       throw new BadRequestException("Currency must match the selected program");
     }
-    const catalogOrder = this.catalogOrder(body.items, context);
+    const catalogOrder = this.catalogOrder(
+      body.items,
+      context,
+      principal.roles,
+    );
     if (context.program && !catalogOrder) {
       throw new BadRequestException(
         "items must contain a valid report product",
@@ -205,6 +211,7 @@ export class CompatibilityPaymentService {
   private catalogOrder(
     rawItems: unknown,
     context: Awaited<ReturnType<CompatibilityPaymentService["context"]>>,
+    principalRoles: readonly string[],
   ): { amountMinor: number; items: CatalogCheckoutItem[] } | null {
     if (!Array.isArray(rawItems) || !context.program) return null;
     const requested: Array<{ productId: string; keys: JsonRecord }> = [];
@@ -231,10 +238,14 @@ export class CompatibilityPaymentService {
     const catalog = effectiveReportCatalog(effectiveCatalog);
     const programFees = jsonObject(context.program.fees);
     const organizationFees = jsonObject(context.enrollment.fees);
-    const standardOwned = hasStandardPackage(
-      context.enrollment.reportAccess,
-      context.enrollment.stage,
-    );
+    const promotional =
+      portalAccessMode(context.enrollment.metadata, principalRoles) ===
+      "promotional";
+    const standardOwned =
+      hasStandardPackage(
+        context.enrollment.reportAccess,
+        context.enrollment.stage,
+      ) && !promotional;
     const includesStandard = ids.includes(STANDARD_PACKAGE_ID);
     const items = requested.map(({ productId, keys }) => {
       const product = catalog.find(
@@ -253,7 +264,8 @@ export class CompatibilityPaymentService {
           context.enrollment.reportAccess,
           context.enrollment.stage,
           context.enrollment.metrics,
-        )
+        ) &&
+        !(promotional && productId === STANDARD_PACKAGE_ID)
       ) {
         throw new BadRequestException(
           `${product.name} is already available for this organization`,
@@ -285,7 +297,7 @@ export class CompatibilityPaymentService {
       if (
         typeof configured !== "number" ||
         !Number.isInteger(configured) ||
-        configured <= 0
+        !storePriceIsPurchasable(configured)
       ) {
         throw new BadRequestException(
           `Report price is unavailable: ${productId}`,
@@ -333,7 +345,11 @@ export class CompatibilityPaymentService {
       throw new NotFoundException("Organization program not found");
     }
     const enrollment = context.enrollment;
-    const catalogOrder = this.catalogOrder(body.items, context);
+    const catalogOrder = this.catalogOrder(
+      body.items,
+      context,
+      principal.roles,
+    );
     if (!catalogOrder) {
       throw new BadRequestException(
         "items must contain a valid report product",
@@ -415,7 +431,11 @@ export class CompatibilityPaymentService {
 
   private crmFields(
     items: CatalogCheckoutItem[],
-    payment: "Needs Invoiced" | "Paid via Credit Card" | "Paid via ACH",
+    payment:
+      | "Needs Invoiced"
+      | "Paid via Check"
+      | "Paid via Credit Card"
+      | "Paid via ACH",
   ): JsonRecord {
     const fields: JsonRecord = {};
     const definitions: Record<string, [string, string]> = {
@@ -439,6 +459,12 @@ export class CompatibilityPaymentService {
       include: { organizationProgram: true },
     });
     if (!order) return;
+    await this.fulfillOrder(order);
+  }
+
+  private async fulfillOrder(
+    order: Prisma.OrderGetPayload<{ include: { organizationProgram: true } }>,
+  ): Promise<void> {
     if (!order.organizationProgram) {
       await this.prisma.order.update({
         where: { id: order.id },
@@ -501,7 +527,9 @@ export class CompatibilityPaymentService {
     const paidMethod =
       order.paymentMethod === "Paid via ACH"
         ? "Paid via ACH"
-        : "Paid via Credit Card";
+        : order.paymentMethod === "Needs Invoiced"
+          ? "Paid via Check"
+          : "Paid via Credit Card";
     const crmFields = this.crmFields(items, paidMethod);
     const paymentDetails = {
       ...jsonObject(enrollment.paymentDetails),
@@ -646,6 +674,75 @@ export class CompatibilityPaymentService {
         after: {
           status: "PAID",
           paymentMethod: "Paid via ACH",
+          validation: "manual_admin_confirmation",
+        },
+      },
+    });
+    return { success: true, status: "paid", alreadyPaid: false };
+  }
+
+  async confirmInvoiceOrder(
+    principal: Principal,
+    orderReference: string,
+  ): Promise<{ success: true; status: "paid"; alreadyPaid: boolean }> {
+    const authorized =
+      principal.roles.includes("admin") ||
+      principal.roles.includes("super_admin") ||
+      principal.permissions.includes("ops.manage") ||
+      principal.permissions.includes("orderLogAccess");
+    if (!authorized) throw new ForbiddenException("Order Log access required");
+    const order = await this.prisma.order.findFirst({
+      where: isUuid(orderReference)
+        ? { id: orderReference }
+        : { legacyId: orderReference },
+      include: { organizationProgram: true },
+    });
+    if (!order) throw new NotFoundException("Order not found");
+    if (order.status === "PAID") {
+      return { success: true, status: "paid", alreadyPaid: true };
+    }
+    if (order.paymentMethod?.trim().toLowerCase() !== "needs invoiced") {
+      throw new BadRequestException(
+        "Only invoice orders can be confirmed manually",
+      );
+    }
+    if (order.status !== "PENDING") {
+      throw new ConflictException(
+        "This invoice order is not awaiting confirmation",
+      );
+    }
+    const claimed = await this.prisma.order.updateMany({
+      where: {
+        id: order.id,
+        status: "PENDING",
+        paymentMethod: "Needs Invoiced",
+      },
+      data: { status: "REQUIRES_PAYMENT" },
+    });
+    if (claimed.count !== 1) {
+      throw new ConflictException(
+        "This invoice order is already being confirmed",
+      );
+    }
+    try {
+      await this.fulfillOrder({ ...order, status: "REQUIRES_PAYMENT" });
+    } catch (error) {
+      await this.prisma.order.updateMany({
+        where: { id: order.id, status: "REQUIRES_PAYMENT" },
+        data: { status: "PENDING" },
+      });
+      throw error;
+    }
+    await this.prisma.auditLog.create({
+      data: {
+        actorUserId: principal.sub,
+        action: "order.invoice_payment_confirmed",
+        resourceType: "Order",
+        resourceId: order.id,
+        before: { status: order.status, paymentMethod: order.paymentMethod },
+        after: {
+          status: "PAID",
+          paymentMethod: "Paid via Check",
           validation: "manual_admin_confirmation",
         },
       },

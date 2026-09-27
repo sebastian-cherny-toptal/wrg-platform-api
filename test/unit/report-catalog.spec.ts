@@ -7,9 +7,16 @@ import {
   portalAccessMode,
   reportProductTemplates,
   standardPackagePriceCents,
+  storePriceIsPurchasable,
 } from "../../src/modules/reports/report-catalog.js";
 
 describe("report catalog configuration", () => {
+  it("only permits checkout when the configured store price is greater than one dollar", () => {
+    assert.equal(storePriceIsPurchasable(null), false);
+    assert.equal(storePriceIsPurchasable(100), false);
+    assert.equal(storePriceIsPurchasable(101), true);
+  });
+
   it("accepts the supported storefront products", () => {
     assert.deepEqual(
       parseReportCatalog(reportProductTemplates),
