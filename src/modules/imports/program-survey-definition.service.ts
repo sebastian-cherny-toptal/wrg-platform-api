@@ -29,6 +29,7 @@ import {
   type SurveyDefinition,
   type SurveyDefinitionQuestion,
 } from "./survey-definition.js";
+import { isExcludedSurveyQuestion } from "./xlsx-survey-importer.js";
 
 const employeeSurvey: Prisma.SurveyWhereInput = {
   OR: [
@@ -38,9 +39,6 @@ const employeeSurvey: Prisma.SurveyWhereInput = {
     { externalId: { endsWith: ":efs", mode: "insensitive" } },
   ],
 };
-
-const excludedSurveyDefinitionKey =
-  /^\d+\.\s*(?:Company Size|Sample size)$/iu;
 
 const defaultSurveyDefinitionFile = "Default_Questions_and_Answers.xlsx";
 let defaultSurveyDefinitionPromise: Promise<SurveyDefinition> | undefined;
@@ -256,7 +254,7 @@ export async function surveyDefinitionWorkbook(
     "score",
   ]);
   for (const question of definition) {
-    if (excludedSurveyDefinitionKey.test(question.dataLabel)) continue;
+    if (isExcludedSurveyQuestion(question.dataLabel)) continue;
     questions.addRow([
       question.dataLabel,
       question.caption,

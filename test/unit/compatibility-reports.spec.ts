@@ -390,6 +390,93 @@ describe("compatibility report categories", () => {
     );
   });
 
+  it("excludes persisted company-size and sample-size questions", async () => {
+    const administrativeQuestions = [
+      {
+        id: "company-size-question",
+        dataLabel: "124. Company Size",
+        value: 3,
+      },
+      {
+        id: "sample-size-question",
+        dataLabel: "125. Sample size",
+        value: 1,
+      },
+    ].map(({ id, dataLabel, value }, index) => ({
+      id,
+      legacyId: null,
+      externalId: null,
+      dataLabel,
+      caption: dataLabel.replace(/^\d+\.\s*/u, ""),
+      type: "demographic",
+      position: index + 1,
+      metadata: { QuestionTypeId: 2 },
+      value,
+    }));
+    const prisma = {
+      program: {
+        findFirst: () => ({
+          id: "program-1",
+          projectId: "project-1",
+          name: "Test program",
+          year: 2026,
+          startsAt: null,
+          metadata: {},
+          project: { id: "project-1", name: "Test project" },
+        }),
+      },
+      organizationProgram: {
+        findFirst: () => ({
+          id: "enrollment-1",
+          reportAccess: { WFR_Access: "yes" },
+          metrics: {},
+          metadata: {},
+        }),
+        findMany: () => [],
+      },
+      survey: {
+        findFirst: () => ({
+          id: "survey-1",
+          title: "Test survey",
+          startsAt: null,
+          endsAt: null,
+        }),
+      },
+      respondent: {
+        findMany: () => [
+          {
+            id: "respondent-1",
+            legacyId: null,
+            externalId: null,
+            metadata: {},
+            responses: administrativeQuestions.map(({ value, ...question }) => ({
+              questionId: question.id,
+              value,
+              score: null,
+              question,
+            })),
+          },
+        ],
+      },
+    } as unknown as PrismaService;
+    const service = new CompatibilityReportsService(prisma);
+    const principal = {
+      sub: "admin-1",
+      organizationId: "organization-1",
+      roles: ["admin"],
+      permissions: [],
+    };
+    const query = { selectedProgramId: "program-1", isDummy: false };
+
+    const [counts, filters] = await Promise.all([
+      service.demographicResponseCounts(principal, query),
+      service.surveyFilters(principal, query),
+    ]);
+
+    assert.deepEqual(counts.data, []);
+    assert.deepEqual(filters.data, []);
+  });
+
   it("builds Workforce Feedback demographics from the imported survey definition", async () => {
     const demographic = {
       id: "office-location",

@@ -78,6 +78,7 @@ import {
   definitionAnswer,
   rawSurveyAnswer,
 } from "../imports/survey-definition.js";
+import { isExcludedSurveyQuestion } from "../imports/xlsx-survey-importer.js";
 import { portalAccessMode, type PortalAccessMode } from "./report-catalog.js";
 
 const privacyThreshold = 5;
@@ -4535,6 +4536,7 @@ export class CompatibilityReportsService {
   private isDemographicQuestion(
     question: DetailedResponse["question"],
   ): boolean {
+    if (isExcludedSurveyQuestion(question.dataLabel)) return false;
     const typeId = jsonObject(question.metadata).QuestionTypeId;
     return (
       question.dataLabel.toLowerCase().includes("demographic") ||

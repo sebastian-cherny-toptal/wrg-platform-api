@@ -127,6 +127,12 @@ function demographicFilterLabel(dataLabel: string): string | undefined {
     .replace(/^./u, (letter) => letter.toUpperCase());
 }
 
+export function isExcludedSurveyQuestion(dataLabel: string): boolean {
+  return /^(?:\d+\.\s*)?(?:Company Size|Sample size)$/iu.test(
+    dataLabel.trim(),
+  );
+}
+
 export function xlsxQuestionType(dataLabel: string): string {
   if (
     /^q_(?:CoreEmployeeExperience|YourJob|CommunicationWorkplaceCulture|RelationshipManager|TrainingTechnologyProfessionalDevelopment|DiversityInclusion|Leadership|EmployeeBenefits|WorkLifeBalance)_/u.test(
@@ -137,7 +143,6 @@ export function xlsxQuestionType(dataLabel: string): string {
   }
   if (
     dataLabel.startsWith("f_") ||
-    /Company Size|Sample size/iu.test(dataLabel) ||
     /^\d+\.\s*Select\b/iu.test(dataLabel)
   ) {
     return "demographic";
@@ -171,6 +176,7 @@ function questionsForHeaders(
     const original = headerValue(headers, column);
     if (
       !original ||
+      isExcludedSurveyQuestion(original) ||
       /^(?:organization_ID|organization_name)$/iu.test(original) ||
       (/_ORGID(?:_|$)/iu.test(original) &&
         !includedQuestionLabels.includes(original))
