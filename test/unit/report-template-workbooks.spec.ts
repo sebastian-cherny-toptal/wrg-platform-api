@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import crypto from "node:crypto";
 import { describe, it } from "node:test";
+import AdmZip from "adm-zip";
 import ExcelJS from "exceljs";
 import {
   createAnnualTrendsWorkbook,
@@ -746,6 +748,32 @@ describe("benchmark workbook generation", () => {
         (address) => sheet.getCell(address).value,
       ),
       [89, 79, 88, 78, 87, 77, 86, 76],
+    );
+    const titleFill = sheet.getCell("A1").fill;
+    const sectionFill = sheet.getCell("A8").fill;
+    const averageFill = sheet.getCell("A18").fill;
+    assert.equal(titleFill.type, "pattern");
+    assert.equal(sectionFill.type, "pattern");
+    assert.equal(averageFill.type, "pattern");
+    assert.match(titleFill.fgColor?.argb ?? "", /2E1065$/u);
+    assert.match(sectionFill.fgColor?.argb ?? "", /2E1065$/u);
+    assert.match(averageFill.fgColor?.argb ?? "", /E2E8F0$/u);
+    assert.match(sheet.getCell("A1").font.color?.argb ?? "", /F3F4F5$/u);
+    assert.match(sheet.getCell("A8").font.color?.argb ?? "", /F3F4F5$/u);
+
+    const archive = new AdmZip(buffer);
+    const drawing = archive
+      .getEntry("xl/drawings/drawing1.xml")
+      ?.getData()
+      .toString("utf8");
+    assert.ok(drawing);
+    assert.match(drawing, /<a:off x="128000" y="72000"\/>/u);
+    assert.match(drawing, /<a:ext cx="2857500" cy="476250"\/>/u);
+    const logo = archive.getEntry("xl/media/image1.png")?.getData();
+    assert.ok(logo);
+    assert.equal(
+      crypto.createHash("sha256").update(logo).digest("hex"),
+      "3db66c047e152acae3ff3b8f0792527865d230d8a2389a9a166c1e5104d64a9c",
     );
   });
 });

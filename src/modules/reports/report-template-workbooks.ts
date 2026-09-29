@@ -887,7 +887,7 @@ export async function createBenchmarkWorkbook(input: {
       ? `${nonWinner.title.replace(/\s+Employers$/iu, "")} Non-Winners`
       : null;
   }
-  return workbookBuffer(workbook);
+  return repairTopLeftPictureTransforms(await workbookBuffer(workbook));
 }
 
 export async function createBenefitsWorkbook(input: {
