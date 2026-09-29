@@ -30,6 +30,10 @@ import {
   type SurveyDefinitionQuestion,
 } from "./survey-definition.js";
 import { isExcludedSurveyQuestion } from "./xlsx-survey-importer.js";
+import {
+  loadDefaultBenefitsBestPracticesDefinition,
+  validateBenefitsBestPracticesDefinition,
+} from "../reports/benefits-best-practices-from-ea.js";
 
 const employeeSurvey: Prisma.SurveyWhereInput = {
   OR: [
@@ -479,5 +483,81 @@ export class ProgramSurveyDefinitionService {
       },
       { timeout: 30_000 },
     );
+  }
+
+  async downloadEmployerAssessment(
+    principal: Principal,
+    reference: string,
+  ): Promise<Buffer> {
+    this.assertAccess(principal);
+    const program = await this.program(this.prisma, reference);
+    const defaults = await loadDefaultBenefitsBestPracticesDefinition();
+    const configured = object(program.metadata).employerAssessmentDefinition;
+    return surveyDefinitionWorkbook(
+      mergeSurveyDefinitions(
+        defaults,
+        Array.isArray(configured)
+          ? (configured as unknown as SurveyDefinition)
+          : [],
+      ),
+    );
+  }
+
+  async uploadEmployerAssessment(
+    principal: Principal,
+    reference: string,
+    filename: string,
+    buffer: Buffer,
+  ) {
+    this.assertAccess(principal, true);
+    if (
+      !filename.toLowerCase().endsWith(".xlsx") ||
+      !buffer.length ||
+      buffer.length > 25 * 1024 * 1024
+    )
+      throw new BadRequestException("Upload an XLSX file up to 25 MB");
+    const uploaded = await parseSurveyDefinition(buffer);
+    try {
+      validateBenefitsBestPracticesDefinition(
+        uploaded,
+        await loadDefaultBenefitsBestPracticesDefinition(),
+      );
+    } catch (error) {
+      throw new BadRequestException(
+        error instanceof Error ? error.message : "Invalid EA definition",
+      );
+    }
+    return this.prisma.$transaction(async (db) => {
+      const program = await this.program(db, reference);
+      const metadata = object(program.metadata);
+      const previous = metadata.employerAssessmentDefinition;
+      const definition = mergeSurveyDefinitions(
+        Array.isArray(previous)
+          ? (previous as unknown as SurveyDefinition)
+          : undefined,
+        uploaded,
+      );
+      const unchanged =
+        JSON.stringify(previous ?? []) === JSON.stringify(definition);
+      if (!unchanged) {
+        await db.program.update({
+          where: { id: program.id },
+          data: {
+            metadata: {
+              ...metadata,
+              employerAssessmentDefinition: JSON.parse(
+                JSON.stringify(definition),
+              ) as Prisma.InputJsonValue,
+              employerAssessmentDefinitionFile: {
+                fileName: basename(filename),
+                sha256: createHash("sha256").update(buffer).digest("hex"),
+                uploadedAt: new Date().toISOString(),
+              },
+            },
+          },
+        });
+      }
+      return { updatedLabels: uploaded.length, unchanged };
+    });
   }
 }

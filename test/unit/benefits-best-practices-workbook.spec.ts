@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import AdmZip from "adm-zip";
 import ExcelJS from "exceljs";
 import {
   hasPublishedBenefitsBestPractices,
@@ -121,6 +122,27 @@ describe("Benefits & Best Practices workbook parsing", () => {
     assert.equal(generatedSheet.getCell("A12").value, "WORKPLACE PRACTICES");
     assert.equal(generatedSheet.getCell("B13").value, 10.4);
     assert.equal(generatedSheet.getCell("B13").numFmt, "0");
+    assert.equal(generatedSheet.columnCount, 3);
+    assert.deepEqual(generatedSheet.model.merges.includes("B1:C1"), true);
+    const titleFill = generatedSheet.getCell("A1").fill;
+    const questionFill = generatedSheet.getCell("A9").fill;
+    assert.equal(titleFill.type, "pattern");
+    assert.equal(questionFill.type, "pattern");
+    assert.match(titleFill.fgColor?.argb ?? "", /2E1065$/u);
+    assert.match(
+      generatedSheet.getCell("A1").font.color?.argb ?? "",
+      /F3F4F5$/u,
+    );
+    assert.match(questionFill.fgColor?.argb ?? "", /E2E8F0$/u);
+
+    const archive = new AdmZip(buffer);
+    const drawing = archive
+      .getEntry("xl/drawings/drawing1.xml")
+      ?.getData()
+      .toString("utf8");
+    assert.ok(drawing);
+    assert.match(drawing, /<a:off x="128000" y="72000"\/>/u);
+    assert.match(drawing, /<a:ext cx="2857500" cy="476250"\/>/u);
 
     const snapshot = await parseBenefitsBestPracticesWorkbook(
       buffer,

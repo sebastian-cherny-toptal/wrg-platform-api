@@ -43,6 +43,11 @@ import {
   MinLength,
 } from "class-validator";
 import { BodyDto } from "../../common/http/body-dto.js";
+import {
+  ThrottleLogin,
+  ThrottleRecovery,
+  ThrottleVerification,
+} from "../../common/http/rate-limiting.js";
 import type { Env } from "../../config/env.js";
 import { PrismaService } from "../../database/prisma.service.js";
 import {
@@ -811,6 +816,7 @@ export class AccountAccessController {
   ) {}
 
   @Post("management/login")
+  @ThrottleLogin()
   @HttpCode(200)
   @ApiOkResponse({ description: "The management credentials were verified." })
   startManagementLogin(
@@ -820,6 +826,7 @@ export class AccountAccessController {
   }
 
   @Put("management/login")
+  @ThrottleVerification()
   @ApiOkResponse({ description: "The management login was completed." })
   completeManagementLogin(
     @BodyDto(ManagementLoginCompleteDto) body: ManagementLoginCompleteDto,
@@ -828,6 +835,7 @@ export class AccountAccessController {
   }
 
   @Post("management/register2fa")
+  @ThrottleRecovery()
   @HttpCode(200)
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
@@ -836,6 +844,7 @@ export class AccountAccessController {
   }
 
   @Post("management/validate2fa")
+  @ThrottleVerification()
   @HttpCode(200)
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
@@ -847,6 +856,7 @@ export class AccountAccessController {
   }
 
   @Post("admin-reset-password")
+  @ThrottleRecovery()
   @HttpCode(200)
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, AdminRoleGuard)
@@ -857,17 +867,20 @@ export class AccountAccessController {
   }
 
   @Put("admin-reset-password-verify")
+  @ThrottleVerification()
   completeAdminReset(@BodyDto(ResetPasswordDto) body: ResetPasswordDto) {
     return this.accountAccess.completeAdminReset(body);
   }
 
   @Post("forgot-password")
+  @ThrottleRecovery()
   @HttpCode(200)
   requestForgotPassword(@BodyDto(ForgotPasswordDto) body: ForgotPasswordDto) {
     return this.accountAccess.requestForgotPassword(body);
   }
 
   @Put("forgot-password")
+  @ThrottleVerification()
   completeForgotPassword(
     @BodyDto(CompleteForgotPasswordDto) body: CompleteForgotPasswordDto,
   ) {
@@ -875,6 +888,7 @@ export class AccountAccessController {
   }
 
   @Post("forgot-username")
+  @ThrottleRecovery()
   @HttpCode(200)
   forgotUsername(@BodyDto(ForgotUsernameDto) body: ForgotUsernameDto) {
     return this.accountAccess.forgotUsername(body.email);

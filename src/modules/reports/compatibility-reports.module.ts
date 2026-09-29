@@ -44,6 +44,7 @@ import {
   type Principal,
 } from "../auth/auth.module.js";
 import {
+  applyBenefitsBestPracticesDefinition,
   generateBenefitsBestPracticesFromEa,
   loadBenefitsBestPracticesTemplate,
 } from "./benefits-best-practices-from-ea.js";
@@ -77,6 +78,7 @@ import {
 import {
   definitionAnswer,
   rawSurveyAnswer,
+  type SurveyDefinition,
 } from "../imports/survey-definition.js";
 import { isExcludedSurveyQuestion } from "../imports/xlsx-survey-importer.js";
 import { portalAccessMode, type PortalAccessMode } from "./report-catalog.js";
@@ -5100,14 +5102,7 @@ export class CompatibilityReportsService {
     const snapshot = publishedBenefitsBestPracticesSnapshot(
       context.enrollmentMetadata,
     );
-    if (
-      !snapshot ||
-      !usesDefaultBenchmarkCategory(
-        jsonObject(context.program.metadata).benchmarkCategories,
-      )
-    ) {
-      return snapshot;
-    }
+    if (!snapshot) return snapshot;
     const indexes = snapshot.headers.flatMap((header, index) =>
       isDefaultPublishedHeader(header) ? [] : [index],
     );
@@ -5253,7 +5248,7 @@ export class CompatibilityReportsService {
       (group) => group.organizationIds.length > 0,
     );
     if (groups.length === 0) return null;
-    return generateBenefitsBestPracticesFromEa({
+    const generated = generateBenefitsBestPracticesFromEa({
       template: await loadBenefitsBestPracticesTemplate(),
       answers,
       cohorts: groups.map((group) => ({
@@ -5265,6 +5260,13 @@ export class CompatibilityReportsService {
         organizationIds: group.organizationIds,
       })),
     });
+    const definition = programMetadata.employerAssessmentDefinition;
+    return applyBenefitsBestPracticesDefinition(
+      generated,
+      Array.isArray(definition)
+        ? (definition as unknown as SurveyDefinition)
+        : undefined,
+    );
   }
 
   private publishedHeaders(headers: PublishedReportHeader[]) {

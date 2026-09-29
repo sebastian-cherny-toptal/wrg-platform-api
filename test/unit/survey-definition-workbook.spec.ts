@@ -6,6 +6,29 @@ import {
   loadDefaultSurveyDefinition,
   surveyDefinitionWorkbook,
 } from "../../src/modules/imports/program-survey-definition.service.js";
+import { parseSurveyDefinition } from "../../src/modules/imports/survey-definition.js";
+import { loadDefaultBenefitsBestPracticesDefinition } from "../../src/modules/reports/benefits-best-practices-from-ea.js";
+
+test("default EA definition template exposes the built-in Benefits & Best Practices labels", async () => {
+  const defaults = await loadDefaultBenefitsBestPracticesDefinition();
+  const parsed = await parseSurveyDefinition(
+    await surveyDefinitionWorkbook(defaults),
+  );
+
+  assert.equal(parsed.length, 37);
+  assert.equal(
+    parsed.find(
+      ({ dataLabel }) => dataLabel === "q_EmployerInformation_FunActivities",
+    )?.caption,
+    "Does your organization coordinate “Fun” activities?",
+  );
+  assert.equal(
+    parsed.find(
+      ({ dataLabel }) => dataLabel === "q_EmployerInformation_FunActivities",
+    )?.options?.[0]?.Caption,
+    "Yes",
+  );
+});
 
 test("default survey definition workbook contains both sheets and effective answers", async () => {
   const definition = effectiveSurveyDefinition(

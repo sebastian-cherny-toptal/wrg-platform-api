@@ -1,4 +1,5 @@
 import ExcelJS from "exceljs";
+import AdmZip from "adm-zip";
 import { fileURLToPath } from "node:url";
 import {
   classifyResponsePatternCells,
@@ -152,6 +153,49 @@ function assertNoTokens(workbook: ExcelJS.Workbook): void {
 async function workbookBuffer(workbook: ExcelJS.Workbook): Promise<Buffer> {
   assertNoTokens(workbook);
   return Buffer.from(await workbook.xlsx.writeBuffer());
+}
+
+/**
+ * ExcelJS preserves the picture anchor but serializes the picture's internal
+ * transform as a zero-sized rectangle. Excel uses that transform when drawing
+ * the logo, so repair top-left pictures from their one-cell anchor dimensions.
+ */
+function repairTopLeftPictureTransforms(buffer: Buffer): Buffer {
+  const archive = new AdmZip(buffer);
+  for (const entry of archive.getEntries()) {
+    if (!/^xl\/drawings\/drawing\d+\.xml$/u.test(entry.entryName)) continue;
+    const source = entry.getData().toString("utf8");
+    const repaired = source.replace(
+      /<xdr:oneCellAnchor\b[\s\S]*?<\/xdr:oneCellAnchor>/gu,
+      (anchor) => {
+        const column = /<xdr:col>(\d+)<\/xdr:col>/u.exec(anchor)?.[1];
+        const row = /<xdr:row>(\d+)<\/xdr:row>/u.exec(anchor)?.[1];
+        const columnOffset = /<xdr:colOff>(\d+)<\/xdr:colOff>/u.exec(
+          anchor,
+        )?.[1];
+        const rowOffset = /<xdr:rowOff>(\d+)<\/xdr:rowOff>/u.exec(anchor)?.[1];
+        const extent = /<xdr:ext cx="(\d+)" cy="(\d+)"\/>/u.exec(anchor);
+        if (
+          column !== "0" ||
+          row !== "0" ||
+          !columnOffset ||
+          !rowOffset ||
+          !extent?.[1] ||
+          !extent[2]
+        ) {
+          return anchor;
+        }
+        return anchor.replace(
+          '<a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/></a:xfrm>',
+          `<a:xfrm><a:off x="${columnOffset}" y="${rowOffset}"/><a:ext cx="${extent[1]}" cy="${extent[2]}"/></a:xfrm>`,
+        );
+      },
+    );
+    if (repaired !== source) {
+      archive.updateFile(entry.entryName, Buffer.from(repaired, "utf8"));
+    }
+  }
+  return archive.toBuffer();
 }
 
 function demographicCount(
@@ -856,6 +900,7 @@ export async function createBenefitsWorkbook(input: {
   const sheet = workbook.getWorksheet("Benefits & Best Practices");
   if (!sheet) throw new Error("Benefits template has no worksheet");
   const headerCount = Math.min(input.headers.length, 8);
+  const lastColumn = headerCount + 1;
   const cloneStyle = (cell: ExcelJS.Cell): Partial<ExcelJS.Style> =>
     structuredClone(cell.style);
   const prototypes = {
@@ -878,9 +923,14 @@ export async function createBenefitsWorkbook(input: {
 
   for (const merge of [...sheet.model.merges]) {
     const startRow = Number(/\d+/u.exec(merge)?.[0] ?? 0);
-    if (startRow >= 8) sheet.unMergeCells(merge);
+    const endColumn = columnNumber(/:([A-Z]+)\d+$/u.exec(merge)?.[1] ?? "A");
+    if (startRow >= 8 || endColumn > lastColumn) sheet.unMergeCells(merge);
   }
   sheet.spliceRows(8, sheet.rowCount - 7);
+  if (lastColumn < 9) {
+    sheet.spliceColumns(lastColumn + 1, 9 - lastColumn);
+  }
+  sheet.mergeCells(1, 2, 1, lastColumn);
 
   const groupTitle = (value: string | undefined): string | null => {
     if (!value) return null;
@@ -894,13 +944,13 @@ export async function createBenefitsWorkbook(input: {
   sheet.getCell("A6").value = input.programName
     ? safeValue(`PROGRAM: ${input.programName}`)
     : null;
-  for (let column = 2; column <= 9; column += 1) {
+  for (let column = 2; column <= lastColumn; column += 1) {
     sheet.getCell(6, column).value =
       column - 2 < headerCount
         ? safeValue(columnHeaders[column - 2] ?? input.headers[column - 2])
         : null;
   }
-  for (let pair = 0; pair < 4; pair += 1) {
+  for (let pair = 0; pair < Math.ceil(headerCount / 2); pair += 1) {
     const column = 2 + pair * 2;
     const populated = pair * 2 < headerCount;
     sheet.getCell(3, column).value = populated ? "Averaged Responses" : null;
@@ -915,7 +965,7 @@ export async function createBenefitsWorkbook(input: {
     row: ExcelJS.Row,
     prototype: Array<Partial<ExcelJS.Style>>,
   ) => {
-    for (let column = 1; column <= 9; column += 1) {
+    for (let column = 1; column <= lastColumn; column += 1) {
       row.getCell(column).style = structuredClone(prototype[column - 1] ?? {});
     }
   };
@@ -923,7 +973,7 @@ export async function createBenefitsWorkbook(input: {
     const sectionRow = sheet.getRow(rowNumber);
     applyPrototype(sectionRow, prototypes.section);
     sectionRow.getCell(1).value = safeValue(section.title.toUpperCase());
-    sheet.mergeCells(rowNumber, 1, rowNumber, 9);
+    sheet.mergeCells(rowNumber, 1, rowNumber, lastColumn);
     rowNumber += 1;
 
     for (const question of section.questions) {
@@ -949,7 +999,7 @@ export async function createBenefitsWorkbook(input: {
           cell.numFmt = response?.format === "percent" ? "0%" : "0";
         }
       } else {
-        sheet.mergeCells(rowNumber, 1, rowNumber, 9);
+        sheet.mergeCells(rowNumber, 1, rowNumber, lastColumn);
       }
       rowNumber += 1;
 
@@ -978,9 +1028,9 @@ export async function createBenefitsWorkbook(input: {
   applyPrototype(footnote, prototypes.footnote);
   footnote.getCell(1).value =
     "x – Insufficient data to provide meaningful feedback.";
-  sheet.mergeCells(rowNumber, 1, rowNumber, 9);
-  sheet.pageSetup.printArea = `A1:I${rowNumber}`;
-  return workbookBuffer(workbook);
+  sheet.mergeCells(rowNumber, 1, rowNumber, lastColumn);
+  sheet.pageSetup.printArea = `A1:${columnName(lastColumn)}${rowNumber}`;
+  return repairTopLeftPictureTransforms(await workbookBuffer(workbook));
 }
 
 export async function createVerbatimWorkbook(input: {

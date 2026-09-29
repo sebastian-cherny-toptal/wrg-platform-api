@@ -4,8 +4,11 @@ import type { Prisma } from "@prisma/client";
 import ExcelJS from "exceljs";
 import type { PrismaService } from "../../src/database/prisma.service.js";
 import {
+  applyBenefitsBestPracticesDefinition,
+  benefitsBestPracticesDefinition,
   generateBenefitsBestPracticesFromEa,
   loadBenefitsBestPracticesTemplate,
+  validateBenefitsBestPracticesDefinition,
 } from "../../src/modules/reports/benefits-best-practices-from-ea.js";
 import { CompatibilityReportsService } from "../../src/modules/reports/compatibility-reports.module.js";
 import { createBenefitsWorkbook } from "../../src/modules/reports/report-template-workbooks.js";
@@ -104,6 +107,126 @@ const nonWinnerCohort = {
 const cohorts = [winnerCohort, nonWinnerCohort];
 
 describe("Benefits & Best Practices generation from EA", () => {
+  it("keeps bundled labels by default and applies optional EA label overrides after calculation", () => {
+    const template = templateSnapshot();
+    const generated = generateBenefitsBestPracticesFromEa({
+      template,
+      minimumOrganizations: 1,
+      cohorts: [{ title: "All", type: "All_Yes", organizationIds: ["one"] }],
+      answers: [
+        {
+          organizationId: "one",
+          values: { q_EmployerInformation_FunActivities: 1 },
+        },
+      ],
+    });
+
+    const generatedSection = generated.sections[0];
+    assert.ok(generatedSection);
+    const generatedQuestion = generatedSection.questions[0];
+    assert.ok(generatedQuestion);
+    const generatedResponse = generatedQuestion.responses[0];
+    assert.ok(generatedResponse);
+    assert.equal(generatedSection.title, "Employer Information");
+    assert.equal(generatedQuestion.text, funQuestion);
+    assert.equal(generatedResponse.label, "Yes");
+
+    const customized = applyBenefitsBestPracticesDefinition(generated, [
+      {
+        dataLabel: "q_EmployerInformation_FunActivities",
+        caption: "Does your team organize social activities?",
+        categoryLabel: "Employee Experience",
+        options: [{ Id: "Yes", Caption: "Offered", Position: 1 }],
+      },
+    ]);
+    const customizedSection = customized.sections[0];
+    assert.ok(customizedSection);
+    const customizedQuestion = customizedSection.questions[0];
+    assert.ok(customizedQuestion);
+    const customizedResponse = customizedQuestion.responses[0];
+    assert.ok(customizedResponse);
+    assert.equal(customizedSection.title, "Employee Experience");
+    assert.equal(
+      customizedQuestion.text,
+      "Does your team organize social activities?",
+    );
+    assert.equal(customizedResponse.label, "Offered");
+    assert.deepEqual(customizedResponse.dataValues, [100]);
+  });
+
+  it("omits the duplicate Default fallback cohort", () => {
+    const generated = generateBenefitsBestPracticesFromEa({
+      template: templateSnapshot(),
+      minimumOrganizations: 1,
+      cohorts: [
+        winnerCohort,
+        nonWinnerCohort,
+        {
+          title: "Default Employers",
+          type: "Default_Yes",
+          organizationIds: ["win-1"],
+        },
+        {
+          title: "Default Employers",
+          type: "Default_No",
+          organizationIds: ["lose-1"],
+        },
+      ],
+      answers: [
+        {
+          organizationId: "win-1",
+          values: { q_EmployerInformation_FunActivities: 1 },
+        },
+        {
+          organizationId: "lose-1",
+          values: { q_EmployerInformation_FunActivities: 0 },
+        },
+      ],
+    });
+
+    assert.deepEqual(
+      generated.headers.map(({ type }) => type),
+      ["All_Yes", "All_No"],
+    );
+    assert.equal(
+      generated.sections[0]?.questions[0]?.responses[0]?.dataValues.length,
+      2,
+    );
+  });
+
+  it("builds an editable definition from the static report labels", () => {
+    const definition = benefitsBestPracticesDefinition(templateSnapshot());
+    assert.deepEqual(definition[0], {
+      dataLabel: "q_EmployerInformation_FunActivities",
+      caption: funQuestion,
+      categoryLabel: "Employer Information",
+      position: 1,
+      options: [{ Id: "Yes", Caption: "Yes", Position: 1 }],
+    });
+  });
+
+  it("rejects EA definition keys and answer ids that are not in the report template", () => {
+    const defaults = benefitsBestPracticesDefinition(templateSnapshot());
+    assert.throws(() => {
+      validateBenefitsBestPracticesDefinition(
+        [{ dataLabel: "unknown", caption: "Unknown" }],
+        defaults,
+      );
+    }, /not used by Benefits & Best Practices: unknown/u);
+    assert.throws(() => {
+      validateBenefitsBestPracticesDefinition(
+        [
+          {
+            dataLabel: "q_EmployerInformation_FunActivities",
+            caption: "Social activities",
+            options: [{ Id: "Sometimes", Caption: "Sometimes", Position: 1 }],
+          },
+        ],
+        defaults,
+      );
+    }, /answer is not used/u);
+  });
+
   it("removes duplicate Default columns from a published fallback-category report", async () => {
     const published = {
       sourceFile: "published.xlsx",

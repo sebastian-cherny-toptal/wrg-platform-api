@@ -18,6 +18,7 @@ import { hash, verify } from "argon2";
 import { IsString, MinLength } from "class-validator";
 import { ExtractJwt, Strategy } from "passport-jwt";
 import { BodyDto } from "../../common/http/body-dto.js";
+import { ThrottleLogin } from "../../common/http/rate-limiting.js";
 import type { Env } from "../../config/env.js";
 import { PrismaService } from "../../database/prisma.service.js";
 
@@ -374,10 +375,11 @@ export class AuthService {
 
 @ApiTags("auth")
 @Controller("auth")
-class AuthController {
+export class AuthController {
   constructor(@Inject(AuthService) private readonly auth: AuthService) {}
 
   @Post("login")
+  @ThrottleLogin()
   login(@BodyDto(LoginDto) body: LoginDto) {
     return this.auth.login(body.username, body.password);
   }

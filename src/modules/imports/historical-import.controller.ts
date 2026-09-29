@@ -97,6 +97,28 @@ export class HistoricalImportController {
       .send(bytes);
   }
 
+  @Post("default-employer-assessment-definition.xlsx")
+  @HttpCode(200)
+  async downloadDefaultEmployerAssessmentDefinition(
+    @CurrentUser() principal: Principal,
+    @Res() reply: FastifyReply,
+  ) {
+    const bytes =
+      await this.imports.downloadDefaultEmployerAssessmentDefinition(principal);
+    reply
+      .header(
+        "content-type",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      )
+      .header(
+        "content-disposition",
+        'attachment; filename="EA_Definition_Default_Template.xlsx"',
+      )
+      .header("access-control-expose-headers", "*")
+      .header("cache-control", "no-store")
+      .send(bytes);
+  }
+
   @Post("prepare")
   @HttpCode(200)
   @ApiConsumes("multipart/form-data")
@@ -110,6 +132,12 @@ export class HistoricalImportController {
       ...(files.efsFile ? { efsFile: files.efsFile } : {}),
       ...(files.surveyDefinitionFile
         ? { surveyDefinitionFile: files.surveyDefinitionFile }
+        : {}),
+      ...(files.employerAssessmentDefinitionFile
+        ? {
+            employerAssessmentDefinitionFile:
+              files.employerAssessmentDefinitionFile,
+          }
         : {}),
     });
     return {
@@ -156,6 +184,12 @@ export class HistoricalImportController {
       ...(files.rankingFile ? { rankingFile: files.rankingFile } : {}),
       ...(files.surveyDefinitionFile
         ? { surveyDefinitionFile: files.surveyDefinitionFile }
+        : {}),
+      ...(files.employerAssessmentDefinitionFile
+        ? {
+            employerAssessmentDefinitionFile:
+              files.employerAssessmentDefinitionFile,
+          }
         : {}),
     });
     return {

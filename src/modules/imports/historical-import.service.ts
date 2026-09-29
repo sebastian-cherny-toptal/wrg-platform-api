@@ -33,6 +33,10 @@ import {
   parsePublishedReportValues,
 } from "../reports/benefits-best-practices-workbook.js";
 import type { BenchmarkQuestion } from "../reports/compatibility-reports.module.js";
+import {
+  loadDefaultBenefitsBestPracticesDefinition,
+  validateBenefitsBestPracticesDefinition,
+} from "../reports/benefits-best-practices-from-ea.js";
 import { sortedVerbatimsEntitlementData } from "../reports/sorted-verbatims-entitlement.js";
 import {
   effectiveSurveyDefinition,
@@ -107,6 +111,8 @@ function categoryPricingMetadata(
 export interface HistoricalImportMetadata {
   surveyDefinition?: SurveyDefinition;
   surveyDefinitionFile?: { fileName: string; sha256: string };
+  employerAssessmentDefinition?: SurveyDefinition;
+  employerAssessmentDefinitionFile?: { fileName: string; sha256: string };
   projectId?: string;
   zohoProjectId?: string;
   projectName?: string;
@@ -1059,6 +1065,33 @@ export class HistoricalImportService {
     }
   }
 
+  async downloadDefaultEmployerAssessmentDefinition(
+    principal: Principal,
+  ): Promise<Buffer> {
+    this.assertAccess(principal);
+    return surveyDefinitionWorkbook(
+      await loadDefaultBenefitsBestPracticesDefinition(),
+    );
+  }
+
+  private async parseEmployerAssessmentDefinition(
+    file: UploadedWorkbookFile,
+  ): Promise<SurveyDefinition> {
+    assertXlsxFile(file);
+    const definition = await parseSurveyDefinition(file.buffer);
+    try {
+      validateBenefitsBestPracticesDefinition(
+        definition,
+        await loadDefaultBenefitsBestPracticesDefinition(),
+      );
+    } catch (error) {
+      throw new BadRequestException(
+        error instanceof Error ? error.message : "Invalid EA definition",
+      );
+    }
+    return definition;
+  }
+
   private assertAccess(principal: Principal): void {
     if (
       !principal.roles.includes("admin") &&
@@ -1286,6 +1319,7 @@ export class HistoricalImportService {
       efsFile?: UploadedWorkbookFile;
       rankingFile?: UploadedWorkbookFile;
       surveyDefinitionFile?: UploadedWorkbookFile;
+      employerAssessmentDefinitionFile?: UploadedWorkbookFile;
     },
   ): Promise<HistoricalImportStatus> {
     this.assertAccess(principal);
@@ -1327,6 +1361,20 @@ export class HistoricalImportService {
           fileName: basename(files.surveyDefinitionFile.filename),
           sha256: createHash("sha256")
             .update(files.surveyDefinitionFile.buffer)
+            .digest("hex"),
+        };
+      }
+      if (files.employerAssessmentDefinitionFile) {
+        draft.employerAssessmentDefinition = mergeSurveyDefinitions(
+          draft.employerAssessmentDefinition,
+          await this.parseEmployerAssessmentDefinition(
+            files.employerAssessmentDefinitionFile,
+          ),
+        );
+        draft.employerAssessmentDefinitionFile = {
+          fileName: basename(files.employerAssessmentDefinitionFile.filename),
+          sha256: createHash("sha256")
+            .update(files.employerAssessmentDefinitionFile.buffer)
             .digest("hex"),
         };
       }
@@ -1390,6 +1438,7 @@ export class HistoricalImportService {
       eaFile?: UploadedWorkbookFile;
       efsFile?: UploadedWorkbookFile;
       surveyDefinitionFile?: UploadedWorkbookFile;
+      employerAssessmentDefinitionFile?: UploadedWorkbookFile;
     },
   ): Promise<{
     metadata: HistoricalImportMetadata;
@@ -1400,7 +1449,7 @@ export class HistoricalImportService {
       validateMetadata(input),
     );
     const definitionOnly = Boolean(
-      files.surveyDefinitionFile &&
+      (files.surveyDefinitionFile ?? files.employerAssessmentDefinitionFile) &&
       metadata.programId &&
       !files.eaFile &&
       !files.efsFile,
@@ -1428,6 +1477,14 @@ export class HistoricalImportService {
           await parseSurveyDefinition(files.surveyDefinitionFile.buffer),
         );
         draft.surveyDefinitionChanged = true;
+      }
+      if (files.employerAssessmentDefinitionFile) {
+        draft.employerAssessmentDefinition = mergeSurveyDefinitions(
+          draft.employerAssessmentDefinition,
+          await this.parseEmployerAssessmentDefinition(
+            files.employerAssessmentDefinitionFile,
+          ),
+        );
       }
       if (files.eaFile) {
         draft = {
@@ -1593,6 +1650,22 @@ export class HistoricalImportService {
               surveyDefinitionFile: objectBody(program.metadata)
                 .surveyDefinitionFile as NonNullable<
                 HistoricalImportMetadata["surveyDefinitionFile"]
+              >,
+            }
+          : {}),
+        ...(Array.isArray(
+          objectBody(program.metadata).employerAssessmentDefinition,
+        )
+          ? {
+              employerAssessmentDefinition: objectBody(program.metadata)
+                .employerAssessmentDefinition as SurveyDefinition,
+            }
+          : {}),
+        ...(objectBody(program.metadata).employerAssessmentDefinitionFile
+          ? {
+              employerAssessmentDefinitionFile: objectBody(program.metadata)
+                .employerAssessmentDefinitionFile as NonNullable<
+                HistoricalImportMetadata["employerAssessmentDefinitionFile"]
               >,
             }
           : {}),
@@ -2104,6 +2177,15 @@ export class HistoricalImportService {
                   JSON.stringify(draft.surveyDefinition),
                 ) as Prisma.InputJsonValue,
                 surveyDefinitionFile: draft.surveyDefinitionFile ?? null,
+              }
+            : {}),
+          ...(draft.employerAssessmentDefinition
+            ? {
+                employerAssessmentDefinition: JSON.parse(
+                  JSON.stringify(draft.employerAssessmentDefinition),
+                ) as Prisma.InputJsonValue,
+                employerAssessmentDefinitionFile:
+                  draft.employerAssessmentDefinitionFile ?? null,
               }
             : {}),
           efsLaunchDate: draft.efsLaunchDate,

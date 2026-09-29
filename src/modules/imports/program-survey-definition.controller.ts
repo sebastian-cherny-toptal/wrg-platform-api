@@ -78,4 +78,58 @@ export class ProgramSurveyDefinitionController {
       data,
     };
   }
+
+  @Get("employer-assessment-definition.xlsx")
+  async downloadEmployerAssessment(
+    @CurrentUser() principal: Principal,
+    @Param("programId") programId: string,
+    @Res() reply: FastifyReply,
+  ) {
+    const bytes = await this.definitions.downloadEmployerAssessment(
+      principal,
+      programId,
+    );
+    reply
+      .header(
+        "content-type",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      )
+      .header(
+        "content-disposition",
+        'attachment; filename="EA_Questions_and_Answers.xlsx"',
+      )
+      .header("access-control-expose-headers", "*")
+      .header("cache-control", "no-store")
+      .send(bytes);
+  }
+
+  @Post("employer-assessment-definition")
+  @HttpCode(200)
+  @ApiConsumes("multipart/form-data")
+  async uploadEmployerAssessment(
+    @CurrentUser() principal: Principal,
+    @Param("programId") programId: string,
+    @Req() request: FastifyRequest,
+  ) {
+    if (!request.isMultipart())
+      throw new BadRequestException("multipart/form-data is required");
+    const file = await request.file();
+    if (file?.fieldname !== "employerAssessmentDefinitionFile")
+      throw new BadRequestException(
+        "Upload an employerAssessmentDefinitionFile",
+      );
+    const data = await this.definitions.uploadEmployerAssessment(
+      principal,
+      programId,
+      file.filename,
+      await file.toBuffer(),
+    );
+    return {
+      success: true,
+      message: data.unchanged
+        ? "EA Questions and Answers are unchanged"
+        : "EA Questions and Answers updated",
+      data,
+    };
+  }
 }

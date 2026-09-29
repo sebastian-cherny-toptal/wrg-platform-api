@@ -45,6 +45,7 @@ import sendGrid from "@sendgrid/mail";
 import { hash } from "argon2";
 import { randomBytes } from "node:crypto";
 import { BodyDto } from "../../common/http/body-dto.js";
+import { ThrottleLogin } from "../../common/http/rate-limiting.js";
 import type { Env } from "../../config/env.js";
 import { PrismaService } from "../../database/prisma.service.js";
 import {
@@ -1799,6 +1800,7 @@ export class ClientLoginController {
   ) {}
 
   @Post("login")
+  @ThrottleLogin()
   @HttpCode(200)
   @ApiQuery({ name: "skipLastLogin", required: false, type: Boolean })
   @ApiOkResponse({ description: "The client user was authenticated." })

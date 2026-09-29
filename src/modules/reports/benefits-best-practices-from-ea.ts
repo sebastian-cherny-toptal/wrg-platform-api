@@ -6,6 +6,10 @@ import {
   type BenefitsBestPracticesSnapshot,
   type PublishedReportHeader,
 } from "./benefits-best-practices-workbook.js";
+import type {
+  SurveyDefinition,
+  SurveyDefinitionQuestion,
+} from "../imports/survey-definition.js";
 
 export interface BenefitsEaCohort {
   organizationIds: string[];
@@ -240,7 +244,110 @@ function isNoneOption(label: string): boolean {
 function bindingForQuestion(
   question: BenefitsBestPracticesQuestionSnapshot,
 ): BenefitsQuestionBinding | undefined {
-  return benefitsQuestionBindings.find(({ match }) => match.test(question.text));
+  return benefitsQuestionBindings.find(({ match }) =>
+    match.test(question.text),
+  );
+}
+
+/** The bundled report workbook remains the source of the default EA labels. */
+export function benefitsBestPracticesDefinition(
+  template: BenefitsBestPracticesSnapshot,
+): SurveyDefinition {
+  let position = 0;
+  return template.sections.flatMap((section) =>
+    section.questions.flatMap((question) => {
+      const binding = bindingForQuestion(question);
+      if (!binding) return [];
+      position += 1;
+      return [
+        {
+          dataLabel: binding.dataLabel,
+          caption: question.text,
+          categoryLabel: section.title,
+          position,
+          options: question.responses.map((response, index) => ({
+            Id: response.label,
+            Caption: response.label,
+            Position: index + 1,
+          })),
+        } satisfies SurveyDefinitionQuestion,
+      ];
+    }),
+  );
+}
+
+export function validateBenefitsBestPracticesDefinition(
+  definition: SurveyDefinition,
+  defaults: SurveyDefinition,
+): void {
+  const defaultsByKey = new Map(
+    defaults.map((question) => [question.dataLabel, question]),
+  );
+  for (const question of definition) {
+    const expected = defaultsByKey.get(question.dataLabel);
+    if (!expected) {
+      throw new Error(
+        `EA definition question is not used by Benefits & Best Practices: ${question.dataLabel}`,
+      );
+    }
+    const expectedAnswers = new Set(
+      (expected.options ?? []).map((option) => option.Id),
+    );
+    for (const option of question.options ?? []) {
+      if (!expectedAnswers.has(option.Id)) {
+        throw new Error(
+          `EA definition answer is not used by ${question.dataLabel}: ${option.Id}`,
+        );
+      }
+    }
+  }
+}
+
+/** Relabel after calculation so customized captions never alter EA value matching. */
+export function applyBenefitsBestPracticesDefinition(
+  snapshot: BenefitsBestPracticesSnapshot,
+  definition: SurveyDefinition | undefined,
+): BenefitsBestPracticesSnapshot {
+  if (!definition?.length) return snapshot;
+  const byKey = new Map(
+    definition.map((question) => [question.dataLabel, question]),
+  );
+  return {
+    ...snapshot,
+    sections: snapshot.sections.map((section) => {
+      const mappedQuestions = section.questions.map((question) => {
+        const binding = bindingForQuestion(question);
+        const configured = binding ? byKey.get(binding.dataLabel) : undefined;
+        const answers = new Map(
+          (configured?.options ?? []).map((option) => [
+            option.Id,
+            option.Caption,
+          ]),
+        );
+        return {
+          ...question,
+          text: configured?.caption ?? question.text,
+          responses: question.responses.map((response) => ({
+            ...response,
+            label: answers.get(response.label) ?? response.label,
+          })),
+        };
+      });
+      const configuredCategory = section.questions
+        .map((question) => {
+          const binding = bindingForQuestion(question);
+          return binding
+            ? byKey.get(binding.dataLabel)?.categoryLabel
+            : undefined;
+        })
+        .find((label): label is string => Boolean(label));
+      return {
+        ...section,
+        title: configuredCategory ?? section.title,
+        questions: mappedQuestions,
+      };
+    }),
+  };
 }
 
 function answerScalar(value: unknown): unknown {
@@ -318,12 +425,19 @@ function matchesChoice(
   optionCount: number,
 ): boolean {
   const scalar = answerScalar(value);
-  if (typeof scalar === "string" && normalizeOption(scalar) === normalizeOption(optionLabel)) {
+  if (
+    typeof scalar === "string" &&
+    normalizeOption(scalar) === normalizeOption(optionLabel)
+  ) {
     return true;
   }
   const number = numericAnswer(value);
   if (number === null) return false;
-  if (number === 99 && isNoneOption(optionLabel) && optionIndex === optionCount - 1) {
+  if (
+    number === 99 &&
+    isNoneOption(optionLabel) &&
+    optionIndex === optionCount - 1
+  ) {
     return true;
   }
   return number === optionIndex + 1;
@@ -366,7 +480,9 @@ function valueForResponse(input: {
       isPresent(values[binding.dataLabel]),
     );
     if (answered.length === 0) return "x";
-    const yesCount = answered.filter((values) => isYes(values[binding.dataLabel])).length;
+    const yesCount = answered.filter((values) =>
+      isYes(values[binding.dataLabel]),
+    ).length;
     if (/^no$/iu.test(optionLabel)) {
       return percent(answered.length - yesCount, answered.length);
     }
@@ -412,10 +528,20 @@ export function generateBenefitsBestPracticesFromEa(
 ): BenefitsBestPracticesSnapshot {
   const minimumOrganizations =
     input.minimumOrganizations ?? defaultMinimumOrganizations;
+  // "Default" is the fallback assigned to organizations without a configured
+  // size category. The All cohort already contains those organizations, so a
+  // separate Default pair is both duplicate and misleading in the report.
+  const cohorts = input.cohorts.filter(
+    (cohort) =>
+      cohort.title
+        .replace(/\s+employers?$/iu, "")
+        .trim()
+        .toLowerCase() !== "default",
+  );
   const answersByOrganization = new Map(
     input.answers.map((entry) => [entry.organizationId, entry.values]),
   );
-  const headers: PublishedReportHeader[] = input.cohorts.map((cohort) => ({
+  const headers: PublishedReportHeader[] = cohorts.map((cohort) => ({
     title: cohort.title,
     type: cohort.type,
   }));
@@ -432,7 +558,7 @@ export function generateBenefitsBestPracticesFromEa(
           responses: question.responses.map((response, optionIndex) => ({
             format: response.format,
             label: response.label,
-            dataValues: input.cohorts.map((cohort) => {
+            dataValues: cohorts.map((cohort) => {
               const organizations = cohortOrganizations(
                 cohort,
                 answersByOrganization,
@@ -457,14 +583,17 @@ export function generateBenefitsBestPracticesFromEa(
 
 export async function loadBenefitsBestPracticesTemplate(): Promise<BenefitsBestPracticesSnapshot> {
   const templatePath = fileURLToPath(
-    new URL(
-      "./report-templates/benefits-best-practices.xlsx",
-      import.meta.url,
-    ),
+    new URL("./report-templates/benefits-best-practices.xlsx", import.meta.url),
   );
   const buffer = await readFile(templatePath);
   return parseBenefitsBestPracticesWorkbook(
     buffer,
     "benefits-best-practices.xlsx",
+  );
+}
+
+export async function loadDefaultBenefitsBestPracticesDefinition(): Promise<SurveyDefinition> {
+  return benefitsBestPracticesDefinition(
+    await loadBenefitsBestPracticesTemplate(),
   );
 }

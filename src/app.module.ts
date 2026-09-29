@@ -11,6 +11,10 @@ import {
   serializeRequest,
   serializeResponse,
 } from "./common/logging/request-logging.js";
+import {
+  globalRateLimit,
+  rateLimitingProviders,
+} from "./common/http/rate-limiting.js";
 import { validateEnv, type Env } from "./config/env.js";
 import { DatabaseModule } from "./database/database.module.js";
 import { AuthModule } from "./modules/auth/auth.module.js";
@@ -85,7 +89,7 @@ import { BootstrapAdminService } from "./bootstrap-admin.service.js";
         },
       }),
     }),
-    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 120 }]),
+    ThrottlerModule.forRoot([globalRateLimit]),
     BullModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService<Env, true>) => {
@@ -124,6 +128,6 @@ import { BootstrapAdminService } from "./bootstrap-admin.service.js";
     OpsModule,
     HealthModule,
   ],
-  providers: [BootstrapAdminService],
+  providers: [BootstrapAdminService, ...rateLimitingProviders],
 })
 export class AppModule {}
