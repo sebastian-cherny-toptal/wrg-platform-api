@@ -1755,6 +1755,7 @@ describe("compatibility report categories", () => {
     );
     const sheet = workbook.getWorksheet("Workforce Benchmark Comparisons");
     assert.ok(sheet);
+    assert.equal(sheet.columnCount, 3);
     assert.equal(sheet.getCell("B9").value, 50);
     assert.equal(sheet.getCell("B10").value, 50);
     assert.equal(sheet.getCell("B18").value, 50);

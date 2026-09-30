@@ -36,6 +36,7 @@ interface BenefitsQuestionBinding {
   kind: BenefitsQuestionKind;
   match: RegExp;
   answerRange?: readonly [minimum: number, maximum: number];
+  eligibleWhenYes?: string;
 }
 
 const benefitsQuestionBindings: BenefitsQuestionBinding[] = [
@@ -73,6 +74,7 @@ const benefitsQuestionBindings: BenefitsQuestionBinding[] = [
     match: /which pre-employment screening/iu,
     dataLabel: "q_RecruitingandEmploymentPractices_Screening",
     kind: "multi",
+    eligibleWhenYes: "q_RecruitingandEmploymentPractices_UtilizePreEmply",
   },
   {
     match: /formal grievance procedure/iu,
@@ -491,10 +493,14 @@ function valueForResponse(input: {
 }): number | string {
   const { binding, organizations, optionLabel, optionIndex, optionCount } =
     input;
-  if (organizations.length === 0) return "x";
+  const eligibilityQuestion = binding.eligibleWhenYes;
+  const eligibleOrganizations = eligibilityQuestion
+    ? organizations.filter((values) => isYes(values[eligibilityQuestion]))
+    : organizations;
+  if (eligibleOrganizations.length === 0) return "x";
 
   if (binding.kind === "yesNo") {
-    const answered = organizations.filter((values) =>
+    const answered = eligibleOrganizations.filter((values) =>
       isPresent(values[binding.dataLabel]),
     );
     if (answered.length === 0) return "x";
@@ -508,14 +514,14 @@ function valueForResponse(input: {
   }
 
   if (binding.kind === "multi") {
-    const selected = organizations.filter((values) =>
+    const selected = eligibleOrganizations.filter((values) =>
       isYes(optionValue(values, binding.dataLabel, optionLabel)),
     ).length;
-    return percent(selected, organizations.length);
+    return percent(selected, eligibleOrganizations.length);
   }
 
   if (binding.kind === "choice") {
-    const answered = organizations.filter((values) =>
+    const answered = eligibleOrganizations.filter((values) =>
       isPresent(values[binding.dataLabel]),
     );
     if (answered.length === 0) return "x";
@@ -530,7 +536,7 @@ function valueForResponse(input: {
     return percent(matched, answered.length);
   }
 
-  const numbers = organizations.flatMap((values) => {
+  const numbers = eligibleOrganizations.flatMap((values) => {
     const raw =
       optionLabel === input.questionText
         ? values[binding.dataLabel]

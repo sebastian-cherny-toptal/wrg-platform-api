@@ -698,6 +698,41 @@ describe("employee verbatim workbook generation", () => {
 });
 
 describe("benchmark workbook generation", () => {
+  it("removes unused benchmark-category columns", async () => {
+    const buffer = await createBenchmarkWorkbook({
+      metadata: {
+        organizationName: "Test organization",
+        programName: "Test program",
+        surveyDates: "2026",
+      },
+      headers: [
+        { title: "All Size Categories", type: "All_Yes" },
+        { title: "All Size Categories", type: "All_No" },
+      ],
+      categories: [
+        {
+          title: "Core Employee Experience",
+          values: [91, "x"],
+          questions: [{ text: "I can do my best work", values: [90, "x"] }],
+        },
+      ],
+      surveyAverage: [89, "x"],
+      cohortOrganizationCount: 13,
+    });
+
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer as never);
+    const sheet = workbook.getWorksheet("Workforce Benchmark Comparisons");
+    assert.ok(sheet);
+    assert.equal(sheet.columnCount, 3);
+    assert.equal(sheet.pageSetup.printArea, "A1:C106");
+    assert.equal(sheet.getCell("B9").value, 90);
+    assert.equal(sheet.getCell("C9").value, "x");
+    assert.ok(sheet.model.merges.includes("B1:C1"));
+    assert.ok(sheet.model.merges.includes("A8:C8"));
+    assert.equal(sheet.model.merges.some((merge) => /[D-I]/u.test(merge)), false);
+  });
+
   it("fills the supplied nine-column benchmark template in cohort order", async () => {
     const buffer = await createBenchmarkWorkbook({
       metadata: {

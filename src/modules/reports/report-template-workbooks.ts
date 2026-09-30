@@ -870,7 +870,9 @@ export async function createBenchmarkWorkbook(input: {
   });
   const sheet = workbook.getWorksheet("Workforce Benchmark Comparisons");
   if (!sheet) throw new Error("Benchmark template has no worksheet");
-  for (let pair = 0; pair < 4; pair += 1) {
+  const headerCount = Math.min(input.headers.length, 8);
+  const lastColumn = headerCount + 1;
+  for (let pair = 0; pair < Math.ceil(headerCount / 2); pair += 1) {
     const winner = input.headers[pair * 2];
     const nonWinner = input.headers[pair * 2 + 1];
     const firstColumn = 2 + pair * 2;
@@ -887,6 +889,32 @@ export async function createBenchmarkWorkbook(input: {
       ? `${nonWinner.title.replace(/\s+Employers$/iu, "")} Non-Winners`
       : null;
   }
+  if (lastColumn < 9) {
+    const resizedMerges: Array<{ row: number; startColumn: number }> = [];
+    for (const merge of [...sheet.model.merges]) {
+      const match = /^([A-Z]+)(\d+):([A-Z]+)(\d+)$/u.exec(merge);
+      if (!match) continue;
+      const startColumn = columnNumber(match[1] ?? "A");
+      const startRow = Number(match[2] ?? 0);
+      const endColumn = columnNumber(match[3] ?? "A");
+      const endRow = Number(match[4] ?? 0);
+      if (endColumn <= lastColumn) continue;
+      sheet.unMergeCells(merge);
+      if (startRow === endRow && startColumn < lastColumn) {
+        resizedMerges.push({ row: startRow, startColumn });
+      }
+    }
+    sheet.spliceColumns(lastColumn + 1, 9 - lastColumn);
+    for (const merge of resizedMerges) {
+      sheet.mergeCells(
+        merge.row,
+        merge.startColumn,
+        merge.row,
+        lastColumn,
+      );
+    }
+  }
+  sheet.pageSetup.printArea = `A1:${columnName(lastColumn)}${sheet.rowCount}`;
   return repairTopLeftPictureTransforms(await workbookBuffer(workbook));
 }
 

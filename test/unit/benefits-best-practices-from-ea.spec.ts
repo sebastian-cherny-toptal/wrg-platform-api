@@ -466,6 +466,7 @@ describe("Benefits & Best Practices generation from EA", () => {
         ...winnerCohort.organizationIds.map((organizationId, index) => ({
           organizationId,
           values: {
+            q_RecruitingandEmploymentPractices_UtilizePreEmply: 1,
             "q_RecruitingandEmploymentPractices_Screening. Credit history":
               index < 2 ? 1 : undefined,
             "q_RecruitingandEmploymentPractices_Screening. Criminal background checks": 1,
@@ -476,6 +477,7 @@ describe("Benefits & Best Practices generation from EA", () => {
         ...nonWinnerCohort.organizationIds.map((organizationId) => ({
           organizationId,
           values: {
+            q_RecruitingandEmploymentPractices_UtilizePreEmply: 1,
             "q_RecruitingandEmploymentPractices_Screening. Criminal background checks": 1,
             q_OrganizationalBenefits_NumberPaidHolidays: 8,
             q_OrganizationalBenefits_PtoVacationSickPersonal: 2,
@@ -495,6 +497,35 @@ describe("Benefits & Best Practices generation from EA", () => {
     const timeOff = snapshot.sections[2]?.questions[1]?.responses ?? [];
     assert.deepEqual(timeOff[0]?.dataValues, [80, 0]);
     assert.deepEqual(timeOff[1]?.dataValues, [20, 100]);
+  });
+
+  it("uses only organizations eligible for pre-employment screening as its denominator", () => {
+    const organizations = ["one", "two", "three", "four", "five"];
+    const snapshot = generateBenefitsBestPracticesFromEa({
+      template: templateSnapshot(),
+      minimumOrganizations: 1,
+      cohorts: [
+        {
+          title: "All Size Categories",
+          type: "All_Yes",
+          organizationIds: organizations,
+        },
+      ],
+      answers: organizations.map((organizationId, index) => ({
+        organizationId,
+        values: {
+          q_RecruitingandEmploymentPractices_UtilizePreEmply: index < 2 ? 1 : 2,
+          "q_RecruitingandEmploymentPractices_Screening. Credit history":
+            index === 0 ? 1 : undefined,
+          "q_RecruitingandEmploymentPractices_Screening. Criminal background checks":
+            index < 2 ? 1 : undefined,
+        },
+      })),
+    });
+
+    const screening = snapshot.sections[1]?.questions[0]?.responses ?? [];
+    assert.deepEqual(screening[0]?.dataValues, [50]);
+    assert.deepEqual(screening[1]?.dataValues, [100]);
   });
 
   it("writes x when a cohort has fewer than five employer assessments", () => {
