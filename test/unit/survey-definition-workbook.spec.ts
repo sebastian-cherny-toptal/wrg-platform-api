@@ -28,6 +28,15 @@ test("default EA definition template exposes the built-in Benefits & Best Practi
     )?.options?.[0]?.Caption,
     "Yes",
   );
+  const paidHolidays = parsed.find(
+    ({ dataLabel }) =>
+      dataLabel === "q_OrganizationalBenefits_NumberPaidHolidays",
+  );
+  assert.ok(paidHolidays);
+  assert.ok(paidHolidays.options);
+  assert.equal(paidHolidays.options.length, 25);
+  assert.equal(paidHolidays.options[0]?.Id, "1");
+  assert.equal(paidHolidays.options[24]?.Id, "25");
 });
 
 test("default survey definition workbook contains both sheets and effective answers", async () => {

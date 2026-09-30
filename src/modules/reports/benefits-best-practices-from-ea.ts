@@ -35,6 +35,7 @@ interface BenefitsQuestionBinding {
   dataLabel: string;
   kind: BenefitsQuestionKind;
   match: RegExp;
+  answerRange?: readonly [minimum: number, maximum: number];
 }
 
 const benefitsQuestionBindings: BenefitsQuestionBinding[] = [
@@ -92,6 +93,7 @@ const benefitsQuestionBindings: BenefitsQuestionBinding[] = [
     match: /how many employer-paid holidays/iu,
     dataLabel: "q_OrganizationalBenefits_NumberPaidHolidays",
     kind: "numeric",
+    answerRange: [1, 25],
   },
   {
     match: /which employer-paid holidays/iu,
@@ -259,17 +261,33 @@ export function benefitsBestPracticesDefinition(
       const binding = bindingForQuestion(question);
       if (!binding) return [];
       position += 1;
+      const answerRange = binding.answerRange;
+      const options = answerRange
+        ? Array.from(
+            {
+              length: answerRange[1] - answerRange[0] + 1,
+            },
+            (_, index) => {
+              const value = answerRange[0] + index;
+              return {
+                Id: String(value),
+                Caption: String(value),
+                Position: index + 1,
+              };
+            },
+          )
+        : question.responses.map((response, index) => ({
+            Id: response.label,
+            Caption: response.label,
+            Position: index + 1,
+          }));
       return [
         {
           dataLabel: binding.dataLabel,
           caption: question.text,
           categoryLabel: section.title,
           position,
-          options: question.responses.map((response, index) => ({
-            Id: response.label,
-            Caption: response.label,
-            Position: index + 1,
-          })),
+          options,
         } satisfies SurveyDefinitionQuestion,
       ];
     }),

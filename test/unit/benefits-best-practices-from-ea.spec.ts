@@ -3,6 +3,8 @@ import { describe, it } from "node:test";
 import type { Prisma } from "@prisma/client";
 import ExcelJS from "exceljs";
 import type { PrismaService } from "../../src/database/prisma.service.js";
+import { surveyDefinitionWorkbook } from "../../src/modules/imports/program-survey-definition.service.js";
+import { parseSurveyDefinition } from "../../src/modules/imports/survey-definition.js";
 import {
   applyBenefitsBestPracticesDefinition,
   benefitsBestPracticesDefinition,
@@ -225,6 +227,40 @@ describe("Benefits & Best Practices generation from EA", () => {
         defaults,
       );
     }, /answer is not used/u);
+  });
+
+  it("accepts paid-holiday numeric answers from 1 through 25", async () => {
+    const defaults = benefitsBestPracticesDefinition(
+      await loadBenefitsBestPracticesTemplate(),
+    );
+    const uploaded = await parseSurveyDefinition(
+      await surveyDefinitionWorkbook([
+        {
+          dataLabel: "q_OrganizationalBenefits_NumberPaidHolidays",
+          caption: "How many employer-paid holidays are provided?",
+          options: Array.from({ length: 25 }, (_, index) => ({
+            Id: String(index + 1),
+            Caption: String(index + 1),
+            Position: index + 1,
+          })),
+        },
+      ]),
+    );
+    assert.doesNotThrow(() => {
+      validateBenefitsBestPracticesDefinition(uploaded, defaults);
+    });
+    assert.throws(() => {
+      validateBenefitsBestPracticesDefinition(
+        [
+          {
+            dataLabel: "q_OrganizationalBenefits_NumberPaidHolidays",
+            caption: "How many employer-paid holidays are provided?",
+            options: [{ Id: "26", Caption: "26", Position: 26 }],
+          },
+        ],
+        defaults,
+      );
+    }, /NumberPaidHolidays: 26/u);
   });
 
   it("removes duplicate Default columns from a published fallback-category report", async () => {
