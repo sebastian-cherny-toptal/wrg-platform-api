@@ -711,7 +711,7 @@ describe("Benefits & Best Practices generation from EA", () => {
     assert.equal(yesRow.dataValues[allNo], 20);
   });
 
-  it("renders and downloads an entitled EA report when the program has no employee survey", async () => {
+  it("renders and downloads an EA report without an employee survey or assigned label template", async () => {
     const winnerIds = Array.from(
       { length: 5 },
       (_, index) => `winner-${index + 1}`,
@@ -722,6 +722,7 @@ describe("Benefits & Best Practices generation from EA", () => {
     );
     const organizationIds = [...winnerIds, ...nonWinnerIds];
     let hasEmployerSurvey = true;
+    let hasWinnerAssignments = true;
     const prisma = {
       program: {
         findFirst: () => ({
@@ -745,7 +746,11 @@ describe("Benefits & Best Practices generation from EA", () => {
         findMany: () =>
           organizationIds.map((organizationId, index) => ({
             organizationId,
-            isWinner: index < winnerIds.length ? "Y" : "N",
+            isWinner: hasWinnerAssignments
+              ? index < winnerIds.length
+                ? "Y"
+                : "N"
+              : null,
             currentZohoCategory: "Small",
             benchmarkCategory: "Small",
             metrics: {},
@@ -818,6 +823,33 @@ describe("Benefits & Best Practices generation from EA", () => {
     assert.ok(funRow > 0);
     assert.equal(sheet.getCell(funRow + 1, allWinners + 2).value, 1);
     assert.equal(sheet.getCell(funRow + 1, allNonWinners + 2).value, 0.2);
+
+    hasWinnerAssignments = false;
+    const unrankedReport = await service.employerBenchmark(principal, query);
+    assert.deepEqual(unrankedReport.data.tableHeaders, [
+      {
+        title: "All Size Categories",
+        subTitle: "Employers",
+        type: "All_All",
+        color: "#ddd",
+      },
+    ]);
+    const unrankedFun = unrankedReport.data.tableData
+      .flatMap((section) => section.nestedData)
+      .find(({ title }) => title.includes("Fun"));
+    assert.ok(unrankedFun);
+    assert.deepEqual(unrankedFun.nestedData[0]?.dataValues, [60]);
+    const unrankedBuffer = await service.employerBenchmarkWorkbook(
+      principal,
+      query,
+    );
+    const unrankedWorkbook = new ExcelJS.Workbook();
+    await unrankedWorkbook.xlsx.load(unrankedBuffer as never);
+    assert.equal(
+      unrankedWorkbook.getWorksheet("Benefits & Best Practices")?.getCell("B6")
+        .value,
+      "All Employers",
+    );
 
     hasEmployerSurvey = false;
     await assert.rejects(

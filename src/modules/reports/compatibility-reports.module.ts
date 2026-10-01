@@ -2799,9 +2799,7 @@ export class CompatibilityReportsService {
         metadata: true,
       },
     });
-    return questions.filter((question) =>
-      this.isDemographicQuestion(question),
-    );
+    return questions.filter((question) => this.isDemographicQuestion(question));
   }
 
   async benchmarkWorkbook(
@@ -5247,18 +5245,29 @@ export class CompatibilityReportsService {
     const groups = this.groups(context).filter(
       (group) => group.organizationIds.length > 0,
     );
-    if (groups.length === 0) return null;
+    const cohorts = groups.length
+      ? groups.map((group) => ({
+          title:
+            group.size === "All"
+              ? "All Size Categories"
+              : `${group.size} Employers`,
+          type: `${group.size.replace(/\s+/gu, "")}_${group.winner}`,
+          organizationIds: group.organizationIds,
+        }))
+      : [
+          {
+            title: "All Size Categories",
+            type: "All_All",
+            organizationIds: context.organizationPrograms.map(
+              ({ organizationId }) => organizationId,
+            ),
+          },
+        ];
+    if (cohorts[0]?.organizationIds.length === 0) return null;
     const generated = generateBenefitsBestPracticesFromEa({
       template: await loadBenefitsBestPracticesTemplate(),
       answers,
-      cohorts: groups.map((group) => ({
-        title:
-          group.size === "All"
-            ? "All Size Categories"
-            : `${group.size} Employers`,
-        type: `${group.size.replace(/\s+/gu, "")}_${group.winner}`,
-        organizationIds: group.organizationIds,
-      })),
+      cohorts,
     });
     const definition = programMetadata.employerAssessmentDefinition;
     return applyBenefitsBestPracticesDefinition(
@@ -5270,11 +5279,18 @@ export class CompatibilityReportsService {
   }
 
   private publishedHeaders(headers: PublishedReportHeader[]) {
-    return headers.map((header) => ({
-      ...header,
-      subTitle: header.type.endsWith("_No") ? "Non-Winners" : "Winners",
-      color: headerColors[header.type.endsWith("_No") ? "No" : "Yes"],
-    }));
+    return headers.map((header) => {
+      const winner = header.type.endsWith("_No")
+        ? "No"
+        : header.type.endsWith("_Yes")
+          ? "Yes"
+          : null;
+      return {
+        ...header,
+        subTitle: winner ? winnerTitles[winner] : "Employers",
+        color: winner ? headerColors[winner] : "#ddd",
+      };
+    });
   }
 
   private publishedValue(value: number | string): number | string {
