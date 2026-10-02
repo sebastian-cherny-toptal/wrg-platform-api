@@ -94,6 +94,7 @@ const dealFields = [
   "Current_Year_Overall_Rank",
   "Current_Year_Category_Rank",
   "EV_Sorting_Filter",
+  "RD_Payment_Type",
 ];
 
 export interface ProgramOrganization {
@@ -110,6 +111,7 @@ export interface ProgramOrganization {
   overallRank: string | null;
   categoryRank: string | null;
   purchasedEvSortingFilter: string | null;
+  rdPaymentType: string | null;
 }
 
 export function zohoOrganizationName(
@@ -305,6 +307,7 @@ export class CompatibilityZohoService {
           overallRank: text(deal, "Current_Year_Overall_Rank"),
           categoryRank: text(deal, "Current_Year_Category_Rank"),
           purchasedEvSortingFilter: text(deal, "EV_Sorting_Filter"),
+          rdPaymentType: text(deal, "RD_Payment_Type"),
         });
       }
       organizationsByProgram.set(program.id, organizations);

@@ -36,7 +36,7 @@ import {
   RESPONSE_DETAIL_ID,
   SORTED_VERBATIMS_ID,
 } from "../reports/report-catalog.js";
-import { sortedVerbatimsEntitlementData } from "../reports/sorted-verbatims-entitlement.js";
+import { zohoPurchaseEntitlementData } from "../reports/kia-zoho-entitlement.js";
 import {
   benchmarkCategoryNames,
   usesDefaultBenchmarkCategory,
@@ -144,7 +144,8 @@ export type ProgramZohoResyncField =
   | "categoryRank"
   | "reportCategory"
   | "currentZohoCategory"
-  | "purchasedEvSortingFilter";
+  | "purchasedEvSortingFilter"
+  | "rdPaymentType";
 
 export type ProgramZohoResyncValue = string | number | null;
 
@@ -185,6 +186,7 @@ interface ResyncEnrollment {
   categoryRank: string | null;
   currentZohoCategory: string | null;
   purchasedEvSortingFilter: string | null;
+  rdPaymentType: string | null;
   reportAccess: Prisma.JsonValue;
   paymentDetails: Prisma.JsonValue;
   metrics: Prisma.JsonValue;
@@ -207,6 +209,7 @@ const resyncFields: ProgramZohoResyncField[] = [
   "reportCategory",
   "currentZohoCategory",
   "purchasedEvSortingFilter",
+  "rdPaymentType",
 ];
 
 function normalizedOrganizationIdentity(value: unknown): string {
@@ -235,6 +238,7 @@ function resyncValues(
       reportCategory: zoho.reportCategory,
       currentZohoCategory: zoho.currentZohoCategory,
       purchasedEvSortingFilter: zoho.purchasedEvSortingFilter,
+      rdPaymentType: zoho.rdPaymentType,
     };
   }
   return {
@@ -252,6 +256,7 @@ function resyncValues(
       null,
     currentZohoCategory: enrollment.currentZohoCategory,
     purchasedEvSortingFilter: enrollment.purchasedEvSortingFilter,
+    rdPaymentType: enrollment.rdPaymentType,
   };
 }
 
@@ -295,8 +300,9 @@ export class ProgramZohoResyncService {
     await this.prisma.$transaction(async (transaction) => {
       for (const { enrollment, zoho } of matches) {
         const metrics = jsonObject(enrollment.metrics);
-        const entitlement = sortedVerbatimsEntitlementData(
+        const entitlement = zohoPurchaseEntitlementData(
           zoho.purchasedEvSortingFilter,
+          zoho.rdPaymentType,
           {
             reportAccess: enrollment.reportAccess,
             metrics: {
@@ -369,6 +375,7 @@ export class ProgramZohoResyncService {
             categoryRank: true,
             currentZohoCategory: true,
             purchasedEvSortingFilter: true,
+            rdPaymentType: true,
             reportAccess: true,
             paymentDetails: true,
             metrics: true,
@@ -1081,16 +1088,18 @@ export class CompatibilityManagementService {
       metadata.benchmarkCategories,
     );
     const categoryPricing = program.zohoCategories?.length
-      ? program.zohoCategories.map(({ tier, zohoCategoryName, employeeSize, priceCents }) => ({
-          tier,
-          zohoCategoryName,
-          employeeSize,
-          pricingCategoryName:
-            pricingCategoryNameByTier[
-              tier as keyof typeof pricingCategoryNameByTier
-            ],
-          priceCents,
-        }))
+      ? program.zohoCategories.map(
+          ({ tier, zohoCategoryName, employeeSize, priceCents }) => ({
+            tier,
+            zohoCategoryName,
+            employeeSize,
+            pricingCategoryName:
+              pricingCategoryNameByTier[
+                tier as keyof typeof pricingCategoryNameByTier
+              ],
+            priceCents,
+          }),
+        )
       : metadata.categoryPricing;
     return {
       ...metadata,

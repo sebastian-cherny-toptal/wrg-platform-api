@@ -1552,6 +1552,7 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
               Current_Year_Category_Rank: "2",
               Surveys_Sent: 125,
               EV_Sorting_Filter: "Department",
+              RD_Payment_Type: "Paid via Check",
               Unmapped_Custom_Field: "preserved",
             },
           ]);
@@ -1576,6 +1577,7 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
     assert.equal(request.module, "Deals");
     assert.equal(request.criteria, "(Program:equals:zoho-program-1)");
     assert.ok(request.fields?.includes("EV_Sorting_Filter"));
+    assert.ok(request.fields?.includes("RD_Payment_Type"));
     assert.deepEqual(organizations, [
       {
         id: "zoho-deal-1",
@@ -1591,6 +1593,7 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
         Current_Year_Category_Rank: "2",
         Surveys_Sent: 125,
         EV_Sorting_Filter: "Department",
+        RD_Payment_Type: "Paid via Check",
         Unmapped_Custom_Field: "preserved",
         organizationId: "460737994",
         organizationName: "Acme",
@@ -1604,6 +1607,7 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
         overallRank: "4",
         categoryRank: "2",
         purchasedEvSortingFilter: "Department",
+        rdPaymentType: "Paid via Check",
       },
     ]);
   });

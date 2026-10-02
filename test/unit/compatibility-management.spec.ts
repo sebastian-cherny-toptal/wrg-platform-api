@@ -120,6 +120,7 @@ describe("native management compatibility endpoints", () => {
                 categoryRank: "3",
                 currentZohoCategory: "Small",
                 purchasedEvSortingFilter: null,
+                rdPaymentType: "Invoice Sent",
                 reportAccess: {},
                 paymentDetails: {},
                 metrics: {
@@ -162,6 +163,7 @@ describe("native management compatibility endpoints", () => {
             overallRank: "4",
             categoryRank: "1",
             purchasedEvSortingFilter: "Department",
+            rdPaymentType: "Paid via ACH",
           },
           {
             organizationId: "99",
@@ -176,6 +178,7 @@ describe("native management compatibility endpoints", () => {
             overallRank: null,
             categoryRank: null,
             purchasedEvSortingFilter: null,
+            rdPaymentType: null,
           },
         ]);
       },
@@ -219,6 +222,11 @@ describe("native management compatibility endpoints", () => {
           previous: null,
           next: "Department",
         },
+        {
+          field: "rdPaymentType",
+          previous: "Invoice Sent",
+          next: "Paid via ACH",
+        },
       ],
     );
     assert.deepEqual(preview.unmatchedZoho, [
@@ -239,6 +247,7 @@ describe("native management compatibility endpoints", () => {
       categoryRank: "3",
       currentZohoCategory: "Small",
       purchasedEvSortingFilter: null,
+      rdPaymentType: null,
       reportAccess: { EV_Access: "yes" },
       paymentDetails: {},
       metrics: {
@@ -300,6 +309,7 @@ describe("native management compatibility endpoints", () => {
             overallRank: null,
             categoryRank: null,
             purchasedEvSortingFilter: "Department",
+            rdPaymentType: "Paid via Check",
           },
         ]),
     };
@@ -340,7 +350,12 @@ describe("native management compatibility endpoints", () => {
         categoryRank: null,
         currentZohoCategory: "Community",
         purchasedEvSortingFilter: "Department",
-        reportAccess: { EV_Access: "yes", SEV_Access: "yes" },
+        rdPaymentType: "Paid via Check",
+        reportAccess: {
+          EV_Access: "yes",
+          SEV_Access: "yes",
+          KIA_Access: "yes",
+        },
         paymentDetails: { EV_Sorting_Payment_Type: "Zoho" },
         metrics: {
           Source_Organization_ID: "49",
@@ -351,6 +366,7 @@ describe("native management compatibility endpoints", () => {
           Current_Year_Category: "Community",
           Existing_Value: "preserved",
           SEV_Filter: "Department",
+          KIA_Order_Status: "Processing",
         },
         updatedAt: "timestamp",
       },

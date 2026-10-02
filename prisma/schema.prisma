@@ -133,6 +133,7 @@ model OrganizationProgram {
   currentZohoCategory      String?                   @map("current_zoho_category")
   benchmarkCategory        String?                   @map("benchmark_category")
   purchasedEvSortingFilter String?                   @map("purchased_ev_sorting_filter")
+  rdPaymentType            String?                   @map("rd_payment_type")
   reportAccess             Json                      @default("{}")
   paymentDetails           Json                      @default("{}")
   fees                     Json                      @default("{}")

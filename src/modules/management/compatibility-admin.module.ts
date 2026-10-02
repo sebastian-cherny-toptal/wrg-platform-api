@@ -880,6 +880,7 @@ export class CompatibilityAdminService {
                   : enrollment.benchmarkCategory,
                 purchased_ev_sorting_filter:
                   enrollment.purchasedEvSortingFilter,
+                rd_payment_type: enrollment.rdPaymentType,
                 Created_Time: enrollment.createdAt,
                 Last_time_deal_synced: enrollment.updatedAt,
                 _id: enrollment.legacyId ?? enrollment.id,
