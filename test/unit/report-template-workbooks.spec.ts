@@ -193,6 +193,71 @@ describe("annual trends workbook generation", () => {
 });
 
 describe("workforce feedback workbook generation", () => {
+  it("lists supplementary Likert questions after the survey average without including them in it", async () => {
+    const buffer = await createWorkforceFeedbackWorkbook({
+      metadata: {
+        organizationName: "Zeon Chemicals",
+        programName: "Rubber 2026",
+        surveyDates: "2026",
+      },
+      demographics: [
+        {
+          title: "Location",
+          groupLabel: "Location",
+          options: [{ label: "Louisville", count: 10 }],
+        },
+      ],
+      sections: [
+        {
+          title: "Core Employee Experience",
+          questions: [
+            {
+              text: "Core question",
+              agreement: 80,
+              neutral: 10,
+              disagreement: 10,
+              responseCount: 10,
+              demographicAgreement: { Location: { Louisville: 70 } },
+              demographicResponseCount: { Location: { Louisville: 10 } },
+            },
+          ],
+        },
+      ],
+      supplementaryQuestions: [
+        {
+          text: "Safety is a top priority for this organization",
+          agreement: 40,
+          neutral: 20,
+          disagreement: 40,
+          responseCount: 10,
+          demographicAgreement: { Location: { Louisville: 50 } },
+          demographicResponseCount: { Location: { Louisville: 10 } },
+        },
+      ],
+      totalResponses: 10,
+    });
+
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer as never);
+    const sheet = workbook.getWorksheet("Workforce Feedback Results");
+    assert.ok(sheet);
+    assert.equal(sheet.getCell("B101").value, "SURVEY AVERAGE");
+    assert.equal(sheet.getCell("D101").value, 80);
+    assert.equal(sheet.getCell("B106").value, "SUPPLEMENTARY QUESTIONS");
+    assert.equal(
+      sheet.getCell("B107").value,
+      "Safety is a top priority for this organization",
+    );
+    assert.equal(sheet.getCell("D107").value, 40);
+    assert.equal(sheet.getCell("E107").value, 40);
+    assert.equal(sheet.getCell("G107").value, 50);
+    assert.equal(sheet.getCell("D107").numFmt, "0");
+    assert.equal(
+      (sheet.getCell("B106").fill as ExcelJS.FillPattern).fgColor?.argb,
+      "FFECEEF4",
+    );
+  });
+
   it("omits sections whose response counts are zero in every column", async () => {
     const buffer = await createWorkforceFeedbackWorkbook({
       metadata: {

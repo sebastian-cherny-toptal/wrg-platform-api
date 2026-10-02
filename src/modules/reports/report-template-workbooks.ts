@@ -18,23 +18,22 @@ export interface ReportWorkbookDemographic {
   options: Array<{ label: string; count: number }>;
 }
 
+export interface FeedbackWorkbookQuestion {
+  text: string;
+  agreement: number;
+  neutral: number;
+  disagreement: number;
+  responseCount?: number;
+  demographicAgreement?: Record<string, Record<string, number>>;
+  demographicResponseCount?: Record<string, Record<string, number>>;
+  responseDistribution?: number[];
+  responseLabels?: string[];
+  demographicResponseDistribution?: Record<string, Record<string, number[]>>;
+}
+
 export interface FeedbackWorkbookSection {
   title: string;
-  questions: Array<{
-    text: string;
-    agreement: number;
-    neutral: number;
-    disagreement: number;
-    responseCount?: number;
-    demographicAgreement?: Record<string, Record<string, number>>;
-    demographicResponseCount?: Record<string, Record<string, number>>;
-    responseDistribution?: number[];
-    responseLabels?: string[];
-    demographicResponseDistribution?: Record<
-      string,
-      Record<string, number[]>
-    >;
-  }>;
+  questions: FeedbackWorkbookQuestion[];
 }
 
 export interface ResponsePatternRanges {
@@ -661,6 +660,47 @@ function formatWorkforceFeedbackNumbers(workbook: ExcelJS.Workbook): void {
   }
 }
 
+function appendWorkforceFeedbackSupplementaryQuestions(
+  workbook: ExcelJS.Workbook,
+  demographics: ReportWorkbookDemographic[],
+  questions: FeedbackWorkbookQuestion[],
+): void {
+  const sheet = workbook.getWorksheet("Workforce Feedback Results");
+  if (!sheet || questions.length === 0) return;
+
+  const titleRowNumber = 106;
+  const firstQuestionRowNumber = titleRowNumber + 1;
+  const copyRowStyle = (sourceRowNumber: number, targetRowNumber: number) => {
+    const sourceRow = sheet.getRow(sourceRowNumber);
+    const targetRow = sheet.getRow(targetRowNumber);
+    targetRow.height = sourceRow.height;
+    for (let column = 1; column <= sheet.columnCount; column += 1) {
+      const target = targetRow.getCell(column);
+      target.value = null;
+      target.style = sourceRow.getCell(column).style;
+    }
+  };
+
+  copyRowStyle(92, titleRowNumber);
+  sheet.getCell(titleRowNumber, 2).value = "SUPPLEMENTARY QUESTIONS";
+
+  questions.forEach((question, index) => {
+    const rowNumber = firstQuestionRowNumber + index;
+    copyRowStyle(93, rowNumber);
+    sheet.getCell(rowNumber, 2).value = safeValue(question.text);
+    sheet.getCell(rowNumber, 4).value = question.agreement;
+    sheet.getCell(rowNumber, 5).value = question.disagreement;
+    for (let column = 7; column <= sheet.columnCount; column += 1) {
+      sheet.getCell(rowNumber, column).value = demographicValue(
+        demographics,
+        sheet.getCell(rowNumber, column),
+        question.agreement,
+        question.demographicAgreement,
+      );
+    }
+  });
+}
+
 function formatAnnualTrendsNumbers(workbook: ExcelJS.Workbook): void {
   const sheet = workbook.getWorksheet("Annual Trends Report");
   if (!sheet) return;
@@ -675,6 +715,7 @@ export async function createWorkforceFeedbackWorkbook(input: {
   metadata: ReportWorkbookMetadata;
   demographics: ReportWorkbookDemographic[];
   sections: FeedbackWorkbookSection[];
+  supplementaryQuestions?: FeedbackWorkbookQuestion[];
   totalResponses: number;
   responsePatternRanges?: ResponsePatternRanges;
 }): Promise<Buffer> {
@@ -788,6 +829,16 @@ export async function createWorkforceFeedbackWorkbook(input: {
     }
     return null;
   });
+  appendWorkforceFeedbackSupplementaryQuestions(
+    workbook,
+    demographics,
+    (input.supplementaryQuestions ?? []).filter((question) =>
+      sectionHasResponses({
+        title: "Supplementary Questions",
+        questions: [question],
+      }),
+    ),
+  );
   formatWorkforceFeedbackNumbers(workbook);
   applyResponsePatternFills(workbook, input.responsePatternRanges);
   return workbookBuffer(workbook);

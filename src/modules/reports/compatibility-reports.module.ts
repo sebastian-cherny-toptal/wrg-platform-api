@@ -60,8 +60,9 @@ import {
   createResponseDetailWorkbook,
   createVerbatimWorkbook,
   createWorkforceFeedbackWorkbook,
-  type FeedbackWorkbookSection,
   type AnnualTrendsWorkbookValue,
+  type FeedbackWorkbookQuestion,
+  type FeedbackWorkbookSection,
   type ReportWorkbookDemographic,
   type ReportWorkbookMetadata,
   type ResponsePatternRanges,
@@ -593,6 +594,20 @@ function sortedCategories(categories: Iterable<string>): string[] {
     }
     return left.localeCompare(right);
   });
+}
+
+function isSupplementaryQuestion(question: BenchmarkQuestion): boolean {
+  const metadata = jsonObject(question.metadata);
+  const category = String(metadata.categoryLabel ?? "").trim();
+  const reportRole = String(metadata.reportRole ?? "").trim();
+  return (
+    /^supplementary questions?$/iu.test(category) ||
+    /^supplementary$/iu.test(reportRole)
+  );
+}
+
+function organizationSpecificQuestionId(dataLabel: string): string | null {
+  return /_ORGID_(.+)$/iu.exec(dataLabel)?.[1]?.trim() ?? null;
 }
 
 function responseCaption(value: Prisma.JsonValue): string | null {
@@ -2503,16 +2518,31 @@ export class CompatibilityReportsService {
       ),
     );
     const [questions, respondents, demographicQuestions] = await Promise.all([
-      this.benchmarkQuestions(context.survey.id),
+      this.benchmarkQuestions(
+        context.survey.id,
+        this.organizationQuestionIds(context),
+      ),
       this.organizationRespondents(context, respondentFilter),
       this.surveyDemographicQuestions(context.survey.id),
     ]);
     const confidential =
       Object.keys(respondentFilter).length > 0 &&
       respondents.length < privacyThreshold;
+    const coreQuestions = questions.filter(
+      (question) => !isSupplementaryQuestion(question),
+    );
+    const supplementaryQuestions = questions.filter(isSupplementaryQuestion);
     const sourceSections = confidential
       ? []
-      : this.feedbackSections(questions, respondents, context.program.year);
+      : this.feedbackSections(coreQuestions, respondents, context.program.year);
+    const sourceSupplementaryQuestions: FeedbackWorkbookQuestion[] =
+      confidential
+        ? []
+        : this.feedbackSections(
+            supplementaryQuestions,
+            respondents,
+            context.program.year,
+          ).flatMap((section) => section.questions);
     const demographics = this.workbookDemographicsFromRespondents(
       respondents,
       context.program.year,
@@ -2528,6 +2558,7 @@ export class CompatibilityReportsService {
       metadata,
       demographics,
       sections: sourceSections,
+      supplementaryQuestions: sourceSupplementaryQuestions,
       totalResponses,
       ...(highlightRanges ? { responsePatternRanges: highlightRanges } : {}),
     });
@@ -4182,6 +4213,7 @@ export class CompatibilityReportsService {
 
   private async benchmarkQuestions(
     surveyId: string,
+    organizationQuestionIds: ReadonlySet<string> = new Set(),
   ): Promise<BenchmarkQuestion[]> {
     const questions = await this.prisma.question.findMany({
       where: { surveyId },
@@ -4200,13 +4232,51 @@ export class CompatibilityReportsService {
     return questions.filter((question) => {
       const type = question.type.trim().toLowerCase();
       const questionTypeId = jsonObject(question.metadata).QuestionTypeId;
-      return (
-        !question.dataLabel.toUpperCase().includes("ORGID") &&
-        (["5", "likert", "scale", "rating", "agreement"].includes(type) ||
-          questionTypeId === 5 ||
-          questionTypeId === "5")
+      const likert =
+        ["5", "likert", "scale", "rating", "agreement"].includes(type) ||
+        questionTypeId === 5 ||
+        questionTypeId === "5";
+      if (!likert) return false;
+      const organizationQuestionId = organizationSpecificQuestionId(
+        question.dataLabel,
       );
+      if (organizationQuestionId) {
+        return (
+          isSupplementaryQuestion(question) &&
+          organizationQuestionIds.has(organizationQuestionId)
+        );
+      }
+      return !isSupplementaryQuestion(question);
     });
+  }
+
+  private organizationQuestionIds(context: ReportContext): Set<string> {
+    const enrollment = context.organizationPrograms.find(
+      ({ organizationId }) => organizationId === context.organizationId,
+    );
+    const enrollmentMetrics = jsonObject(
+      enrollment?.metrics ?? context.enrollmentMetrics,
+    );
+    const organizationMetadata = jsonObject(
+      enrollment?.organization.metadata ?? null,
+    );
+    return new Set(
+      [
+        context.organizationId,
+        enrollment?.legacyId,
+        enrollment?.externalId,
+        enrollment?.dealExternalId,
+        enrollment?.organization.legacyId,
+        enrollment?.organization.externalId,
+        enrollmentMetrics.Source_Organization_ID,
+        enrollmentMetrics.sourceOrganizationId,
+        organizationMetadata.sourceOrganizationId,
+      ].flatMap((value) => {
+        if (typeof value !== "string" && typeof value !== "number") return [];
+        const normalized = String(value).trim();
+        return normalized ? [normalized] : [];
+      }),
+    );
   }
 
   private async openQuestions(

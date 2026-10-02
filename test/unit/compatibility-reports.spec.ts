@@ -581,6 +581,121 @@ describe("compatibility report categories", () => {
     assert.equal(sheet.getCell("J2").value, null);
   });
 
+  it("adds only the current organization's supplementary Likert questions below the survey average", async () => {
+    const core = benchmarkQuestion("core", "Core Employee Experience", 1);
+    const supplementary = {
+      ...benchmarkQuestion("supplementary", "Supplementary Questions", 2),
+      dataLabel: "q_SupplementaryQuestions_1_ORGID_14",
+      caption: "Safety is a top priority for this organization",
+    };
+    const otherOrganizationSupplementary = {
+      ...benchmarkQuestion("other-supplementary", "Supplementary Questions", 3),
+      dataLabel: "q_SupplementaryQuestions_1_ORGID_15",
+      caption: "Question for another organization",
+    };
+    const prisma = {
+      program: {
+        findFirst: () => ({
+          id: "program-1",
+          projectId: "project-1",
+          name: "Rubber 2026",
+          year: 2026,
+          startsAt: null,
+          metadata: {},
+          project: { id: "project-1", name: "Rubber" },
+        }),
+      },
+      organizationProgram: {
+        findFirst: () => ({
+          id: "enrollment-1",
+          reportAccess: { WFR_Access: "yes" },
+          metrics: { Source_Organization_ID: "14" },
+          metadata: {},
+          organization: { name: "Zeon Chemicals" },
+        }),
+        findMany: () => [
+          {
+            organizationId: "organization-1",
+            legacyId: null,
+            externalId: null,
+            dealExternalId: null,
+            isWinner: null,
+            currentZohoCategory: null,
+            benchmarkCategory: null,
+            metrics: { Source_Organization_ID: "14" },
+            organization: {
+              legacyId: null,
+              externalId: null,
+              metadata: { sourceOrganizationId: "14" },
+            },
+          },
+        ],
+      },
+      survey: {
+        findFirst: () => ({
+          id: "survey-1",
+          title: "Employee Feedback Survey",
+          startsAt: null,
+          endsAt: null,
+        }),
+      },
+      question: {
+        findMany: () => [core, supplementary, otherOrganizationSupplementary],
+      },
+      respondent: {
+        findMany: () =>
+          Array.from({ length: 5 }, (_, index) => ({
+            id: `respondent-${index + 1}`,
+            legacyId: null,
+            externalId: null,
+            metadata: {},
+            responses: [
+              {
+                questionId: core.id,
+                value: 5,
+                score: 5,
+                question: core,
+              },
+              {
+                questionId: supplementary.id,
+                value: 1,
+                score: 1,
+                question: supplementary,
+              },
+            ],
+          })),
+      },
+    } as unknown as PrismaService;
+    const service = new CompatibilityReportsService(prisma);
+    const buffer = await service.feedbackWorkbook(
+      {
+        sub: "client-1",
+        organizationId: "organization-1",
+        roles: ["client"],
+        permissions: [],
+      },
+      { selectedProgramId: "program-1", isDummy: false },
+      false,
+    );
+
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer as never);
+    const sheet = workbook.getWorksheet("Workforce Feedback Results");
+    assert.ok(sheet);
+    assert.equal(sheet.getCell("D101").value, 100);
+    assert.equal(
+      sheet.getCell("B107").value,
+      "Safety is a top priority for this organization",
+    );
+    assert.equal(sheet.getCell("D107").value, 0);
+    assert.equal(sheet.getCell("E107").value, 100);
+    const labels = Array.from(
+      { length: sheet.rowCount },
+      (_, index) => sheet.getCell(index + 1, 2).value,
+    );
+    assert.ok(!labels.includes("Question for another organization"));
+  });
+
   it("uses displayed Likert counts as the denominator and excludes N/A and unmapped codes", async () => {
     const question = benchmarkQuestion("core", "Core Employee Experience", 1);
     const values = [1, 2, 3, 4, 5, 6, 7, 99];
