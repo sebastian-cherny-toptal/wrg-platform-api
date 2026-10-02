@@ -173,4 +173,35 @@ describe("Benefits & Best Practices workbook parsing", () => {
       [10.4, 8.7],
     );
   });
+
+  it("fills all eight cohort columns without re-merging the template title", async () => {
+    const headers = Array.from(
+      { length: 8 },
+      (_, index) => `Cohort ${index + 1}`,
+    );
+    const buffer = await createBenefitsWorkbook({ headers, sections: [] });
+
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer as never);
+    const sheet = workbook.getWorksheet("Benefits & Best Practices");
+    assert.ok(sheet);
+    assert.equal(sheet.columnCount, 9);
+    assert.equal(sheet.getCell("I6").value, "Cohort 8");
+    assert.equal(
+      sheet.model.merges.filter((merge) => merge === "B1:I1").length,
+      1,
+    );
+  });
+
+  it("creates a single-column workbook when no cohorts are available", async () => {
+    const buffer = await createBenefitsWorkbook({ headers: [], sections: [] });
+
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer as never);
+    const sheet = workbook.getWorksheet("Benefits & Best Practices");
+    assert.ok(sheet);
+    assert.equal(sheet.columnCount, 1);
+    assert.equal(sheet.getCell("A1").value, "BENEFITS & BEST PRACTICES");
+    assert.equal(sheet.model.merges.includes("B1:I1"), false);
+  });
 });

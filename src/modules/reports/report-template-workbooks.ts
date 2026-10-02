@@ -1000,6 +1000,7 @@ export async function createBenefitsWorkbook(input: {
     ),
   };
 
+  sheet.unMergeCells("B1:I1");
   for (const merge of [...sheet.model.merges]) {
     const startRow = Number(/\d+/u.exec(merge)?.[0] ?? 0);
     const endColumn = columnNumber(/:([A-Z]+)\d+$/u.exec(merge)?.[1] ?? "A");
@@ -1009,7 +1010,7 @@ export async function createBenefitsWorkbook(input: {
   if (lastColumn < 9) {
     sheet.spliceColumns(lastColumn + 1, 9 - lastColumn);
   }
-  sheet.mergeCells(1, 2, 1, lastColumn);
+  if (headerCount > 0) sheet.mergeCells(1, 2, 1, lastColumn);
 
   const groupTitle = (value: string | undefined): string | null => {
     if (!value) return null;
