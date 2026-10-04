@@ -111,26 +111,31 @@ const benefitsQuestionBindings: BenefitsQuestionBinding[] = [
     match: /pto \(one bank of time\) or as vacation\/sick\/personal/iu,
     dataLabel: "q_OrganizationalBenefits_PtoVacationSickPersonal",
     kind: "choice",
+    eligibleWhenYes: "q_OrganizationalBenefits_OfferPTOVSP",
   },
   {
     match: /offer unlimited pto/iu,
     dataLabel: "q_OrganizationalBenefits_OfferUnlimitedPTO",
     kind: "yesNo",
+    eligibleWhenYes: "q_OrganizationalBenefits_OfferPTOVSP",
   },
   {
     match: /offer unlimited vacation days/iu,
     dataLabel: "q_OrganizationalBenefits_OfferUnlimitedVacationDay",
     kind: "yesNo",
+    eligibleWhenYes: "q_OrganizationalBenefits_OfferPTOVSP",
   },
   {
     match: /offer unlimited sick days/iu,
     dataLabel: "q_OrganizationalBenefits_OfferUnlimitedSickDays",
     kind: "yesNo",
+    eligibleWhenYes: "q_OrganizationalBenefits_OfferPTOVSP",
   },
   {
     match: /offer unlimited personal days/iu,
     dataLabel: "q_OrganizationalBenefits_OfferUnlimitedPersonalDay",
     kind: "yesNo",
+    eligibleWhenYes: "q_OrganizationalBenefits_OfferPTOVSP",
   },
   {
     match: /offer healthcare benefits/iu,
@@ -141,21 +146,25 @@ const benefitsQuestionBindings: BenefitsQuestionBinding[] = [
     match: /who is eligible for healthcare benefits/iu,
     dataLabel: "q_OrganizationalBenefits_EligibilityHealthcareBene",
     kind: "choice",
+    eligibleWhenYes: "q_OrganizationalBenefits_HealthcareBenefits",
   },
   {
     match: /when can a new hire enroll/iu,
     dataLabel: "q_OrganizationalBenefits_NewHireEnrollHelthcreBenf",
     kind: "choice",
+    eligibleWhenYes: "q_OrganizationalBenefits_HealthcareBenefits",
   },
   {
     match: /check mark next to each benefit provided/iu,
     dataLabel: "q_OrganizationalBenefits_Benefits",
     kind: "multi",
+    eligibleWhenYes: "q_OrganizationalBenefits_HealthcareBenefits",
   },
   {
     match: /percentage of the premium cost/iu,
     dataLabel: "q_OrganizationalBenefits_PctCostPaidByEmployerBenf",
     kind: "numeric",
+    eligibleWhenYes: "q_OrganizationalBenefits_HealthcareBenefits",
   },
   {
     match: /third-party resources to receive help/iu,
