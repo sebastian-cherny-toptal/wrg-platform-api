@@ -1858,9 +1858,13 @@ export class CompatibilityReportsService {
     );
     if (!question) throw new NotFoundException("Question not found");
     const questions = sortingReference
-      ? await this.openQuestions(context.survey.id, {
-          questionId: sortingReference,
-        })
+      ? await this.openQuestions(
+          context.survey.id,
+          {
+            questionId: sortingReference,
+          },
+          this.organizationQuestionIds(context),
+        )
       : openQuestions;
     const sortingQuestion = sortingReference
       ? questions.find(
@@ -3878,6 +3882,7 @@ export class CompatibilityReportsService {
     const questions = await this.openQuestions(
       context.survey.id,
       effectiveFilter,
+      this.organizationQuestionIds(context),
     );
     const filterReference = effectiveFilter?.questionId;
     const filterQuestion =
@@ -4282,6 +4287,7 @@ export class CompatibilityReportsService {
   private async openQuestions(
     surveyId: string,
     queryFilter?: Record<string, unknown>,
+    organizationQuestionIds: ReadonlySet<string> = new Set(),
   ): Promise<BenchmarkQuestion[]> {
     const questions = await this.prisma.question.findMany({
       where: { surveyId },
@@ -4318,12 +4324,60 @@ export class CompatibilityReportsService {
       return open;
     }
     const reference = String(filterReference);
-    const filterQuestion = questions.find((question) =>
-      this.questionMatchesReference(question, reference),
+    const filterQuestion = this.questionForReference(
+      questions,
+      reference,
+      organizationQuestionIds,
     );
     return filterQuestion && !open.some(({ id }) => id === filterQuestion.id)
       ? [...open, filterQuestion]
       : open;
+  }
+
+  private questionForReference(
+    questions: BenchmarkQuestion[],
+    reference: string,
+    organizationQuestionIds: ReadonlySet<string>,
+  ): BenchmarkQuestion | undefined {
+    const normalized = reference.trim().toLocaleLowerCase("en");
+    const exact = questions.find((question) =>
+      [
+        question.id,
+        question.legacyId,
+        question.externalId,
+        question.dataLabel,
+      ].some(
+        (candidate) =>
+          typeof candidate === "string" &&
+          candidate.trim().toLocaleLowerCase("en") === normalized,
+      ),
+    );
+    if (exact) return exact;
+
+    const matching = questions.filter((question) =>
+      this.questionMatchesReference(question, reference),
+    );
+    const normalizedOrganizationIds = new Set(
+      [...organizationQuestionIds].map((value) =>
+        value.trim().toLocaleLowerCase("en"),
+      ),
+    );
+    return (
+      matching.find((question) => {
+        const organizationId = organizationSpecificQuestionId(
+          question.dataLabel,
+        );
+        return (
+          organizationId !== null &&
+          normalizedOrganizationIds.has(organizationId.toLocaleLowerCase("en"))
+        );
+      }) ??
+      matching.find(
+        (question) =>
+          organizationSpecificQuestionId(question.dataLabel) === null,
+      ) ??
+      matching[0]
+    );
   }
 
   private questionMatchesReference(

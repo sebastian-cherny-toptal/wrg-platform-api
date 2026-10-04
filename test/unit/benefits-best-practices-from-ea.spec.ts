@@ -1,10 +1,17 @@
 import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, it } from "node:test";
 import type { Prisma } from "@prisma/client";
 import ExcelJS from "exceljs";
 import type { PrismaService } from "../../src/database/prisma.service.js";
 import { surveyDefinitionWorkbook } from "../../src/modules/imports/program-survey-definition.service.js";
 import { parseSurveyDefinition } from "../../src/modules/imports/survey-definition.js";
+import {
+  forEachXlsxSurveyRow,
+  readXlsxSurveyDefinition,
+} from "../../src/modules/imports/xlsx-survey-importer.js";
 import {
   applyBenefitsBestPracticesDefinition,
   benefitsBestPracticesDefinition,
@@ -552,6 +559,142 @@ describe("Benefits & Best Practices generation from EA", () => {
 
     const fun = snapshot.sections[0]?.questions[0]?.responses[0]?.dataValues;
     assert.deepEqual(fun, ["x"]);
+  });
+
+  it("parses a two-organization EA file and downloads a privacy-redacted BBP workbook", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "two-organization-ea-"));
+    const filePath = join(directory, "EA_two_organizations_test.xlsx");
+    try {
+      const source = new ExcelJS.Workbook();
+      const survey = source.addWorksheet("Survey");
+      survey.addRow([
+        "organization name",
+        "organization ID",
+        "Respondent",
+        "Language",
+        "Date responded",
+        "Reached end",
+        "Score %",
+        "q_EmployerInformation_FunActivities",
+        "q_OrganizationalBenefits_NumberPaidHolidays",
+        "q_RecruitingandEmploymentPractices_Screening. Credit history",
+        "q_OrganizationalBenefits_PtoVacationSickPersonal",
+      ]);
+      survey.addRow([
+        "Acme Ltd",
+        "ORG-001",
+        1,
+        "en",
+        "2026-09-15",
+        "Yes",
+        null,
+        1,
+        10,
+        1,
+        1,
+      ]);
+      survey.addRow([
+        "Beacon Co",
+        "ORG-002",
+        1,
+        "en",
+        "2026-09-16",
+        "Yes",
+        null,
+        0,
+        8,
+        0,
+        2,
+      ]);
+      await source.xlsx.writeFile(filePath);
+
+      const definition = await readXlsxSurveyDefinition({
+        fileName: "EA_two_organizations_test.xlsx",
+        filePath,
+        questionId: (dataLabel) => dataLabel,
+      });
+      const answers: Array<{
+        organizationId: string;
+        values: Record<string, unknown>;
+      }> = [];
+      await forEachXlsxSurveyRow(definition, {}, (row) => {
+        assert.ok(row.organizationId);
+        answers.push({
+          organizationId: row.organizationId,
+          values: Object.fromEntries(
+            row.responses.map(({ question, value }) => [
+              question.dataLabel,
+              value,
+            ]),
+          ),
+        });
+      });
+
+      assert.deepEqual(
+        answers.map(({ organizationId }) => organizationId),
+        ["ORG-001", "ORG-002"],
+      );
+      assert.equal(
+        answers[0]?.values.q_OrganizationalBenefits_NumberPaidHolidays,
+        10,
+      );
+      assert.equal(
+        answers[1]?.values.q_OrganizationalBenefits_PtoVacationSickPersonal,
+        2,
+      );
+
+      const generated = generateBenefitsBestPracticesFromEa({
+        template: await loadBenefitsBestPracticesTemplate(),
+        cohorts: [
+          {
+            title: "All Size Categories",
+            type: "All_All",
+            organizationIds: answers.map(
+              ({ organizationId }) => organizationId,
+            ),
+          },
+        ],
+        answers,
+      });
+      const fun = generated.sections
+        .flatMap(({ questions }) => questions)
+        .find(({ text }) => text === funQuestion);
+      assert.deepEqual(fun?.responses[0]?.dataValues, ["x"]);
+
+      const buffer = await createBenefitsWorkbook({
+        headers: generated.headers.map(({ title }) => title),
+        columnHeaders: ["All Employers"],
+        programName: "Two Organization Test 2026",
+        sections: generated.sections.map((section) => ({
+          title: section.title,
+          questions: section.questions.map((question) => ({
+            text: question.text,
+            responses: question.responses.map((response) => ({
+              format: response.format,
+              label: response.label,
+              values: response.dataValues,
+            })),
+          })),
+        })),
+      });
+      const downloaded = new ExcelJS.Workbook();
+      await downloaded.xlsx.load(buffer as never);
+      const report = downloaded.getWorksheet("Benefits & Best Practices");
+      assert.ok(report);
+      assert.equal(
+        report.getCell("A6").value,
+        "PROGRAM: Two Organization Test 2026",
+      );
+      let funRow = 0;
+      report.eachRow((row, rowNumber) => {
+        if (String(row.getCell(1).value ?? "") === funQuestion)
+          funRow = rowNumber;
+      });
+      assert.ok(funRow > 0);
+      assert.equal(report.getCell(funRow + 1, 2).value, "x");
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 
   it("fills the report template from EA answers for the Fun Activities question", async () => {

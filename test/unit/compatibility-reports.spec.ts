@@ -1310,11 +1310,21 @@ describe("compatibility report categories", () => {
   });
 
   it("sorts each open-ended question by the purchased demographic and returns its label", async () => {
+    const anotherOrganizationDepartmentQuestion = {
+      id: "department-for-another-organization",
+      legacyId: null,
+      externalId: null,
+      dataLabel: "f_WorkplaceDemographics_department_ORGID_999",
+      caption: "Department",
+      type: "demographic",
+      position: 1,
+      metadata: { QuestionTypeId: 2, filterLabel: "Department" },
+    };
     const departmentQuestion = {
       id: "department",
       legacyId: null,
       externalId: null,
-      dataLabel: "custom_department",
+      dataLabel: "f_WorkplaceDemographics_department_ORGID_14",
       caption: "Department",
       type: "demographic",
       position: 1,
@@ -1358,7 +1368,10 @@ describe("compatibility report categories", () => {
         findFirst: () => ({
           id: "enrollment-1",
           reportAccess: { EV_Access: "yes", SEV_Access: "yes" },
-          metrics: { SEV_Filter: "Department" },
+          metrics: {
+            SEV_Filter: "Department",
+            Source_Organization_ID: "14",
+          },
           metadata: {},
           organization: {
             name: "Actual Organization Name",
@@ -1374,7 +1387,13 @@ describe("compatibility report categories", () => {
           endsAt: null,
         }),
       },
-      question: { findMany: () => [departmentQuestion, openQuestion] },
+      question: {
+        findMany: () => [
+          anotherOrganizationDepartmentQuestion,
+          departmentQuestion,
+          openQuestion,
+        ],
+      },
       respondent: {
         findMany: () =>
           departments.map((department, index) => ({

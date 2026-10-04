@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 import ExcelJS from "exceljs";
 import {
@@ -7,7 +8,10 @@ import {
   surveyDefinitionWorkbook,
 } from "../../src/modules/imports/program-survey-definition.service.js";
 import { parseSurveyDefinition } from "../../src/modules/imports/survey-definition.js";
-import { loadDefaultBenefitsBestPracticesDefinition } from "../../src/modules/reports/benefits-best-practices-from-ea.js";
+import {
+  loadDefaultBenefitsBestPracticesDefinition,
+  validateBenefitsBestPracticesDefinition,
+} from "../../src/modules/reports/benefits-best-practices-from-ea.js";
 
 test("default EA definition template exposes the built-in Benefits & Best Practices labels", async () => {
   const defaults = await loadDefaultBenefitsBestPracticesDefinition();
@@ -37,6 +41,34 @@ test("default EA definition template exposes the built-in Benefits & Best Practi
   assert.equal(paidHolidays.options.length, 25);
   assert.equal(paidHolidays.options[0]?.Id, "1");
   assert.equal(paidHolidays.options[24]?.Id, "25");
+});
+
+test("Campaign 2026 EA Questions and Answers parses but is rejected when attached", async () => {
+  const uploaded = await parseSurveyDefinition(
+    await readFile(
+      new URL("../fixtures/campaign-2026-ea-qa-upload.xlsx", import.meta.url),
+    ),
+  );
+
+  assert.equal(uploaded.length, 26);
+  assert.equal(
+    uploaded.reduce(
+      (answerCount, question) => answerCount + (question.options?.length ?? 0),
+      0,
+    ),
+    161,
+  );
+  assert.equal(
+    uploaded.find(
+      ({ dataLabel }) => dataLabel === "q_EmployerInformation_FunActivities",
+    )?.caption,
+    "Does your organisation coordinate “Fun” activities?",
+  );
+  const defaults = await loadDefaultBenefitsBestPracticesDefinition();
+
+  assert.throws(() => {
+    validateBenefitsBestPracticesDefinition(uploaded, defaults);
+  }, /EA definition answer is not used by q_OrganizationalBenefits_SelectPaidHolidays: 2nd January/u);
 });
 
 test("default survey definition workbook contains both sheets and effective answers", async () => {
