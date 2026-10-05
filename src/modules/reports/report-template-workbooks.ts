@@ -726,6 +726,20 @@ export async function createWorkforceFeedbackWorkbook(input: {
   rotateWorkforceFeedbackHeaders(workbook);
   const sections = input.sections.filter(sectionHasResponses);
   const questions = sections.flatMap((section) => section.questions);
+  const questionByRow = new Map<number, FeedbackWorkbookQuestion>();
+  const sheet = workbook.getWorksheet("Workforce Feedback Results");
+  if (!sheet) throw new Error("Workforce Feedback template has no worksheet");
+  for (let row = 1; row <= sheet.rowCount; row += 1) {
+    const placeholder = sheet.getCell(row, 2).value;
+    if (typeof placeholder !== "string") continue;
+    const match = /^\{\{CATEGORY_(\d+)_QUESTION_(\d+)_TEXT\}\}$/u.exec(
+      placeholder,
+    );
+    if (!match?.[1] || !match[2]) continue;
+    const question =
+      sections[Number(match[1]) - 1]?.questions[Number(match[2]) - 1];
+    if (question) questionByRow.set(row, question);
+  }
   fillTokens(workbook, (name, cell) => {
     if (name === "ORGANIZATION_NAME") return input.metadata.organizationName;
     if (name === "PROGRAM_NAME") return input.metadata.programName;
@@ -790,7 +804,7 @@ export async function createWorkforceFeedbackWorkbook(input: {
     }
     const questionValueMatch = /^QUESTION_(\d+)_VALUE_(\d+)$/u.exec(name);
     if (questionValueMatch) {
-      const question = questions[Number(questionValueMatch[1]) - 1];
+      const question = questionByRow.get(cell.fullAddress.row);
       if (!question) return null;
       const valueIndex = Number(questionValueMatch[2]);
       if (valueIndex === 1) return question.agreement;

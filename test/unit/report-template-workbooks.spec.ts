@@ -193,6 +193,85 @@ describe("annual trends workbook generation", () => {
 });
 
 describe("workforce feedback workbook generation", () => {
+  it("keeps GenomeWeb EFS Work-Life Balance results beside every question label", async () => {
+    const genomeWebEfsSections = [
+      ["Core Employee Experience", 9],
+      ["Your Job", 12],
+      ["Communication And Workplace Culture", 11],
+      ["Relationship With Your Manager", 9],
+      ["Training, Technology And Professional Development", 7],
+      ["Diversity And Inclusion", 6],
+      ["Leadership Of This Organization", 5],
+      ["Employee Benefits", 7],
+      ["Work-Life Balance", 6],
+    ] as const;
+    const workLifeBalanceQuestions = [
+      "I am satisfied with the number of hours I work each week",
+      "I rarely miss personal events because of work",
+      "I am satisfied with my work-life balance",
+      "My current workload enables me to have a healthy work-life balance",
+      "I have the flexibility needed to manage personal obligations",
+      "My organization encourages me to take time off",
+    ];
+    const buffer = await createWorkforceFeedbackWorkbook({
+      metadata: {
+        organizationName: "Baylor Genetics",
+        programName: "GenomeWeb's Best Places to Work 2026",
+        surveyDates: "2026",
+      },
+      demographics: [],
+      sections: genomeWebEfsSections.map(([title, questionCount]) => ({
+        title,
+        questions: Array.from({ length: questionCount }, (_, index) => ({
+          text:
+            title === "Work-Life Balance"
+              ? (workLifeBalanceQuestions[index] ?? `Question ${index + 1}`)
+              : `${title} question ${index + 1}`,
+          agreement: 70 + index,
+          neutral: 20 - index,
+          disagreement: 10,
+          responseCount: 100,
+        })),
+      })),
+      totalResponses: 100,
+    });
+
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer as never);
+    const sheet = workbook.getWorksheet("Workforce Feedback Results");
+    assert.ok(sheet);
+
+    for (const [index, question] of workLifeBalanceQuestions.entries()) {
+      const row = sheet
+        .getColumn(2)
+        .values.findIndex((value) => value === question);
+      assert.notEqual(row, -1, `missing question label: ${question}`);
+      assert.equal(
+        sheet.getCell(row, 4).value,
+        70 + index,
+        `incorrect agreement result beside: ${question}`,
+      );
+      assert.equal(
+        sheet.getCell(row, 5).value,
+        10,
+        `incorrect disagreement result beside: ${question}`,
+      );
+    }
+    for (let row = 5; row <= 99; row += 1) {
+      if (sheet.getCell(row, 2).value !== null) continue;
+      assert.equal(
+        sheet.getCell(row, 4).value,
+        null,
+        `orphaned agreement result without a label in row ${row}`,
+      );
+      assert.equal(
+        sheet.getCell(row, 5).value,
+        null,
+        `orphaned disagreement result without a label in row ${row}`,
+      );
+    }
+  });
+
   it("lists supplementary Likert questions after the survey average without including them in it", async () => {
     const buffer = await createWorkforceFeedbackWorkbook({
       metadata: {
