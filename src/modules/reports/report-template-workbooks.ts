@@ -660,45 +660,235 @@ function formatWorkforceFeedbackNumbers(workbook: ExcelJS.Workbook): void {
   }
 }
 
-function appendWorkforceFeedbackSupplementaryQuestions(
+interface WorkforceFeedbackRowBlueprint {
+  height: number | undefined;
+  styles: Array<Partial<ExcelJS.Style>>;
+}
+
+function workforceFeedbackRowBlueprint(
+  sheet: ExcelJS.Worksheet,
+  rowNumber: number,
+): WorkforceFeedbackRowBlueprint {
+  return {
+    height: sheet.getRow(rowNumber).height,
+    styles: Array.from({ length: sheet.columnCount }, (_, index) =>
+      structuredClone(sheet.getCell(rowNumber, index + 1).style),
+    ),
+  };
+}
+
+function applyWorkforceFeedbackRowBlueprint(
+  sheet: ExcelJS.Worksheet,
+  rowNumber: number,
+  blueprint: WorkforceFeedbackRowBlueprint,
+): void {
+  const row = sheet.getRow(rowNumber);
+  if (blueprint.height !== undefined) row.height = blueprint.height;
+  for (let column = 1; column <= sheet.columnCount; column += 1) {
+    const cell = sheet.getCell(rowNumber, column);
+    cell.value = null;
+    const style = blueprint.styles[column - 1];
+    if (style) cell.style = structuredClone(style);
+  }
+}
+
+function createWorkforceFeedbackWorksheet(
   workbook: ExcelJS.Workbook,
+  styleSource: ExcelJS.Worksheet,
+): ExcelJS.Worksheet {
+  const sheet = workbook.addWorksheet("_WFR Generated");
+  sheet.properties = structuredClone(styleSource.properties);
+  sheet.pageSetup = structuredClone(styleSource.pageSetup);
+  sheet.headerFooter = structuredClone(styleSource.headerFooter);
+  sheet.views = structuredClone(styleSource.views);
+
+  for (let column = 1; column <= styleSource.columnCount; column += 1) {
+    const source = styleSource.getColumn(column);
+    const target = sheet.getColumn(column);
+    if (source.width !== undefined) target.width = source.width;
+    target.hidden = source.hidden;
+    target.outlineLevel = source.outlineLevel;
+    target.style = structuredClone(source.style);
+  }
+  for (let row = 1; row <= 4; row += 1) {
+    const source = styleSource.getRow(row);
+    const target = sheet.getRow(row);
+    target.height = source.height;
+    target.hidden = source.hidden;
+    if (source.outlineLevel !== undefined)
+      target.outlineLevel = source.outlineLevel;
+    for (let column = 1; column <= styleSource.columnCount; column += 1) {
+      target.getCell(column).value = structuredClone(
+        source.getCell(column).value,
+      );
+      target.getCell(column).style = structuredClone(
+        source.getCell(column).style,
+      );
+    }
+  }
+  for (const merge of styleSource.model.merges) sheet.mergeCells(merge);
+  for (const image of styleSource.getImages()) {
+    const range = image.range as unknown as ExcelJS.ImagePosition & {
+      editAs?: string;
+      hyperlinks?: ExcelJS.ImageHyperlinkValue;
+    };
+    sheet.addImage(Number(image.imageId), {
+      tl: { col: range.tl.col, row: range.tl.row },
+      ext: structuredClone(range.ext),
+      ...(range.editAs ? { editAs: range.editAs } : {}),
+      ...(range.hyperlinks
+        ? { hyperlinks: structuredClone(range.hyperlinks) }
+        : {}),
+    });
+  }
+
+  workbook.removeWorksheet(styleSource.id);
+  sheet.name = "Workforce Feedback Results";
+  return sheet;
+}
+
+function writeWorkforceFeedbackQuestionValues(
+  sheet: ExcelJS.Worksheet,
+  rowNumber: number,
+  demographics: ReportWorkbookDemographic[],
+  question: FeedbackWorkbookQuestion,
+): void {
+  sheet.getCell(rowNumber, 2).value = safeValue(question.text);
+  sheet.getCell(rowNumber, 4).value = question.agreement;
+  sheet.getCell(rowNumber, 5).value = question.disagreement;
+  for (let column = 7; column <= sheet.columnCount; column += 1) {
+    if (sheet.getCell(3, column).value === null) continue;
+    sheet.getCell(rowNumber, column).value = demographicValue(
+      demographics,
+      sheet.getCell(rowNumber, column),
+      question.agreement,
+      question.demographicAgreement,
+    );
+  }
+}
+
+function writeWorkforceFeedbackAverageValues(
+  sheet: ExcelJS.Worksheet,
+  rowNumber: number,
   demographics: ReportWorkbookDemographic[],
   questions: FeedbackWorkbookQuestion[],
 ): void {
-  const sheet = workbook.getWorksheet("Workforce Feedback Results");
-  if (!sheet || questions.length === 0) return;
+  const agreement = weightedAverage(
+    questions.map((question) => ({
+      value: question.agreement,
+      weight: question.responseCount,
+    })),
+  );
+  const disagreement = weightedAverage(
+    questions.map((question) => ({
+      value: question.disagreement,
+      weight: question.responseCount,
+    })),
+  );
+  sheet.getCell(rowNumber, 4).value = agreement;
+  sheet.getCell(rowNumber, 5).value = disagreement;
+  for (let column = 7; column <= sheet.columnCount; column += 1) {
+    if (sheet.getCell(3, column).value === null) continue;
+    sheet.getCell(rowNumber, column).value = demographicAverageValue(
+      demographics,
+      sheet.getCell(rowNumber, column),
+      agreement,
+      questions.map((question) => question.demographicAgreement),
+      questions.map((question) => question.demographicResponseCount),
+    );
+  }
+}
 
-  const titleRowNumber = 106;
-  const firstQuestionRowNumber = titleRowNumber + 1;
-  const copyRowStyle = (sourceRowNumber: number, targetRowNumber: number) => {
-    const sourceRow = sheet.getRow(sourceRowNumber);
-    const targetRow = sheet.getRow(targetRowNumber);
-    targetRow.height = sourceRow.height;
-    for (let column = 1; column <= sheet.columnCount; column += 1) {
-      const target = targetRow.getCell(column);
-      target.value = null;
-      target.style = sourceRow.getCell(column).style;
-    }
-  };
+function buildWorkforceFeedbackRows(
+  workbook: ExcelJS.Workbook,
+  demographics: ReportWorkbookDemographic[],
+  sections: FeedbackWorkbookSection[],
+  supplementaryQuestions: FeedbackWorkbookQuestion[],
+): void {
+  const styleSource = workbook.getWorksheet("Workforce Feedback Results");
+  if (!styleSource)
+    throw new Error("Workforce Feedback template has no worksheet");
 
-  copyRowStyle(92, titleRowNumber);
-  sheet.getCell(titleRowNumber, 2).value = "SUPPLEMENTARY QUESTIONS";
+  // The legacy workbook is retained as a visual style source only. Its fixed
+  // section capacities are deprecated and never determine the generated rows.
+  const category = workforceFeedbackRowBlueprint(styleSource, 5);
+  const question = workforceFeedbackRowBlueprint(styleSource, 6);
+  const sectionAverage = workforceFeedbackRowBlueprint(styleSource, 15);
+  const surveyAverage = workforceFeedbackRowBlueprint(styleSource, 101);
+  const note = workforceFeedbackRowBlueprint(styleSource, 103);
+  const supplementaryTitle = workforceFeedbackRowBlueprint(styleSource, 92);
+  const supplementaryQuestion = workforceFeedbackRowBlueprint(styleSource, 93);
+  const noteTexts = [
+    styleSource.getCell(103, 2).value,
+    styleSource.getCell(104, 2).value,
+  ];
+  const sheet = createWorkforceFeedbackWorksheet(workbook, styleSource);
 
-  questions.forEach((question, index) => {
-    const rowNumber = firstQuestionRowNumber + index;
-    copyRowStyle(93, rowNumber);
-    sheet.getCell(rowNumber, 2).value = safeValue(question.text);
-    sheet.getCell(rowNumber, 4).value = question.agreement;
-    sheet.getCell(rowNumber, 5).value = question.disagreement;
-    for (let column = 7; column <= sheet.columnCount; column += 1) {
-      sheet.getCell(rowNumber, column).value = demographicValue(
+  let rowNumber = 5;
+  for (const section of sections) {
+    applyWorkforceFeedbackRowBlueprint(sheet, rowNumber, category);
+    sheet.getCell(rowNumber, 2).value = safeValue(section.title);
+    rowNumber += 1;
+
+    for (const item of section.questions) {
+      applyWorkforceFeedbackRowBlueprint(sheet, rowNumber, question);
+      writeWorkforceFeedbackQuestionValues(
+        sheet,
+        rowNumber,
         demographics,
-        sheet.getCell(rowNumber, column),
-        question.agreement,
-        question.demographicAgreement,
+        item,
       );
+      rowNumber += 1;
     }
-  });
+
+    applyWorkforceFeedbackRowBlueprint(sheet, rowNumber, sectionAverage);
+    sheet.getCell(rowNumber, 2).value = `${section.title.toUpperCase()} - AVERAGE`;
+    writeWorkforceFeedbackAverageValues(
+      sheet,
+      rowNumber,
+      demographics,
+      section.questions,
+    );
+    rowNumber += 1;
+  }
+
+  rowNumber += 1;
+  applyWorkforceFeedbackRowBlueprint(sheet, rowNumber, surveyAverage);
+  sheet.getCell(rowNumber, 2).value = "SURVEY AVERAGE";
+  writeWorkforceFeedbackAverageValues(
+    sheet,
+    rowNumber,
+    demographics,
+    sections.flatMap((section) => section.questions),
+  );
+  rowNumber += 2;
+
+  for (const text of noteTexts) {
+    applyWorkforceFeedbackRowBlueprint(sheet, rowNumber, note);
+    sheet.getCell(rowNumber, 2).value = text;
+    rowNumber += 1;
+  }
+
+  if (supplementaryQuestions.length > 0) {
+    rowNumber += 1;
+    applyWorkforceFeedbackRowBlueprint(sheet, rowNumber, supplementaryTitle);
+    sheet.getCell(rowNumber, 2).value = "SUPPLEMENTARY QUESTIONS";
+    rowNumber += 1;
+    for (const item of supplementaryQuestions) {
+      applyWorkforceFeedbackRowBlueprint(
+        sheet,
+        rowNumber,
+        supplementaryQuestion,
+      );
+      writeWorkforceFeedbackQuestionValues(
+        sheet,
+        rowNumber,
+        demographics,
+        item,
+      );
+      rowNumber += 1;
+    }
+  }
 }
 
 function formatAnnualTrendsNumbers(workbook: ExcelJS.Workbook): void {
@@ -719,27 +909,27 @@ export async function createWorkforceFeedbackWorkbook(input: {
   totalResponses: number;
   responsePatternRanges?: ResponsePatternRanges;
 }): Promise<Buffer> {
+  // Deprecated as a structural template. Retained only as the visual style
+  // source while report rows are generated from the current survey definition.
   const workbook = await loadTemplate("workforce-feedback-results.xlsx");
   const demographics = input.demographics.filter(demographicHasResponses);
   setWorkforceFeedbackDemographics(workbook, demographics);
   clearWorkforceFeedbackPlaceholders(workbook);
   rotateWorkforceFeedbackHeaders(workbook);
   const sections = input.sections.filter(sectionHasResponses);
-  const questions = sections.flatMap((section) => section.questions);
-  const questionByRow = new Map<number, FeedbackWorkbookQuestion>();
-  const sheet = workbook.getWorksheet("Workforce Feedback Results");
-  if (!sheet) throw new Error("Workforce Feedback template has no worksheet");
-  for (let row = 1; row <= sheet.rowCount; row += 1) {
-    const placeholder = sheet.getCell(row, 2).value;
-    if (typeof placeholder !== "string") continue;
-    const match = /^\{\{CATEGORY_(\d+)_QUESTION_(\d+)_TEXT\}\}$/u.exec(
-      placeholder,
-    );
-    if (!match?.[1] || !match[2]) continue;
-    const question =
-      sections[Number(match[1]) - 1]?.questions[Number(match[2]) - 1];
-    if (question) questionByRow.set(row, question);
-  }
+  const supplementaryQuestions = (input.supplementaryQuestions ?? []).filter(
+    (question) =>
+      sectionHasResponses({
+        title: "Supplementary Questions",
+        questions: [question],
+      }),
+  );
+  buildWorkforceFeedbackRows(
+    workbook,
+    demographics,
+    sections,
+    supplementaryQuestions,
+  );
   fillTokens(workbook, (name, cell) => {
     if (name === "ORGANIZATION_NAME") return input.metadata.organizationName;
     if (name === "PROGRAM_NAME") return input.metadata.programName;
@@ -757,102 +947,8 @@ export async function createWorkforceFeedbackWorkbook(input: {
         ) ?? 0;
       return count;
     }
-    const categoryMatch = /^CATEGORY_(\d+)_TITLE$/u.exec(name);
-    if (categoryMatch)
-      return sections[Number(categoryMatch[1]) - 1]?.title;
-    const categoryQuestionMatch = /^CATEGORY_(\d+)_QUESTION_(\d+)_TEXT$/u.exec(
-      name,
-    );
-    if (categoryQuestionMatch) {
-      return sections[Number(categoryQuestionMatch[1]) - 1]?.questions[
-        Number(categoryQuestionMatch[2]) - 1
-      ]?.text;
-    }
-    const averageTitleMatch = /^CATEGORY_(\d+)_AVERAGE_TITLE$/u.exec(name);
-    if (averageTitleMatch) {
-      const title = sections[Number(averageTitleMatch[1]) - 1]?.title;
-      return title ? `${title.toUpperCase()} - AVERAGE` : null;
-    }
-    const averageValueMatch = /^CATEGORY_(\d+)_AVERAGE_VALUE_(\d+)$/u.exec(
-      name,
-    );
-    if (averageValueMatch) {
-      const section = sections[Number(averageValueMatch[1]) - 1];
-      if (!section) return null;
-      const valueIndex = Number(averageValueMatch[2]);
-      const agreement = weightedAverage(
-        section.questions.map((item) => ({
-          value: item.agreement,
-          weight: item.responseCount,
-        })),
-      );
-      const disagreement = weightedAverage(
-        section.questions.map((item) => ({
-          value: item.disagreement,
-          weight: item.responseCount,
-        })),
-      );
-      if (valueIndex === 1) return agreement;
-      if (valueIndex === 2) return disagreement;
-      return demographicAverageValue(
-        demographics,
-        cell,
-        agreement,
-        section.questions.map((item) => item.demographicAgreement),
-        section.questions.map((item) => item.demographicResponseCount),
-      );
-    }
-    const questionValueMatch = /^QUESTION_(\d+)_VALUE_(\d+)$/u.exec(name);
-    if (questionValueMatch) {
-      const question = questionByRow.get(cell.fullAddress.row);
-      if (!question) return null;
-      const valueIndex = Number(questionValueMatch[2]);
-      if (valueIndex === 1) return question.agreement;
-      if (valueIndex === 2) return question.disagreement;
-      return demographicValue(
-        demographics,
-        cell,
-        question.agreement,
-        question.demographicAgreement,
-      );
-    }
-    const surveyAverageMatch = /^SURVEY_AVERAGE_VALUE_(\d+)$/u.exec(name);
-    if (surveyAverageMatch) {
-      const valueIndex = Number(surveyAverageMatch[1]);
-      const agreement = weightedAverage(
-        questions.map((item) => ({
-          value: item.agreement,
-          weight: item.responseCount,
-        })),
-      );
-      const disagreement = weightedAverage(
-        questions.map((item) => ({
-          value: item.disagreement,
-          weight: item.responseCount,
-        })),
-      );
-      if (valueIndex === 1) return agreement;
-      if (valueIndex === 2) return disagreement;
-      return demographicAverageValue(
-        demographics,
-        cell,
-        agreement,
-        questions.map((question) => question.demographicAgreement),
-        questions.map((question) => question.demographicResponseCount),
-      );
-    }
     return null;
   });
-  appendWorkforceFeedbackSupplementaryQuestions(
-    workbook,
-    demographics,
-    (input.supplementaryQuestions ?? []).filter((question) =>
-      sectionHasResponses({
-        title: "Supplementary Questions",
-        questions: [question],
-      }),
-    ),
-  );
   formatWorkforceFeedbackNumbers(workbook);
   applyResponsePatternFills(workbook, input.responsePatternRanges);
   return workbookBuffer(workbook);

@@ -682,13 +682,21 @@ describe("compatibility report categories", () => {
     await workbook.xlsx.load(buffer as never);
     const sheet = workbook.getWorksheet("Workforce Feedback Results");
     assert.ok(sheet);
-    assert.equal(sheet.getCell("D101").value, 100);
+    const surveyAverageRow = sheet
+      .getColumn(2)
+      .values.findIndex((value) => value === "SURVEY AVERAGE");
+    const supplementaryQuestionRow = sheet
+      .getColumn(2)
+      .values.findIndex(
+        (value) => value === "Safety is a top priority for this organization",
+      );
+    assert.equal(sheet.getCell(surveyAverageRow, 4).value, 100);
     assert.equal(
-      sheet.getCell("B107").value,
+      sheet.getCell(supplementaryQuestionRow, 2).value,
       "Safety is a top priority for this organization",
     );
-    assert.equal(sheet.getCell("D107").value, 0);
-    assert.equal(sheet.getCell("E107").value, 100);
+    assert.equal(sheet.getCell(supplementaryQuestionRow, 4).value, 0);
+    assert.equal(sheet.getCell(supplementaryQuestionRow, 5).value, 100);
     const labels = Array.from(
       { length: sheet.rowCount },
       (_, index) => sheet.getCell(index + 1, 2).value,

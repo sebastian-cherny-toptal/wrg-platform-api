@@ -102,8 +102,8 @@ describe("response-pattern cell projection", () => {
     assert.equal(at(cells, 6, 6).metric, null);
     assert.equal(at(cells, 6, 7).columnKind, "demographic-agreement");
     assert.equal(at(cells, 6, 7).numericValue, 75);
-    assert.equal(at(cells, 15, 4).rowKind, "category-average");
-    assert.equal(at(cells, 101, 4).rowKind, "survey-average");
+    assert.equal(at(cells, 7, 4).rowKind, "category-average");
+    assert.equal(at(cells, 9, 4).rowKind, "survey-average");
   });
 
   it("classifies overall, demographic, count, average, and separator cells", () => {

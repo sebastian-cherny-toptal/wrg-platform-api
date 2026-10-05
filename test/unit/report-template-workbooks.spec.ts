@@ -272,6 +272,66 @@ describe("workforce feedback workbook generation", () => {
     }
   });
 
+  it("creates formatted rows for sections larger than the deprecated template capacity", async () => {
+    const questions = Array.from({ length: 14 }, (_, index) => ({
+      text: `Dynamic question ${index + 1}`,
+      agreement: 70 + index,
+      neutral: 20 - index,
+      disagreement: 10,
+      responseCount: 100,
+    }));
+    const buffer = await createWorkforceFeedbackWorkbook({
+      metadata: {
+        organizationName: "Test organization",
+        programName: "Dynamic survey",
+        surveyDates: "2026",
+      },
+      demographics: [],
+      sections: [{ title: "Dynamic section", questions }],
+      totalResponses: 100,
+    });
+
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer as never);
+    const sheet = workbook.getWorksheet("Workforce Feedback Results");
+    assert.ok(sheet);
+
+    const firstQuestionRow = sheet
+      .getColumn(2)
+      .values.findIndex((value) => value === "Dynamic question 1");
+    const lastQuestionRow = sheet
+      .getColumn(2)
+      .values.findIndex((value) => value === "Dynamic question 14");
+    assert.equal(lastQuestionRow - firstQuestionRow, 13);
+    assert.equal(sheet.getCell(lastQuestionRow, 4).value, 83);
+    assert.equal(sheet.getCell(lastQuestionRow, 5).value, 10);
+    assert.equal(
+      sheet.getCell(lastQuestionRow + 1, 2).value,
+      "DYNAMIC SECTION - AVERAGE",
+    );
+    assert.equal(
+      sheet.getCell(lastQuestionRow + 3, 2).value,
+      "SURVEY AVERAGE",
+    );
+    assert.ok(sheet.rowCount < 40, "report retains unused template rows");
+
+    assert.equal(sheet.getColumn(2).width, 100);
+    assert.equal(sheet.getColumn(4).width, 10);
+    assert.equal(sheet.getRow(3).height, 230);
+    assert.ok(sheet.model.merges.includes("D2:E2"));
+    assert.equal(sheet.getImages().length, 1);
+    assert.equal(sheet.getCell(lastQuestionRow, 4).numFmt, "0");
+    assert.equal(
+      (sheet.getCell(5, 2).fill as ExcelJS.FillPattern).fgColor?.argb,
+      "FFECEEF4",
+    );
+    assert.equal(
+      (sheet.getCell(lastQuestionRow + 1, 2).fill as ExcelJS.FillPattern)
+        .fgColor?.argb,
+      "FF2E1065",
+    );
+  });
+
   it("lists supplementary Likert questions after the survey average without including them in it", async () => {
     const buffer = await createWorkforceFeedbackWorkbook({
       metadata: {
@@ -320,19 +380,31 @@ describe("workforce feedback workbook generation", () => {
     await workbook.xlsx.load(buffer as never);
     const sheet = workbook.getWorksheet("Workforce Feedback Results");
     assert.ok(sheet);
-    assert.equal(sheet.getCell("B101").value, "SURVEY AVERAGE");
-    assert.equal(sheet.getCell("D101").value, 80);
-    assert.equal(sheet.getCell("B106").value, "SUPPLEMENTARY QUESTIONS");
+    const surveyAverageRow = sheet
+      .getColumn(2)
+      .values.findIndex((value) => value === "SURVEY AVERAGE");
+    const supplementaryTitleRow = sheet
+      .getColumn(2)
+      .values.findIndex((value) => value === "SUPPLEMENTARY QUESTIONS");
+    const supplementaryQuestionRow = sheet
+      .getColumn(2)
+      .values.findIndex(
+        (value) => value === "Safety is a top priority for this organization",
+      );
+    assert.equal(sheet.getCell(surveyAverageRow, 4).value, 80);
+    assert.ok(supplementaryTitleRow > surveyAverageRow);
+    assert.equal(supplementaryQuestionRow, supplementaryTitleRow + 1);
     assert.equal(
-      sheet.getCell("B107").value,
+      sheet.getCell(supplementaryQuestionRow, 2).value,
       "Safety is a top priority for this organization",
     );
-    assert.equal(sheet.getCell("D107").value, 40);
-    assert.equal(sheet.getCell("E107").value, 40);
-    assert.equal(sheet.getCell("G107").value, 50);
-    assert.equal(sheet.getCell("D107").numFmt, "0");
+    assert.equal(sheet.getCell(supplementaryQuestionRow, 4).value, 40);
+    assert.equal(sheet.getCell(supplementaryQuestionRow, 5).value, 40);
+    assert.equal(sheet.getCell(supplementaryQuestionRow, 7).value, 50);
+    assert.equal(sheet.getCell(supplementaryQuestionRow, 4).numFmt, "0");
     assert.equal(
-      (sheet.getCell("B106").fill as ExcelJS.FillPattern).fgColor?.argb,
+      (sheet.getCell(supplementaryTitleRow, 2).fill as ExcelJS.FillPattern)
+        .fgColor?.argb,
       "FFECEEF4",
     );
   });
@@ -407,8 +479,8 @@ describe("workforce feedback workbook generation", () => {
     assert.ok(sheet);
     assert.equal(sheet.getCell("B5").value, "Demographic responses");
     assert.equal(sheet.getCell("B6").value, "Answered by a demographic group");
-    assert.equal(sheet.getCell("B16").value, "Overall responses");
-    assert.equal(sheet.getCell("B17").value, "Answered overall");
+    assert.equal(sheet.getCell("B8").value, "Overall responses");
+    assert.equal(sheet.getCell("B9").value, "Answered overall");
     const values: unknown[] = [];
     sheet.eachRow((row) => {
       row.eachCell((cell) => {
@@ -730,11 +802,19 @@ describe("workforce feedback workbook generation", () => {
         assert.equal(sheet.getCell(row, column).value, null);
       }
     }
-    assert.equal(sheet.getCell("B101").value, "SURVEY AVERAGE");
-    assert.equal(sheet.getCell("D101").value, 73.33333333333333);
-    assert.equal(sheet.getCell("D101").numFmt, "0");
-    assert.equal(sheet.getCell("E101").value, 16.666666666666668);
-    assert.equal(sheet.getCell("E101").numFmt, "0");
+    const surveyAverageRow = sheet
+      .getColumn(2)
+      .values.findIndex((value) => value === "SURVEY AVERAGE");
+    assert.equal(
+      sheet.getCell(surveyAverageRow, 4).value,
+      73.33333333333333,
+    );
+    assert.equal(sheet.getCell(surveyAverageRow, 4).numFmt, "0");
+    assert.equal(
+      sheet.getCell(surveyAverageRow, 5).value,
+      16.666666666666668,
+    );
+    assert.equal(sheet.getCell(surveyAverageRow, 5).numFmt, "0");
   });
 });
 
