@@ -121,6 +121,7 @@ describe("native management compatibility endpoints", () => {
                 currentZohoCategory: "Small",
                 purchasedEvSortingFilter: null,
                 rdPaymentType: "Invoice Sent",
+                kiaPaymentType: "Invoice Sent",
                 reportAccess: {},
                 paymentDetails: {},
                 metrics: {
@@ -131,7 +132,10 @@ describe("native management compatibility endpoints", () => {
                   Report_Category: "25-99",
                   Current_Year_Category: "Small",
                 },
-                organization: { name: "Acme Health LLC" },
+                organization: {
+                  id: "organization-id",
+                  name: "Acme Health LLC",
+                },
               },
             ],
           }),
@@ -164,6 +168,7 @@ describe("native management compatibility endpoints", () => {
             categoryRank: "1",
             purchasedEvSortingFilter: "Department",
             rdPaymentType: "Paid via ACH",
+            kiaPaymentType: "Paid via Check",
           },
           {
             organizationId: "99",
@@ -179,6 +184,7 @@ describe("native management compatibility endpoints", () => {
             categoryRank: null,
             purchasedEvSortingFilter: null,
             rdPaymentType: null,
+            kiaPaymentType: null,
           },
         ]);
       },
@@ -206,7 +212,7 @@ describe("native management compatibility endpoints", () => {
       [
         {
           field: "organizationName",
-          previous: "Acme Health",
+          previous: "Acme Health LLC",
           next: "Acme Health Group",
         },
         { field: "stage", previous: "Invited", next: "Closed" },
@@ -226,6 +232,11 @@ describe("native management compatibility endpoints", () => {
           field: "rdPaymentType",
           previous: "Invoice Sent",
           next: "Paid via ACH",
+        },
+        {
+          field: "kiaPaymentType",
+          previous: "Invoice Sent",
+          next: "Paid via Check",
         },
       ],
     );
@@ -248,6 +259,7 @@ describe("native management compatibility endpoints", () => {
       currentZohoCategory: "Small",
       purchasedEvSortingFilter: null,
       rdPaymentType: null,
+      kiaPaymentType: null,
       reportAccess: { EV_Access: "yes" },
       paymentDetails: {},
       metrics: {
@@ -259,13 +271,22 @@ describe("native management compatibility endpoints", () => {
         Current_Year_Category: "Small",
         Existing_Value: "preserved",
       },
-      organization: { name: "Acme Health LLC" },
+      organization: { id: "organization-id", name: "Acme Health LLC" },
     };
     let update:
       | { where: Record<string, unknown>; data: Record<string, unknown> }
       | undefined;
+    let organizationUpdate:
+      | { where: Record<string, unknown>; data: Record<string, unknown> }
+      | undefined;
     let latestZohoSync: Date | undefined;
     const transactionClient = {
+      organization: {
+        updateMany: (args: typeof organizationUpdate) => {
+          organizationUpdate = args;
+          return Promise.resolve({ count: 1 });
+        },
+      },
       organizationProgram: {
         updateMany: (args: typeof update) => {
           update = args;
@@ -310,6 +331,7 @@ describe("native management compatibility endpoints", () => {
             categoryRank: null,
             purchasedEvSortingFilter: "Department",
             rdPaymentType: "Paid via Check",
+            kiaPaymentType: "Paid via ACH",
           },
         ]),
     };
@@ -334,6 +356,10 @@ describe("native management compatibility endpoints", () => {
 
     assert.equal(applied.appliedCount, 1);
     assert.ok(update);
+    assert.deepEqual(organizationUpdate, {
+      where: { id: "organization-id", name: "Acme Health LLC" },
+      data: { name: "Acme Health Group" },
+    });
     assert.ok(latestZohoSync instanceof Date);
     assert.deepEqual(update.where, {
       id: "enrollment-id",
@@ -351,9 +377,11 @@ describe("native management compatibility endpoints", () => {
         currentZohoCategory: "Community",
         purchasedEvSortingFilter: "Department",
         rdPaymentType: "Paid via Check",
+        kiaPaymentType: "Paid via ACH",
         reportAccess: {
           EV_Access: "yes",
           SEV_Access: "yes",
+          RD_Access: "yes",
           KIA_Access: "yes",
         },
         paymentDetails: { EV_Sorting_Payment_Type: "Zoho" },
@@ -534,6 +562,8 @@ describe("native management compatibility endpoints", () => {
                 benchmarkCategory: "Small",
                 categoryRank: "2",
                 overallRank: "4",
+                rdPaymentType: "Paid via Check",
+                kiaPaymentType: "Paid via Credit Card",
                 metrics: {
                   Source_Organization_ID: "49",
                   Surveys_Sent: 80,
@@ -576,6 +606,8 @@ describe("native management compatibility endpoints", () => {
                 benchmarkCategory: "Medium",
                 categoryRank: null,
                 overallRank: null,
+                rdPaymentType: null,
+                kiaPaymentType: null,
                 metrics: {
                   Source_Organization_ID: "50",
                   Surveys_Sent: 120,
@@ -637,8 +669,8 @@ describe("native management compatibility endpoints", () => {
       "Given by default",
       "Paid via ACH",
       "Department",
-      "Paid via ACH",
-      "",
+      "Paid via Check",
+      "Paid via Credit Card",
       "Winner",
       "Small/Medium",
       "2",

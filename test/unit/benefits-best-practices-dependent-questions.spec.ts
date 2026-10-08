@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { generateBenefitsBestPracticesFromEa } from "../../src/modules/reports/benefits-best-practices-from-ea.js";
+import {
+  generateBenefitsBestPracticesFromEa,
+  loadBenefitsBestPracticesTemplate,
+} from "../../src/modules/reports/benefits-best-practices-from-ea.js";
 import type { BenefitsBestPracticesSnapshot } from "../../src/modules/reports/benefits-best-practices-workbook.js";
 
 const organizations = ["one", "two", "three", "four", "five", "six"];
@@ -27,6 +30,73 @@ function generate(
 }
 
 describe("Benefits & Best Practices dependent-question denominators", () => {
+  it("counts a populated free-text Other response as selected", () => {
+    const template: BenefitsBestPracticesSnapshot = {
+      sourceFile: "test.xlsx",
+      headers: [],
+      sections: [
+        {
+          title: "Organizational Benefits",
+          questions: [
+            {
+              text: "Which employer-paid holidays does your organization offer?",
+              responses: [
+                {
+                  label: "Other, please specify:",
+                  format: "percent",
+                  dataValues: [],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    const snapshot = generate(template, (index) => ({
+      "q_OrganizationalBenefits_SelectPaidHolidays.other":
+        index < 3 ? "Company anniversary" : "",
+    }));
+
+    assert.equal(
+      snapshot.sections[0]?.questions[0]?.responses[0]?.dataValues[0],
+      50,
+    );
+  });
+
+  it("includes the adoption and birth benefits question in the report template", async () => {
+    const template = await loadBenefitsBestPracticesTemplate();
+    const question = template.sections
+      .flatMap(({ questions }) => questions)
+      .find(({ text }) => /adoption\/birth of a child/iu.test(text));
+
+    assert.ok(question);
+    assert.deepEqual(
+      question.responses.map(({ label }) => label),
+      [
+        "Fully or partially paid maternity leave",
+        "Unpaid maternity leave",
+        "Fully or partially paid paternity leave",
+        "Unpaid paternity leave",
+        "Other",
+        "Our organization does not offer other benefits for the adoption/birth of a child.",
+      ],
+    );
+
+    const snapshot = generate(template, (index) => ({
+      "q_OrganizationalBenefits_AdoptionBirthBenefits. Fully or partially paid maternity leave":
+        index < 3 ? 1 : 0,
+      "q_OrganizationalBenefits_AdoptionBirthBenefits.other":
+        index < 2 ? "Additional caregiver leave" : "",
+    }));
+    const generatedQuestion = snapshot.sections
+      .flatMap(({ questions }) => questions)
+      .find(({ text }) => /adoption\/birth of a child/iu.test(text));
+    assert.ok(generatedQuestion);
+    assert.equal(generatedQuestion.responses[0]?.dataValues[0], 50);
+    assert.equal(generatedQuestion.responses[4]?.dataValues[0], 100 / 3);
+  });
+
   it("excludes organizations without healthcare benefits from every healthcare follow-up", () => {
     const template: BenefitsBestPracticesSnapshot = {
       sourceFile: "test.xlsx",
@@ -141,27 +211,19 @@ describe("Benefits & Best Practices dependent-question denominators", () => {
             },
             {
               text: "Does your organization offer unlimited PTO?",
-              responses: [
-                { label: "Yes", format: "percent", dataValues: [] },
-              ],
+              responses: [{ label: "Yes", format: "percent", dataValues: [] }],
             },
             {
               text: "Does your organization offer unlimited vacation days?",
-              responses: [
-                { label: "Yes", format: "percent", dataValues: [] },
-              ],
+              responses: [{ label: "Yes", format: "percent", dataValues: [] }],
             },
             {
               text: "Does your organization offer unlimited sick days?",
-              responses: [
-                { label: "Yes", format: "percent", dataValues: [] },
-              ],
+              responses: [{ label: "Yes", format: "percent", dataValues: [] }],
             },
             {
               text: "Does your organization offer unlimited personal days?",
-              responses: [
-                { label: "Yes", format: "percent", dataValues: [] },
-              ],
+              responses: [{ label: "Yes", format: "percent", dataValues: [] }],
             },
           ],
         },

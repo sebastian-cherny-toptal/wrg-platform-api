@@ -39,7 +39,7 @@ describe("bulk user catalog", () => {
             Promise.resolve([
               {
                 id: "organization-id",
-                name: "Stored account name",
+                name: "Acme",
                 metadata: { sourceOrganizationName: "Metadata name" },
                 programs: [
                   {
@@ -133,6 +133,48 @@ describe("bulk user catalog", () => {
     });
     assert.equal(JSON.stringify(response).includes("CR_Access"), false);
     assert.equal(JSON.stringify(response).includes("stripeCustomerId"), false);
+  });
+
+  it("uses one company name across yearly program aliases", async () => {
+    const service = new CompatibilityAdminService(
+      {
+        role: { findMany: () => Promise.resolve([]) },
+        project: { findMany: () => Promise.resolve([]) },
+        organization: {
+          findMany: () =>
+            Promise.resolve([
+              {
+                id: "organization-id",
+                name: "Acme Holdings",
+                metadata: {},
+                programs: [
+                  {
+                    programId: "program-2025",
+                    metrics: { Source_Organization_Name: "Acme Health" },
+                  },
+                  {
+                    programId: "program-2026",
+                    metrics: { Source_Organization_Name: "Acme Healthcare" },
+                  },
+                ],
+              },
+            ]),
+        },
+        user: { findMany: () => Promise.resolve([]) },
+      } as never,
+      {} as never,
+      {} as never,
+    );
+
+    const response = await service.bulkUserCatalog(principal);
+
+    assert.deepEqual(response.data.organizations, [
+      {
+        id: "organization-id",
+        name: "Acme Holdings",
+        programIds: ["program-2025", "program-2026"],
+      },
+    ]);
   });
 
   it("returns the same minimal organization projection scoped to Add User's project", async () => {

@@ -138,6 +138,11 @@ const benefitsQuestionBindings: BenefitsQuestionBinding[] = [
     eligibleWhenYes: "q_OrganizationalBenefits_OfferPTOVSP",
   },
   {
+    match: /benefits do you offer for the adoption\/birth of a child/iu,
+    dataLabel: "q_OrganizationalBenefits_AdoptionBirthBenefits",
+    kind: "multi",
+  },
+  {
     match: /offer healthcare benefits/iu,
     dataLabel: "q_OrganizationalBenefits_HealthcareBenefits",
     kind: "yesNo",
@@ -417,6 +422,17 @@ function isPresent(value: unknown): boolean {
   return true;
 }
 
+function isSelectedMultiValue(value: unknown, optionLabel: string): boolean {
+  if (isYes(value)) return true;
+  if (!/^other\b/iu.test(optionLabel)) return false;
+  const scalar = answerScalar(value);
+  return (
+    typeof scalar === "string" &&
+    scalar.trim() !== "" &&
+    numericAnswer(scalar) === null
+  );
+}
+
 function optionKeys(
   values: Record<string, unknown>,
   prefix: string,
@@ -524,7 +540,10 @@ function valueForResponse(input: {
 
   if (binding.kind === "multi") {
     const selected = eligibleOrganizations.filter((values) =>
-      isYes(optionValue(values, binding.dataLabel, optionLabel)),
+      isSelectedMultiValue(
+        optionValue(values, binding.dataLabel, optionLabel),
+        optionLabel,
+      ),
     ).length;
     return percent(selected, eligibleOrganizations.length);
   }

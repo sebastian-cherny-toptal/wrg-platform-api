@@ -145,7 +145,8 @@ export type ProgramZohoResyncField =
   | "reportCategory"
   | "currentZohoCategory"
   | "purchasedEvSortingFilter"
-  | "rdPaymentType";
+  | "rdPaymentType"
+  | "kiaPaymentType";
 
 export type ProgramZohoResyncValue = string | number | null;
 
@@ -187,10 +188,11 @@ interface ResyncEnrollment {
   currentZohoCategory: string | null;
   purchasedEvSortingFilter: string | null;
   rdPaymentType: string | null;
+  kiaPaymentType: string | null;
   reportAccess: Prisma.JsonValue;
   paymentDetails: Prisma.JsonValue;
   metrics: Prisma.JsonValue;
-  organization: { name: string };
+  organization: { id: string; name: string };
 }
 
 interface ResyncMatch {
@@ -210,6 +212,7 @@ const resyncFields: ProgramZohoResyncField[] = [
   "currentZohoCategory",
   "purchasedEvSortingFilter",
   "rdPaymentType",
+  "kiaPaymentType",
 ];
 
 function normalizedOrganizationIdentity(value: unknown): string {
@@ -239,12 +242,11 @@ function resyncValues(
       currentZohoCategory: zoho.currentZohoCategory,
       purchasedEvSortingFilter: zoho.purchasedEvSortingFilter,
       rdPaymentType: zoho.rdPaymentType,
+      kiaPaymentType: zoho.kiaPaymentType,
     };
   }
   return {
-    organizationName:
-      metadataString(enrollment.metrics, "Source_Organization_Name") ??
-      enrollment.organization.name,
+    organizationName: enrollment.organization.name,
     stage: enrollment.stage,
     isWinner: enrollment.isWinner,
     surveysSent: numeric(metrics.Surveys_Sent),
@@ -257,6 +259,7 @@ function resyncValues(
     currentZohoCategory: enrollment.currentZohoCategory,
     purchasedEvSortingFilter: enrollment.purchasedEvSortingFilter,
     rdPaymentType: enrollment.rdPaymentType,
+    kiaPaymentType: enrollment.kiaPaymentType,
   };
 }
 
@@ -299,10 +302,29 @@ export class ProgramZohoResyncService {
     const syncedAt = new Date();
     await this.prisma.$transaction(async (transaction) => {
       for (const { enrollment, zoho } of matches) {
+        const organizationName = zoho.organizationName?.trim() ?? "";
+        if (
+          organizationName &&
+          organizationName !== enrollment.organization.name
+        ) {
+          const organizationResult = await transaction.organization.updateMany({
+            where: {
+              id: enrollment.organization.id,
+              name: enrollment.organization.name,
+            },
+            data: { name: organizationName },
+          });
+          if (organizationResult.count !== 1) {
+            throw new ConflictException(
+              "Zoho preview changed; refresh the preview before applying",
+            );
+          }
+        }
         const metrics = jsonObject(enrollment.metrics);
         const entitlement = zohoPurchaseEntitlementData(
           zoho.purchasedEvSortingFilter,
           zoho.rdPaymentType,
+          zoho.kiaPaymentType,
           {
             reportAccess: enrollment.reportAccess,
             metrics: {
@@ -376,10 +398,11 @@ export class ProgramZohoResyncService {
             currentZohoCategory: true,
             purchasedEvSortingFilter: true,
             rdPaymentType: true,
+            kiaPaymentType: true,
             reportAccess: true,
             paymentDetails: true,
             metrics: true,
-            organization: { select: { name: true } },
+            organization: { select: { id: true, name: true } },
           },
         },
       },
@@ -863,6 +886,8 @@ export class CompatibilityManagementService {
             benchmarkCategory: true,
             categoryRank: true,
             overallRank: true,
+            rdPaymentType: true,
+            kiaPaymentType: true,
             metrics: true,
             paymentDetails: true,
             organization: {
@@ -913,18 +938,20 @@ export class CompatibilityManagementService {
         sortedPayment
           ? sortedEmployeeVerbatimsFilter(enrollment.orders, enrollment.metrics)
           : "",
-        productPaymentType(
-          RESPONSE_DETAIL_ID,
-          enrollment.orders,
-          enrollment.paymentDetails,
-          "RDR_Payment",
-        ),
-        productPaymentType(
-          KEY_IMPACT_ID,
-          enrollment.orders,
-          enrollment.paymentDetails,
-          "KIA_Payment",
-        ),
+        enrollment.rdPaymentType ??
+          productPaymentType(
+            RESPONSE_DETAIL_ID,
+            enrollment.orders,
+            enrollment.paymentDetails,
+            "RDR_Payment",
+          ),
+        enrollment.kiaPaymentType ??
+          productPaymentType(
+            KEY_IMPACT_ID,
+            enrollment.orders,
+            enrollment.paymentDetails,
+            "KIA_Payment",
+          ),
         !enrollment.isIncluded
           ? "Non-selected"
           : enrollment.isWinner === "Y"

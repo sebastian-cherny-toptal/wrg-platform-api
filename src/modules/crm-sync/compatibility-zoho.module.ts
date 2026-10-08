@@ -95,6 +95,7 @@ const dealFields = [
   "Current_Year_Category_Rank",
   "EV_Sorting_Filter",
   "RD_Payment_Type",
+  "KIA_Payment_Type",
 ];
 
 export interface ProgramOrganization {
@@ -112,6 +113,7 @@ export interface ProgramOrganization {
   categoryRank: string | null;
   purchasedEvSortingFilter: string | null;
   rdPaymentType: string | null;
+  kiaPaymentType: string | null;
 }
 
 export function zohoOrganizationName(
@@ -119,6 +121,7 @@ export function zohoOrganizationName(
   organizationId: string,
   accountName: string | null = null,
 ): string | null {
+  if (accountName) return accountName;
   if (!rawAliasName) return accountName;
   const markerIndex = rawAliasName.lastIndexOf(`-${organizationId}-`);
   if (markerIndex > 0) return rawAliasName.slice(0, markerIndex).trim();
@@ -308,6 +311,7 @@ export class CompatibilityZohoService {
           categoryRank: text(deal, "Current_Year_Category_Rank"),
           purchasedEvSortingFilter: text(deal, "EV_Sorting_Filter"),
           rdPaymentType: text(deal, "RD_Payment_Type"),
+          kiaPaymentType: text(deal, "KIA_Payment_Type"),
         });
       }
       organizationsByProgram.set(program.id, organizations);

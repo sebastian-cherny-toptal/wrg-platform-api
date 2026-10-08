@@ -19,7 +19,13 @@ test("default EA definition template exposes the built-in Benefits & Best Practi
     await surveyDefinitionWorkbook(defaults),
   );
 
-  assert.equal(parsed.length, 37);
+  assert.equal(parsed.length, 38);
+  assert.ok(
+    parsed.some(
+      ({ dataLabel }) =>
+        dataLabel === "q_OrganizationalBenefits_AdoptionBirthBenefits",
+    ),
+  );
   assert.equal(
     parsed.find(
       ({ dataLabel }) => dataLabel === "q_EmployerInformation_FunActivities",

@@ -1309,6 +1309,183 @@ function annualAverage(
   return values.length ? weightedAverage(values) : "*";
 }
 
+interface AnnualTrendsRowBlueprint {
+  height: number | undefined;
+  styles: Array<Partial<ExcelJS.Style>>;
+}
+
+function annualTrendsRowBlueprint(
+  sheet: ExcelJS.Worksheet,
+  rowNumber: number,
+): AnnualTrendsRowBlueprint {
+  return {
+    height: sheet.getRow(rowNumber).height,
+    styles: Array.from({ length: sheet.columnCount }, (_, index) =>
+      structuredClone(sheet.getCell(rowNumber, index + 1).style),
+    ),
+  };
+}
+
+function applyAnnualTrendsRowBlueprint(
+  sheet: ExcelJS.Worksheet,
+  rowNumber: number,
+  blueprint: AnnualTrendsRowBlueprint,
+): void {
+  const row = sheet.getRow(rowNumber);
+  if (blueprint.height !== undefined) row.height = blueprint.height;
+  for (let column = 1; column <= sheet.columnCount; column += 1) {
+    const cell = sheet.getCell(rowNumber, column);
+    cell.value = null;
+    const style = blueprint.styles[column - 1];
+    if (style) cell.style = structuredClone(style);
+  }
+}
+
+function createAnnualTrendsWorksheet(
+  workbook: ExcelJS.Workbook,
+  styleSource: ExcelJS.Worksheet,
+): ExcelJS.Worksheet {
+  const sheet = workbook.addWorksheet("_Annual Trends Generated");
+  sheet.properties = structuredClone(styleSource.properties);
+  sheet.pageSetup = structuredClone(styleSource.pageSetup);
+  sheet.headerFooter = structuredClone(styleSource.headerFooter);
+  sheet.views = structuredClone(styleSource.views);
+
+  for (let column = 1; column <= styleSource.columnCount; column += 1) {
+    const source = styleSource.getColumn(column);
+    const target = sheet.getColumn(column);
+    if (source.width !== undefined) target.width = source.width;
+    target.hidden = source.hidden;
+    target.outlineLevel = source.outlineLevel;
+    target.style = structuredClone(source.style);
+  }
+  for (let row = 1; row <= 4; row += 1) {
+    const source = styleSource.getRow(row);
+    const target = sheet.getRow(row);
+    target.height = source.height;
+    target.hidden = source.hidden;
+    if (source.outlineLevel !== undefined)
+      target.outlineLevel = source.outlineLevel;
+    for (let column = 1; column <= styleSource.columnCount; column += 1) {
+      target.getCell(column).value = structuredClone(
+        source.getCell(column).value,
+      );
+      target.getCell(column).style = structuredClone(
+        source.getCell(column).style,
+      );
+    }
+  }
+  for (const merge of styleSource.model.merges) sheet.mergeCells(merge);
+  for (const image of styleSource.getImages()) {
+    const range = image.range as unknown as ExcelJS.ImagePosition & {
+      editAs?: string;
+      hyperlinks?: ExcelJS.ImageHyperlinkValue;
+    };
+    sheet.addImage(Number(image.imageId), {
+      tl: { col: range.tl.col, row: range.tl.row },
+      ext: structuredClone(range.ext),
+      ...(range.editAs ? { editAs: range.editAs } : {}),
+      ...(range.hyperlinks
+        ? { hyperlinks: structuredClone(range.hyperlinks) }
+        : {}),
+    });
+  }
+
+  workbook.removeWorksheet(styleSource.id);
+  sheet.name = "Annual Trends Report";
+  return sheet;
+}
+
+function writeAnnualTrendsValues(
+  sheet: ExcelJS.Worksheet,
+  rowNumber: number,
+  current: AnnualTrendsWorkbookValue | undefined,
+  previous: AnnualTrendsWorkbookValue | undefined,
+): void {
+  sheet.getCell(rowNumber, 4).value = current?.agreement ?? "*";
+  sheet.getCell(rowNumber, 5).value = current?.disagreement ?? "*";
+  sheet.getCell(rowNumber, 7).value = previous?.agreement ?? "*";
+  sheet.getCell(rowNumber, 8).value = previous?.disagreement ?? "*";
+}
+
+function writeAnnualTrendsAverageValues(
+  sheet: ExcelJS.Worksheet,
+  rowNumber: number,
+  questions: AnnualTrendsWorkbookSection["questions"],
+): void {
+  sheet.getCell(rowNumber, 4).value = annualAverage(
+    questions,
+    "current",
+    "agreement",
+  );
+  sheet.getCell(rowNumber, 5).value = annualAverage(
+    questions,
+    "current",
+    "disagreement",
+  );
+  sheet.getCell(rowNumber, 7).value = annualAverage(
+    questions,
+    "previous",
+    "agreement",
+  );
+  sheet.getCell(rowNumber, 8).value = annualAverage(
+    questions,
+    "previous",
+    "disagreement",
+  );
+}
+
+function buildAnnualTrendsRows(
+  workbook: ExcelJS.Workbook,
+  sections: AnnualTrendsWorkbookSection[],
+): void {
+  const styleSource = workbook.getWorksheet("Annual Trends Report");
+  if (!styleSource) throw new Error("Annual Trends template has no worksheet");
+
+  // The legacy workbook supplies the visual design only. The report body is
+  // generated from the questions so its size never depends on fixed slots.
+  const category = annualTrendsRowBlueprint(styleSource, 5);
+  const question = annualTrendsRowBlueprint(styleSource, 6);
+  const sectionAverage = annualTrendsRowBlueprint(styleSource, 15);
+  const surveyAverage = annualTrendsRowBlueprint(styleSource, 101);
+  const note = annualTrendsRowBlueprint(styleSource, 103);
+  const noteText = styleSource.getCell(103, 2).value;
+  const sheet = createAnnualTrendsWorksheet(workbook, styleSource);
+
+  let rowNumber = 5;
+  for (const section of sections) {
+    applyAnnualTrendsRowBlueprint(sheet, rowNumber, category);
+    sheet.getCell(rowNumber, 2).value = safeValue(section.title.toUpperCase());
+    rowNumber += 1;
+
+    for (const item of section.questions) {
+      applyAnnualTrendsRowBlueprint(sheet, rowNumber, question);
+      sheet.getCell(rowNumber, 2).value = safeValue(item.text);
+      writeAnnualTrendsValues(sheet, rowNumber, item.current, item.previous);
+      rowNumber += 1;
+    }
+
+    applyAnnualTrendsRowBlueprint(sheet, rowNumber, sectionAverage);
+    sheet.getCell(rowNumber, 2).value =
+      `${section.title.toUpperCase()} - AVERAGE`;
+    writeAnnualTrendsAverageValues(sheet, rowNumber, section.questions);
+    rowNumber += 1;
+  }
+
+  rowNumber += 1;
+  applyAnnualTrendsRowBlueprint(sheet, rowNumber, surveyAverage);
+  sheet.getCell(rowNumber, 2).value = "SURVEY AVERAGE";
+  writeAnnualTrendsAverageValues(
+    sheet,
+    rowNumber,
+    sections.flatMap((section) => section.questions),
+  );
+  rowNumber += 2;
+
+  applyAnnualTrendsRowBlueprint(sheet, rowNumber, note);
+  sheet.getCell(rowNumber, 2).value = noteText;
+}
+
 export async function createAnnualTrendsWorkbook(input: {
   metadata: ReportWorkbookMetadata;
   currentYear: string;
@@ -1317,7 +1494,10 @@ export async function createAnnualTrendsWorkbook(input: {
   previousTotalResponses: number;
   sections: AnnualTrendsWorkbookSection[];
 }): Promise<Buffer> {
+  // Deprecated as a structural template. Retained only as the visual style
+  // source while report rows are generated from the compared survey questions.
   const workbook = await loadTemplate("annual-trends.xlsx");
+  buildAnnualTrendsRows(workbook, input.sections);
   fillTokens(workbook, (name) => {
     if (name === "ORGANIZATION_NAME") return input.metadata.organizationName;
     if (name === "PROGRAM_NAME") return input.metadata.programName;
@@ -1328,68 +1508,6 @@ export async function createAnnualTrendsWorkbook(input: {
     }
     if (name === "PREVIOUS_TOTAL_RESPONSES") {
       return input.previousTotalResponses;
-    }
-    const categoryTitleMatch = /^CATEGORY_(\d+)_TITLE$/u.exec(name);
-    if (categoryTitleMatch) {
-      return input.sections[
-        Number(categoryTitleMatch[1]) - 1
-      ]?.title.toUpperCase();
-    }
-    const categoryAverageTitleMatch = /^CATEGORY_(\d+)_AVERAGE_TITLE$/u.exec(
-      name,
-    );
-    if (categoryAverageTitleMatch) {
-      const title =
-        input.sections[Number(categoryAverageTitleMatch[1]) - 1]?.title;
-      return title ? `${title.toUpperCase()} - AVERAGE` : null;
-    }
-    const questionTextMatch = /^CATEGORY_(\d+)_QUESTION_(\d+)_TEXT$/u.exec(
-      name,
-    );
-    if (questionTextMatch) {
-      return input.sections[Number(questionTextMatch[1]) - 1]?.questions[
-        Number(questionTextMatch[2]) - 1
-      ]?.text;
-    }
-    const questionValueMatch =
-      /^CATEGORY_(\d+)_QUESTION_(\d+)_(CURRENT|PREVIOUS)_(AGREEMENT|DISAGREEMENT)$/u.exec(
-        name,
-      );
-    if (questionValueMatch) {
-      const question =
-        input.sections[Number(questionValueMatch[1]) - 1]?.questions[
-          Number(questionValueMatch[2]) - 1
-        ];
-      if (!question) return null;
-      const period = questionValueMatch[3]?.toLowerCase() as
-        "current" | "previous";
-      const metric = questionValueMatch[4]?.toLowerCase() as
-        "agreement" | "disagreement";
-      return question[period]?.[metric] ?? "*";
-    }
-    const categoryAverageMatch =
-      /^CATEGORY_(\d+)_AVERAGE_(CURRENT|PREVIOUS)_(AGREEMENT|DISAGREEMENT)$/u.exec(
-        name,
-      );
-    if (categoryAverageMatch) {
-      const section = input.sections[Number(categoryAverageMatch[1]) - 1];
-      if (!section) return null;
-      return annualAverage(
-        section.questions,
-        categoryAverageMatch[2]?.toLowerCase() as "current" | "previous",
-        categoryAverageMatch[3]?.toLowerCase() as "agreement" | "disagreement",
-      );
-    }
-    const surveyAverageMatch =
-      /^SURVEY_AVERAGE_(CURRENT|PREVIOUS)_(AGREEMENT|DISAGREEMENT)$/u.exec(
-        name,
-      );
-    if (surveyAverageMatch) {
-      return annualAverage(
-        input.sections.flatMap((section) => section.questions),
-        surveyAverageMatch[1]?.toLowerCase() as "current" | "previous",
-        surveyAverageMatch[2]?.toLowerCase() as "agreement" | "disagreement",
-      );
     }
     return null;
   });

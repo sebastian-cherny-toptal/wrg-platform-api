@@ -43,6 +43,17 @@ const mark = (name: string) => {
 };
 
 describe("Zoho organization name parsing", () => {
+  it("prefers the Companies-module name over a deal-specific alias", () => {
+    assert.equal(
+      zohoOrganizationName(
+        "Acme Health-350392900-Best Places to Work 2025",
+        "350392900",
+        "Acme Holdings",
+      ),
+      "Acme Holdings",
+    );
+  });
+
   it("removes a numeric composite suffix even when the matched account ID differs", () => {
     assert.equal(
       zohoOrganizationName(
@@ -1540,6 +1551,10 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
             {
               id: "zoho-deal-1",
               Program: { id: "zoho-program-1", name: "Example Region 2026" },
+              Account_Name: {
+                id: "zoho-account-1",
+                name: "Acme Holdings",
+              },
               Deal_Organization_ID: 460737994,
               Alias_Name:
                 "Acme-460737994-Best Places to Work in Example Region 2026",
@@ -1553,6 +1568,7 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
               Surveys_Sent: 125,
               EV_Sorting_Filter: "Department",
               RD_Payment_Type: "Paid via Check",
+              KIA_Payment_Type: "Paid via ACH",
               Unmapped_Custom_Field: "preserved",
             },
           ]);
@@ -1578,10 +1594,12 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
     assert.equal(request.criteria, "(Program:equals:zoho-program-1)");
     assert.ok(request.fields?.includes("EV_Sorting_Filter"));
     assert.ok(request.fields?.includes("RD_Payment_Type"));
+    assert.ok(request.fields?.includes("KIA_Payment_Type"));
     assert.deepEqual(organizations, [
       {
         id: "zoho-deal-1",
         Program: { id: "zoho-program-1", name: "Example Region 2026" },
+        Account_Name: { id: "zoho-account-1", name: "Acme Holdings" },
         Deal_Organization_ID: 460737994,
         Alias_Name: "Acme-460737994-Best Places to Work in Example Region 2026",
         Current_Year_Winner: "Yes",
@@ -1594,9 +1612,10 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
         Surveys_Sent: 125,
         EV_Sorting_Filter: "Department",
         RD_Payment_Type: "Paid via Check",
+        KIA_Payment_Type: "Paid via ACH",
         Unmapped_Custom_Field: "preserved",
         organizationId: "460737994",
-        organizationName: "Acme",
+        organizationName: "Acme Holdings",
         isWinner: "Y",
         surveysSent: 125,
         stage: null,
@@ -1608,6 +1627,7 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
         categoryRank: "2",
         purchasedEvSortingFilter: "Department",
         rdPaymentType: "Paid via Check",
+        kiaPaymentType: "Paid via ACH",
       },
     ]);
   });

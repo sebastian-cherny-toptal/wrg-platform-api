@@ -2613,6 +2613,7 @@ export class HistoricalImportService {
             reportAccess: true,
             paymentDetails: true,
             rdPaymentType: true,
+            kiaPaymentType: true,
           },
         })
       : [];
@@ -2696,6 +2697,7 @@ export class HistoricalImportService {
         const entitlement = zohoPurchaseEntitlementData(
           purchasedSortingFilter,
           rdPaymentType,
+          matched.kiaPaymentType,
           {
             reportAccess: matched.reportAccess,
             metrics: {
@@ -2764,6 +2766,7 @@ export class HistoricalImportService {
           ...zohoPurchaseEntitlementData(
             purchasedSortingFilter,
             rdPaymentType,
+            null,
             {
               reportAccess: {
                 WFR_Access: "no",
@@ -2818,6 +2821,7 @@ export class HistoricalImportService {
           ...zohoPurchaseEntitlementData(
             purchasedSortingFilter,
             rdPaymentType,
+            null,
             {
               reportAccess: {
                 WFR_Access: "no",
@@ -2891,6 +2895,7 @@ export class HistoricalImportService {
         benchmarkCategory: true,
         purchasedEvSortingFilter: true,
         rdPaymentType: true,
+        kiaPaymentType: true,
         reportAccess: true,
         paymentDetails: true,
         metrics: true,
@@ -2987,6 +2992,7 @@ export class HistoricalImportService {
           const entitlement = zohoPurchaseEntitlementData(
             purchasedEvSortingFilter ?? enrollment.purchasedEvSortingFilter,
             rdPaymentType ?? enrollment.rdPaymentType,
+            enrollment.kiaPaymentType,
             {
               reportAccess: enrollment.reportAccess,
               metrics: nextMetrics as Prisma.JsonValue,

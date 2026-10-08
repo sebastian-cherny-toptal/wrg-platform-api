@@ -186,9 +186,95 @@ describe("annual trends workbook generation", () => {
     assert.equal(sheet.getCell("G6").numFmt, "0");
     assert.equal(sheet.getCell("H6").value, 6);
     assert.equal(sheet.getCell("H6").numFmt, "0");
-    assert.equal(sheet.getCell("D15").value, 90);
-    assert.equal(sheet.getCell("G101").value, 85);
+    assert.equal(
+      sheet.getCell("B7").value,
+      "CORE EMPLOYEE EXPERIENCE - AVERAGE",
+    );
+    assert.equal(sheet.getCell("D7").value, 90);
+    assert.equal(sheet.getCell("B9").value, "SURVEY AVERAGE");
+    assert.equal(sheet.getCell("G9").value, 85);
+    assert.match(
+      String(sheet.getCell("B11").value),
+      /percentage of agreement/u,
+    );
+    const fillColor = (address: string) => {
+      const fill = sheet.getCell(address).fill;
+      return fill.type === "pattern" ? fill.fgColor?.argb : undefined;
+    };
+    assert.equal(fillColor("B5"), "FFE2E8F0");
+    const bodyFill = sheet.getCell("B6").fill;
+    assert.equal(bodyFill.type, "pattern");
+    assert.equal(bodyFill.pattern, "none");
+    assert.equal(fillColor("B7"), "FF2E1065");
+    assert.equal(fillColor("B9"), "FFE2E8F0");
+    assert.equal(fillColor("B11"), "FF2E1065");
+    assert.equal(sheet.rowCount, 11);
+    assert.equal(sheet.getImages().length, 1);
     assert.equal(sheet.getCell("A6").value, null);
+  });
+
+  it("creates exactly one formatted row for every supplied question", async () => {
+    const buffer = await createAnnualTrendsWorkbook({
+      metadata: {
+        organizationName: "Dynamic organization",
+        programName: "Dynamic program",
+        surveyDates: "2026",
+      },
+      currentYear: "2026",
+      previousYear: "2025",
+      currentTotalResponses: 20,
+      previousTotalResponses: 18,
+      sections: [
+        {
+          title: "Short section",
+          questions: [
+            {
+              text: "First question",
+              current: { agreement: 80, disagreement: 10, responseCount: 20 },
+              previous: { agreement: 70, disagreement: 20, responseCount: 18 },
+            },
+            {
+              text: "Second question",
+              current: { agreement: 90, disagreement: 5, responseCount: 20 },
+            },
+          ],
+        },
+        {
+          title: "Another section",
+          questions: [
+            {
+              text: "Only question",
+              previous: { agreement: 60, disagreement: 30, responseCount: 18 },
+            },
+          ],
+        },
+      ],
+    });
+
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer as never);
+    const sheet = workbook.getWorksheet("Annual Trends Report");
+    assert.ok(sheet);
+    assert.deepEqual(
+      [5, 6, 7, 8, 9, 10, 11].map((row) => sheet.getCell(row, 2).value),
+      [
+        "SHORT SECTION",
+        "First question",
+        "Second question",
+        "SHORT SECTION - AVERAGE",
+        "ANOTHER SECTION",
+        "Only question",
+        "ANOTHER SECTION - AVERAGE",
+      ],
+    );
+    assert.equal(sheet.getCell("G7").value, "*");
+    assert.equal(sheet.getCell("D10").value, "*");
+    assert.equal(sheet.getCell("B13").value, "SURVEY AVERAGE");
+    assert.match(
+      String(sheet.getCell("B15").value),
+      /percentage of agreement/u,
+    );
+    assert.equal(sheet.rowCount, 15);
   });
 });
 

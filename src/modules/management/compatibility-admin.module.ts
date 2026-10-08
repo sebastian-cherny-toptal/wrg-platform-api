@@ -881,6 +881,7 @@ export class CompatibilityAdminService {
                 purchased_ev_sorting_filter:
                   enrollment.purchasedEvSortingFilter,
                 rd_payment_type: enrollment.rdPaymentType,
+                kia_payment_type: enrollment.kiaPaymentType,
                 Created_Time: enrollment.createdAt,
                 Last_time_deal_synced: enrollment.updatedAt,
                 _id: enrollment.legacyId ?? enrollment.id,
@@ -1613,44 +1614,17 @@ export class CompatibilityAdminService {
       select: {
         id: true,
         name: true,
-        metadata: true,
         programs: {
           where: enrollmentWhere,
-          select: { programId: true, metrics: true },
+          select: { programId: true },
         },
       },
     });
-    return organizations.flatMap((organization) => {
-      const fallbackName =
-        optionalString(
-          jsonObject(organization.metadata).sourceOrganizationName,
-        ) ?? organization.name;
-      const groups = new Map<
-        string,
-        { name: string; programIds: Set<string> }
-      >();
-      for (const enrollment of organization.programs) {
-        const name =
-          optionalString(
-            jsonObject(enrollment.metrics).Source_Organization_Name,
-          ) ?? fallbackName;
-        const key = name
-          .toLocaleLowerCase()
-          .replace(/[^a-z0-9]+/gu, " ")
-          .trim();
-        const group = groups.get(key) ?? {
-          name,
-          programIds: new Set<string>(),
-        };
-        group.programIds.add(enrollment.programId);
-        groups.set(key, group);
-      }
-      return [...groups.values()].map((group) => ({
-        id: organization.id,
-        name: group.name,
-        programIds: [...group.programIds],
-      }));
-    });
+    return organizations.map((organization) => ({
+      id: organization.id,
+      name: organization.name,
+      programIds: organization.programs.map(({ programId }) => programId),
+    }));
   }
 
   private async organization(reference: string) {

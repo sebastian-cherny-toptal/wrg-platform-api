@@ -31,7 +31,8 @@
     "db:seed": "tsx prisma/seed.ts",
     "db:reset": "prisma migrate reset --force",
     "openapi:generate": "tsx scripts/generate-openapi.ts",
-    "client:generate": "openapi-typescript openapi.json -o generated/api.ts"
+    "client:generate": "openapi-typescript openapi.json -o generated/api.ts",
+    "convert:ea-question-response": "tsx scripts/convert-ea-question-response.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

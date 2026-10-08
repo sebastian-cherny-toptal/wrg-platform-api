@@ -8,3 +8,10 @@ source for the report header, logo, column widths, and row formatting.
 
 Do not add fixed question slots or section capacities to this workbook. New
 Workforce Feedback layout behavior belongs in `report-template-workbooks.ts`.
+
+`annual-trends.xlsx` is likewise deprecated as a structural report template.
+The Annual Trends generator creates its section, question, section-average,
+survey-average, and note rows dynamically from the two surveys being compared.
+The workbook remains only as the visual source for the report header, logo,
+column widths, and row formatting. Do not add fixed question or section slots
+to it; Annual Trends layout behavior belongs in `report-template-workbooks.ts`.
