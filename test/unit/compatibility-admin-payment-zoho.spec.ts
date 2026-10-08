@@ -93,6 +93,15 @@ describe("Zoho organization name parsing", () => {
 
   it("matches the project suffix case-insensitively and preserves other suffixes", () => {
     assert.equal(
+      zohoOrganizationName(
+        null,
+        "49",
+        "Cannabis Creative Group - Cannabis",
+        "Cannabis",
+      ),
+      "Cannabis Creative Group",
+    );
+    assert.equal(
       zohoOrganizationName(null, "49", "Acme - indiana", "Indiana"),
       "Acme",
     );

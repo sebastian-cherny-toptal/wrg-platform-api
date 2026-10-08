@@ -386,6 +386,7 @@ export class ProgramZohoResyncService {
         legacyId: true,
         externalId: true,
         metadata: true,
+        project: { select: { name: true } },
         organizations: {
           select: {
             id: true,
@@ -415,6 +416,7 @@ export class ProgramZohoResyncService {
     const zohoOrganizations = await this.zoho.listOrganizationsForProgram(
       principal,
       zohoProgramId,
+      program.project.name,
     );
     const remaining = new Set(program.organizations.map(({ id }) => id));
     const matches: ResyncMatch[] = [];

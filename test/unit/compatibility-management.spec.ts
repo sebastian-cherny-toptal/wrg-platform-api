@@ -101,6 +101,7 @@ async function createTestApp(): Promise<NestFastifyApplication> {
 describe("native management compatibility endpoints", () => {
   it("previews program-scoped Zoho changes without changing local organizations", async () => {
     let requestedZohoProgramId = "";
+    let requestedProjectName = "";
     let writes = 0;
     const prisma = {
       program: {
@@ -109,6 +110,7 @@ describe("native management compatibility endpoints", () => {
             id: "program-id",
             externalId: "zoho-program-id",
             metadata: { benchmarkCategories: ["Small", "Community"] },
+            project: { name: "Cannabis" },
             organizations: [
               {
                 id: "enrollment-id",
@@ -151,8 +153,10 @@ describe("native management compatibility endpoints", () => {
       listOrganizationsForProgram: (
         _principal: Principal,
         programId: string,
+        projectName: string,
       ) => {
         requestedZohoProgramId = programId;
+        requestedProjectName = projectName;
         return Promise.resolve([
           {
             organizationId: "49",
@@ -201,6 +205,7 @@ describe("native management compatibility endpoints", () => {
     );
 
     assert.equal(requestedZohoProgramId, "zoho-program-id");
+    assert.equal(requestedProjectName, "Cannabis");
     assert.equal(writes, 0);
     assert.equal(preview.changedRows.length, 1);
     assert.deepEqual(
@@ -308,6 +313,7 @@ describe("native management compatibility endpoints", () => {
             externalId: "zoho-program-id",
             legacyId: null,
             metadata: { benchmarkCategories: ["Small", "Community"] },
+            project: { name: "Cannabis" },
             organizations: [enrollment],
           }),
       },
