@@ -48,7 +48,7 @@ describe("Zoho organization name parsing", () => {
       zohoOrganizationName(
         "Acme Health-350392900-Best Places to Work 2025",
         "350392900",
-        "Acme Holdings",
+        "Acme Holdings - Indiana",
       ),
       "Acme Holdings",
     );

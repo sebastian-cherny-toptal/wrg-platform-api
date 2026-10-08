@@ -121,7 +121,14 @@ export function zohoOrganizationName(
   organizationId: string,
   accountName: string | null = null,
 ): string | null {
-  if (accountName) return accountName;
+  if (accountName) {
+    const projectSeparator = accountName.indexOf(" - ");
+    return (
+      projectSeparator > 0
+        ? accountName.slice(0, projectSeparator)
+        : accountName
+    ).trim();
+  }
   if (!rawAliasName) return accountName;
   const markerIndex = rawAliasName.lastIndexOf(`-${organizationId}-`);
   if (markerIndex > 0) return rawAliasName.slice(0, markerIndex).trim();
