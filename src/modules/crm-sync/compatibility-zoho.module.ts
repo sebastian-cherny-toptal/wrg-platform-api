@@ -122,7 +122,7 @@ export function zohoOrganizationName(
   accountName: string | null = null,
 ): string | null {
   if (accountName) {
-    const projectSeparator = accountName.indexOf(" - ");
+    const projectSeparator = accountName.lastIndexOf(" - ");
     return (
       projectSeparator > 0
         ? accountName.slice(0, projectSeparator)
@@ -135,7 +135,12 @@ export function zohoOrganizationName(
   const withoutCompositeSuffix = rawAliasName
     .replace(/-\d{6,}-.+$/u, "")
     .trim();
-  const parsed = withoutCompositeSuffix.split(" - ")[0]?.trim() ?? "";
+  const projectSeparator = withoutCompositeSuffix.lastIndexOf(" - ");
+  const parsed = (
+    projectSeparator > 0
+      ? withoutCompositeSuffix.slice(0, projectSeparator)
+      : withoutCompositeSuffix
+  ).trim();
   return parsed.length > 0 ? parsed : accountName;
 }
 

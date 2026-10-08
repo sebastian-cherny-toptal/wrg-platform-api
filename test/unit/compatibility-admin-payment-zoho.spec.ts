@@ -54,6 +54,27 @@ describe("Zoho organization name parsing", () => {
     );
   });
 
+  it("preserves separators inside the company name and removes only the project suffix", () => {
+    assert.equal(
+      zohoOrganizationName(
+        "Smith - Jones-350392900-Best Places to Work 2025",
+        "350392900",
+        "Smith - Jones - Best Places to Work 2025",
+      ),
+      "Smith - Jones",
+    );
+  });
+
+  it("removes only the final project suffix from a non-composite alias", () => {
+    assert.equal(
+      zohoOrganizationName(
+        "Smith - Jones - Best Places to Work 2025",
+        "zoho-account-id",
+      ),
+      "Smith - Jones",
+    );
+  });
+
   it("removes a numeric composite suffix even when the matched account ID differs", () => {
     assert.equal(
       zohoOrganizationName(
