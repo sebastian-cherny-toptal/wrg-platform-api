@@ -49,6 +49,7 @@ describe("Zoho organization name parsing", () => {
         "Acme Health-350392900-Best Places to Work 2025",
         "350392900",
         "Acme Holdings - Indiana",
+        "Indiana",
       ),
       "Acme Holdings",
     );
@@ -60,6 +61,7 @@ describe("Zoho organization name parsing", () => {
         "Smith - Jones-350392900-Best Places to Work 2025",
         "350392900",
         "Smith - Jones - Best Places to Work 2025",
+        "Best Places to Work 2025",
       ),
       "Smith - Jones",
     );
@@ -70,6 +72,8 @@ describe("Zoho organization name parsing", () => {
       zohoOrganizationName(
         "Smith - Jones - Best Places to Work 2025",
         "zoho-account-id",
+        null,
+        "Best Places to Work 2025",
       ),
       "Smith - Jones",
     );
@@ -81,8 +85,20 @@ describe("Zoho organization name parsing", () => {
         "AAA Hoosier Motor Club-350392900-Best Places to Work in Indiana 2026",
         "zoho-account-id",
         "AAA Hoosier Motor Club",
+        "Example Region",
       ),
       "AAA Hoosier Motor Club",
+    );
+  });
+
+  it("matches the project suffix case-insensitively and preserves other suffixes", () => {
+    assert.equal(
+      zohoOrganizationName(null, "49", "Acme - indiana", "Indiana"),
+      "Acme",
+    );
+    assert.equal(
+      zohoOrganizationName(null, "49", "Smith - Jones", "Indiana"),
+      "Smith - Jones",
     );
   });
 });
@@ -1605,6 +1621,7 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
         permissions: [],
       },
       "zoho-program-1",
+      "Example Region",
     );
 
     assert.equal(requested.length, 1);

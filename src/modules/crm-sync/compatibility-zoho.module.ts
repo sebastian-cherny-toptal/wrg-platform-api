@@ -120,14 +120,20 @@ export function zohoOrganizationName(
   rawAliasName: string | null,
   organizationId: string,
   accountName: string | null = null,
+  projectName: string | null = null,
 ): string | null {
+  const stripProjectSuffix = (value: string) => {
+    const normalizedProjectName = projectName?.trim().toLowerCase();
+    if (!normalizedProjectName) return value;
+    const projectSeparator = value.lastIndexOf(" - ");
+    if (projectSeparator <= 0) return value;
+    const suffix = value.slice(projectSeparator + 3).trim().toLowerCase();
+    return suffix === normalizedProjectName
+      ? value.slice(0, projectSeparator).trim()
+      : value;
+  };
   if (accountName) {
-    const projectSeparator = accountName.lastIndexOf(" - ");
-    return (
-      projectSeparator > 0
-        ? accountName.slice(0, projectSeparator)
-        : accountName
-    ).trim();
+    return stripProjectSuffix(accountName).trim();
   }
   if (!rawAliasName) return accountName;
   const markerIndex = rawAliasName.lastIndexOf(`-${organizationId}-`);
@@ -135,12 +141,7 @@ export function zohoOrganizationName(
   const withoutCompositeSuffix = rawAliasName
     .replace(/-\d{6,}-.+$/u, "")
     .trim();
-  const projectSeparator = withoutCompositeSuffix.lastIndexOf(" - ");
-  const parsed = (
-    projectSeparator > 0
-      ? withoutCompositeSuffix.slice(0, projectSeparator)
-      : withoutCompositeSuffix
-  ).trim();
+  const parsed = stripProjectSuffix(withoutCompositeSuffix).trim();
   return parsed.length > 0 ? parsed : accountName;
 }
 
@@ -235,6 +236,7 @@ export class CompatibilityZohoService {
   async listOrganizationsForProgram(
     principal: Principal,
     programId: string,
+    projectName?: string,
   ): Promise<ProgramOrganization[]> {
     this.assertAccess(principal);
     const normalizedProgramId = programId.trim();
@@ -250,11 +252,15 @@ export class CompatibilityZohoService {
       `(Program:equals:${normalizedProgramId})`,
       dealFields,
     );
-    return this.organizationsByProgram(deals).get(normalizedProgramId) ?? [];
+    return (
+      this.organizationsByProgram(deals, projectName).get(normalizedProgramId) ??
+      []
+    );
   }
 
   private organizationsByProgram(
     deals: ZohoRecord[],
+    projectName?: string,
   ): Map<string, ProgramOrganization[]> {
     const text = (record: ZohoRecord, key: string): string | null => {
       const value = record[key];
@@ -285,6 +291,7 @@ export class CompatibilityZohoService {
         text(deal, "Alias_Name"),
         organizationId,
         account?.name ?? null,
+        projectName ?? null,
       );
       const rawSurveysSent = Number(deal.Surveys_Sent);
       const rawCompanySize = Number(deal.Company_Size ?? deal.Program_EE_Count);
@@ -491,10 +498,12 @@ export class CompatibilityZohoController {
   async listOrganizationsForProgram(
     @CurrentUser() principal: Principal,
     @Param("programId") programId: string,
+    @Query("projectName") projectName?: string,
   ) {
     const data = await this.zoho.listOrganizationsForProgram(
       principal,
       programId,
+      projectName,
     );
     return {
       success: true,
