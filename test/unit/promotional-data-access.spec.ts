@@ -43,6 +43,7 @@ class TestJwtStrategy extends PassportStrategy(Strategy) {
 it("hides an assigned user's real data while Promotional and exposes it after a fresh Client login", async () => {
   let enrollmentPortalAccess: "client" | "promotional" | undefined;
   const prisma = {
+    auditLog: { create: () => Promise.resolve({}) },
     program: {
       findFirst: () => ({
         id: "program-1",

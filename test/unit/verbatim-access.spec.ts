@@ -73,6 +73,7 @@ describe("Employee Verbatims direct routes", () => {
     };
     const entitlement: Record<string, string> = { EV_Access: "yes" };
     const metrics: Record<string, string> = {};
+    const auditEntries: Array<Record<string, unknown>> = [];
     const respondents = Array.from({ length: 9 }, (_, index) => {
       const privateGroup = index < 4;
       return {
@@ -97,6 +98,12 @@ describe("Employee Verbatims direct routes", () => {
       };
     });
     const prisma = {
+      auditLog: {
+        create: ({ data }: { data: Record<string, unknown> }) => {
+          auditEntries.push(data);
+          return data;
+        },
+      },
       program: {
         findFirst: () => ({
           id: "program-1",
@@ -214,6 +221,19 @@ describe("Employee Verbatims direct routes", () => {
       const unconfiguredAnswers = await answersRequest();
       assert.equal(unconfiguredAnswers.statusCode, 400);
       assert.doesNotMatch(unconfiguredAnswers.body, /private answer/u);
+      assert.equal(auditEntries.length, 2);
+      assert.deepEqual(auditEntries[0], {
+        organizationId: "organization-1",
+        actorUserId: "client-1",
+        action: "report.downloaded",
+        resourceType: "Report",
+        resourceId: "program-1",
+        after: {
+          report: "Employee Verbatims Report",
+          fileName: "Employee_Verbatims_Report.xlsx",
+          programId: "program-1",
+        },
+      });
     } finally {
       await app.close();
     }

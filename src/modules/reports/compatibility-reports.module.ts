@@ -1208,6 +1208,31 @@ function responseColor(caption: string): string {
 export class CompatibilityReportsService {
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
+  async recordReportDownload(
+    principal: Principal,
+    input: {
+      report: string;
+      fileName: string;
+      programId?: string;
+      resourceId?: string;
+    },
+  ): Promise<void> {
+    await this.prisma.auditLog.create({
+      data: {
+        organizationId: principal.organizationId,
+        actorUserId: principal.sub,
+        action: "report.downloaded",
+        resourceType: "Report",
+        resourceId: input.resourceId ?? input.programId ?? null,
+        after: {
+          report: input.report,
+          fileName: input.fileName,
+          ...(input.programId ? { programId: input.programId } : {}),
+        },
+      },
+    });
+  }
+
   private async reportWorkbookMetadata(
     principal: Principal,
     query: ReportQuery,
@@ -3291,6 +3316,12 @@ export class CompatibilityReportsService {
     const filename =
       upload.sourceFileName.replace(/[^a-zA-Z0-9._-]/gu, "_") ||
       "custom-report";
+    await this.recordReportDownload(principal, {
+      report: upload.reportName,
+      fileName: filename,
+      programId: upload.organizationProgram.programId,
+      resourceId: upload.id,
+    });
     return reply
       .header("Content-Type", upload.contentType)
       .header("Content-Disposition", `attachment; filename="${filename}"`)
@@ -5527,22 +5558,26 @@ export class CompatibilityReportsController {
     @BodyDto(OpenResponsesReportDto) body: OpenResponsesReportDto,
     @Res() reply: FastifyReply,
   ): Promise<void> {
+    const query = this.reportQuery(
+      selectedProgramId,
+      organizationId,
+      isDummy,
+      false,
+      true,
+    );
     const workbook = await this.reports.openResponsesWorkbook(
       principal,
-      this.reportQuery(selectedProgramId, organizationId, isDummy, false, true),
+      query,
       body.queryFilter,
     );
-    reply
-      .header(
-        "content-type",
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      )
-      .header(
-        "content-disposition",
-        'attachment; filename="Employee_Verbatims_Report.xlsx"',
-      )
-      .header("access-control-expose-headers", "*")
-      .send(workbook);
+    await this.recordAndSendWorkbook(
+      principal,
+      query,
+      reply,
+      workbook,
+      "Employee Verbatims Report",
+      "Employee_Verbatims_Report.xlsx",
+    );
   }
 
   @Get("employeeSectionComparisonReport")
@@ -5919,7 +5954,14 @@ export class CompatibilityReportsController {
       responsePatterns ? { ...parsedFilter, responsePatterns } : parsedFilter,
       ranges,
     );
-    this.sendWorkbook(reply, workbook, "Employee_Feedback_Heatmap.xlsx");
+    await this.recordAndSendWorkbook(
+      principal,
+      reportQuery,
+      reply,
+      workbook,
+      ranges ? "Response Patterns" : "Employee Feedback Heatmap",
+      "Employee_Feedback_Heatmap.xlsx",
+    );
   }
 
   @Post("generateHeatMap")
@@ -5933,13 +5975,27 @@ export class CompatibilityReportsController {
     @Query("queryFilter") queryFilter: string | string[] | undefined,
     @Res() reply: FastifyReply,
   ): Promise<void> {
+    const query = this.reportQuery(
+      selectedProgramId,
+      organizationId,
+      isDummy,
+      false,
+      true,
+    );
     const workbook = await this.reports.feedbackWorkbook(
       principal,
-      this.reportQuery(selectedProgramId, organizationId, isDummy, false, true),
+      query,
       false,
       this.parseQueryFilter(queryFilter),
     );
-    this.sendWorkbook(reply, workbook, "Employee_Feedback_Heatmap.xlsx");
+    await this.recordAndSendWorkbook(
+      principal,
+      query,
+      reply,
+      workbook,
+      "Workforce Feedback Results",
+      "Employee_Feedback_Heatmap.xlsx",
+    );
   }
 
   @Get("generateHeatMapDetailed")
@@ -5952,13 +6008,25 @@ export class CompatibilityReportsController {
     @Query("queryFilter") queryFilter: string | string[] | undefined,
     @Res() reply: FastifyReply,
   ): Promise<void> {
+    const query = this.reportQuery(
+      selectedProgramId,
+      organizationId,
+      isDummy,
+    );
     const workbook = await this.reports.feedbackWorkbook(
       principal,
-      this.reportQuery(selectedProgramId, organizationId, isDummy),
+      query,
       true,
       this.parseQueryFilter(queryFilter),
     );
-    this.sendWorkbook(reply, workbook, "Employee_Feedback_Detailed.xlsx");
+    await this.recordAndSendWorkbook(
+      principal,
+      query,
+      reply,
+      workbook,
+      "Detailed Results",
+      "Employee_Feedback_Detailed.xlsx",
+    );
   }
 
   @Get("generateBenchmarkReport")
@@ -5970,11 +6038,23 @@ export class CompatibilityReportsController {
     @Query("isDummy") isDummy: string | string[] | undefined,
     @Res() reply: FastifyReply,
   ): Promise<void> {
+    const query = this.reportQuery(
+      selectedProgramId,
+      organizationId,
+      isDummy,
+    );
     const workbook = await this.reports.benchmarkWorkbook(
       principal,
-      this.reportQuery(selectedProgramId, organizationId, isDummy),
+      query,
     );
-    this.sendWorkbook(reply, workbook, "Benchmark_Report.xlsx");
+    await this.recordAndSendWorkbook(
+      principal,
+      query,
+      reply,
+      workbook,
+      "Benchmark Report",
+      "Benchmark_Report.xlsx",
+    );
   }
 
   @Get("v2/generateBenchmarkReport")
@@ -5986,11 +6066,25 @@ export class CompatibilityReportsController {
     @Query("isDummy") isDummy: string | string[] | undefined,
     @Res() reply: FastifyReply,
   ): Promise<void> {
+    const query = this.reportQuery(
+      selectedProgramId,
+      organizationId,
+      isDummy,
+      false,
+      true,
+    );
     const workbook = await this.reports.benchmarkWorkbook(
       principal,
-      this.reportQuery(selectedProgramId, organizationId, isDummy, false, true),
+      query,
     );
-    this.sendWorkbook(reply, workbook, "Workforce_Benchmark_Report.xlsx");
+    await this.recordAndSendWorkbook(
+      principal,
+      query,
+      reply,
+      workbook,
+      "Workforce Benchmark Report",
+      "Workforce_Benchmark_Report.xlsx",
+    );
   }
 
   @Get("responseDetailReportSectionQuestions")
@@ -6039,14 +6133,22 @@ export class CompatibilityReportsController {
     @Res() reply: FastifyReply,
   ): Promise<void> {
     const selectedFilter = scalarQuery("filterQuestion", filterQuestion);
+    const query = this.reportQuery(
+      selectedProgramId,
+      organizationId,
+      isDummy,
+    );
     const workbook = await this.reports.responseDetailWorkbook(
       principal,
-      this.reportQuery(selectedProgramId, organizationId, isDummy),
+      query,
       selectedFilter,
     );
-    this.sendWorkbook(
+    await this.recordAndSendWorkbook(
+      principal,
+      query,
       reply,
       workbook,
+      selectedFilter ? "Filtered Response Detail" : "Response Detail",
       selectedFilter
         ? "Response_Detail_Filtered_Report.xlsx"
         : "Response_Detail_Report.xlsx",
@@ -6099,11 +6201,25 @@ export class CompatibilityReportsController {
     @Query("isDummy") isDummy: string | string[] | undefined,
     @Res() reply: FastifyReply,
   ): Promise<void> {
+    const query = this.reportQuery(
+      selectedProgramId,
+      organizationId,
+      isDummy,
+      false,
+      true,
+    );
     const workbook = await this.reports.employerBenchmarkWorkbook(
       principal,
-      this.reportQuery(selectedProgramId, organizationId, isDummy, false, true),
+      query,
     );
-    this.sendWorkbook(reply, workbook, "Benefits_&_Best_Practices.xlsx");
+    await this.recordAndSendWorkbook(
+      principal,
+      query,
+      reply,
+      workbook,
+      "Benefits & Best Practices",
+      "Benefits_&_Best_Practices.xlsx",
+    );
   }
 
   @Get("employerBenchmarkReport")
@@ -6182,6 +6298,31 @@ export class CompatibilityReportsController {
     );
   }
 
+  @Post("key-impact-analysis/downloaded")
+  @HttpCode(204)
+  async keyImpactAnalysisDownloaded(
+    @CurrentUser() principal: Principal,
+    @Query("selectedProgramId")
+    selectedProgramId: string | string[] | undefined,
+    @Query("organizationId") organizationId: string | string[] | undefined,
+  ): Promise<void> {
+    const query = this.reportQuery(
+      selectedProgramId,
+      organizationId,
+      undefined,
+      false,
+      true,
+    );
+    await this.reports.keyImpactAnalysis(principal, query);
+    await this.reports.recordReportDownload(principal, {
+      report: "Key Impact Analysis",
+      fileName: "Key_Impact_Analysis.pdf",
+      ...(query.selectedProgramId
+        ? { programId: query.selectedProgramId }
+        : {}),
+    });
+  }
+
   @Get("surveyResponseRateAnuualTrend")
   annualResponseRate(
     @CurrentUser() principal: Principal,
@@ -6239,11 +6380,23 @@ export class CompatibilityReportsController {
     @Query("isDummy") isDummy: string | string[] | undefined,
     @Res() reply: FastifyReply,
   ): Promise<void> {
+    const query = this.reportQuery(
+      selectedProgramId,
+      organizationId,
+      isDummy,
+    );
     const workbook = await this.reports.annualTrendWorkbook(
       principal,
-      this.reportQuery(selectedProgramId, organizationId, isDummy),
+      query,
     );
-    this.sendWorkbook(reply, workbook, "Annual_Trends_Report.xlsx");
+    await this.recordAndSendWorkbook(
+      principal,
+      query,
+      reply,
+      workbook,
+      "Annual Trends Report",
+      "Annual_Trends_Report.xlsx",
+    );
   }
 
   private parseQueryFilter(
@@ -6354,11 +6507,21 @@ export class CompatibilityReportsController {
     };
   }
 
-  private sendWorkbook(
+  private async recordAndSendWorkbook(
+    principal: Principal,
+    query: ReportQuery,
     reply: FastifyReply,
     workbook: Buffer,
+    report: string,
     filename: string,
-  ): void {
+  ): Promise<void> {
+    await this.reports.recordReportDownload(principal, {
+      report,
+      fileName: filename,
+      ...(query.selectedProgramId
+        ? { programId: query.selectedProgramId }
+        : {}),
+    });
     reply
       .header(
         "content-type",
