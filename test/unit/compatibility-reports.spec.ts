@@ -1169,6 +1169,155 @@ describe("compatibility report categories", () => {
     assert.equal(result.data.sortingFilter, undefined);
   });
 
+  it("shows organization-specific open-text questions only to their organization", async () => {
+    const standardQuestion = {
+      id: "open-standard",
+      legacyId: null,
+      externalId: null,
+      dataLabel: "q_OpenEnded_1",
+      caption: "What should we improve?",
+      type: "open-text",
+      position: 1,
+      metadata: { QuestionTypeId: 9 },
+    };
+    const currentOrganizationQuestion = {
+      ...standardQuestion,
+      id: "open-organization-656",
+      dataLabel: "q_OpenEnded_2_ORGID_656",
+      caption: "Question for Allied",
+      position: 2,
+    };
+    const otherOrganizationQuestion = {
+      ...standardQuestion,
+      id: "open-organization-999",
+      dataLabel: "q_OpenEnded_2_ORGID_999",
+      caption: "Confidential question for another organization",
+      position: 3,
+    };
+    const prisma = {
+      program: {
+        findFirst: () => ({
+          id: "program-1",
+          projectId: "project-1",
+          name: "Indiana 2026",
+          year: 2026,
+          startsAt: null,
+          metadata: {},
+          project: { id: "project-1", name: "Indiana" },
+        }),
+      },
+      organizationProgram: {
+        findFirst: () => ({
+          id: "enrollment-1",
+          reportAccess: { EV_Access: "yes" },
+          metrics: { Source_Organization_ID: "656" },
+          metadata: {},
+          organization: { name: "Allied" },
+        }),
+        findMany: () => [
+          {
+            organizationId: "organization-1",
+            legacyId: null,
+            externalId: "Allied_5_IN_656",
+            dealExternalId: null,
+            isWinner: null,
+            currentZohoCategory: null,
+            benchmarkCategory: null,
+            metrics: { Source_Organization_ID: "656" },
+            organization: {
+              legacyId: null,
+              externalId: null,
+              metadata: { sourceOrganizationId: "656" },
+            },
+          },
+        ],
+      },
+      survey: {
+        findFirst: () => ({
+          id: "survey-1",
+          title: "Indiana 2026 Employee Feedback Survey",
+          startsAt: null,
+          endsAt: null,
+        }),
+      },
+      question: {
+        findMany: () => [
+          standardQuestion,
+          currentOrganizationQuestion,
+          otherOrganizationQuestion,
+        ],
+      },
+      respondent: {
+        findMany: () =>
+          Array.from({ length: 5 }, (_, index) => ({
+            responses: [
+              {
+                questionId: standardQuestion.id,
+                value: `Standard answer ${index + 1}`,
+              },
+              {
+                questionId: currentOrganizationQuestion.id,
+                value: `Allied answer ${index + 1}`,
+              },
+            ],
+          })),
+      },
+    } as unknown as PrismaService;
+    const service = new CompatibilityReportsService(prisma);
+
+    const result = await service.openResponseQuestions(
+      {
+        sub: "client-1",
+        organizationId: "organization-1",
+        roles: ["client"],
+        permissions: [],
+      },
+      { selectedProgramId: "program-1", isDummy: false },
+    );
+
+    assert.deepEqual(
+      result.data.map(({ caption }) => caption),
+      ["What should we improve?", "Question for Allied"],
+    );
+    await assert.rejects(
+      service.openResponseAnswers(
+        {
+          sub: "client-1",
+          organizationId: "organization-1",
+          roles: ["client"],
+          permissions: [],
+        },
+        { selectedProgramId: "program-1", isDummy: false },
+        otherOrganizationQuestion.id,
+      ),
+      /Question not found/u,
+    );
+
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(
+      (await service.openResponsesWorkbook(
+        {
+          sub: "client-1",
+          organizationId: "organization-1",
+          roles: ["client"],
+          permissions: [],
+        },
+        { selectedProgramId: "program-1", isDummy: false },
+      )) as never,
+    );
+    const workbookText: string[] = [];
+    workbook.eachSheet((sheet) => {
+      sheet.eachRow((row) => {
+        row.eachCell((cell) => workbookText.push(String(cell.value ?? "")));
+      });
+    });
+    assert.match(workbookText.join(" "), /Question for Allied/u);
+    assert.doesNotMatch(
+      workbookText.join(" "),
+      /Confidential question for another organization/u,
+    );
+  });
+
   it("suppresses small sorted verbatim groups in answers and workbook", async () => {
     const department = {
       id: "department",

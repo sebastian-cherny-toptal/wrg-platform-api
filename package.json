@@ -19,6 +19,7 @@
     "test": "tsx --test test/**/*.spec.ts",
     "test:unit": "tsx --test test/unit/**/*.spec.ts",
     "test:integration": "tsx --test test/integration/**/*.spec.ts",
+    "test:integration:in-2026": "tsx --test test/integration/in-2026-organization-isolation.spec.ts",
     "test:unit:compatibility1": "tsx --test test/unit/compatibility-reports.spec.ts",
     "test:unit:compatibility2": "tsx --test test/unit/compatibility-heatmap.spec.ts",
     "check": "npm run lint && npm run typecheck && npm test && npm run build",

@@ -1814,7 +1814,11 @@ export class CompatibilityReportsService {
         })),
       };
     }
-    const questions = await this.openQuestions(context.survey.id);
+    const questions = await this.openQuestions(
+      context.survey.id,
+      undefined,
+      this.organizationQuestionIds(context),
+    );
     return {
       success: true,
       message: "success",
@@ -1878,7 +1882,12 @@ export class CompatibilityReportsService {
     if (sortingReference) {
       this.requiresDemo(principal, context, "SEV_Access");
     }
-    const openQuestions = await this.openQuestions(context.survey.id);
+    const organizationQuestionIds = this.organizationQuestionIds(context);
+    const openQuestions = await this.openQuestions(
+      context.survey.id,
+      undefined,
+      organizationQuestionIds,
+    );
     const question = openQuestions.find((candidate) =>
       this.questionMatchesReference(candidate, questionReference),
     );
@@ -1889,7 +1898,7 @@ export class CompatibilityReportsService {
           {
             questionId: sortingReference,
           },
-          this.organizationQuestionIds(context),
+          organizationQuestionIds,
         )
       : openQuestions;
     const sortingQuestion = sortingReference
@@ -4335,17 +4344,31 @@ export class CompatibilityReportsService {
         metadata: true,
       },
     });
+    const normalizedOrganizationIds = new Set(
+      [...organizationQuestionIds].map((value) =>
+        value.trim().toLocaleLowerCase("en"),
+      ),
+    );
     const open = questions.filter((question) => {
       const reportRole = metadataString(question.metadata, "reportRole");
-      if (reportRole) return reportRole === "verbatim";
       const type = question.type.toLowerCase();
       const questionTypeId = jsonObject(question.metadata).QuestionTypeId;
+      const isOpen = reportRole
+        ? reportRole === "verbatim"
+        : question.dataLabel.toLowerCase().includes("openended") ||
+          type.includes("open") ||
+          type.includes("text") ||
+          questionTypeId === 9 ||
+          questionTypeId === "9";
+      if (!isOpen) return false;
+      const organizationId = organizationSpecificQuestionId(
+        question.dataLabel,
+      );
       return (
-        question.dataLabel.toLowerCase().includes("openended") ||
-        type.includes("open") ||
-        type.includes("text") ||
-        questionTypeId === 9 ||
-        questionTypeId === "9"
+        organizationId === null ||
+        normalizedOrganizationIds.has(
+          organizationId.toLocaleLowerCase("en"),
+        )
       );
     });
     const filterReference = queryFilter?.questionId;
@@ -4384,7 +4407,20 @@ export class CompatibilityReportsService {
           candidate.trim().toLocaleLowerCase("en") === normalized,
       ),
     );
-    if (exact) return exact;
+    if (exact) {
+      const organizationId = organizationSpecificQuestionId(exact.dataLabel);
+      if (organizationId === null) return exact;
+      const normalizedOrganizationIds = new Set(
+        [...organizationQuestionIds].map((value) =>
+          value.trim().toLocaleLowerCase("en"),
+        ),
+      );
+      return normalizedOrganizationIds.has(
+        organizationId.toLocaleLowerCase("en"),
+      )
+        ? exact
+        : undefined;
+    }
 
     const matching = questions.filter((question) =>
       this.questionMatchesReference(question, reference),
