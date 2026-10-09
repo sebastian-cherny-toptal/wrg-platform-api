@@ -1358,7 +1358,13 @@ export class CompatibilityAdminService {
         take: limit,
         include: {
           actor: {
-            select: { id: true, legacyId: true, email: true, fullName: true },
+            select: {
+              id: true,
+              legacyId: true,
+              email: true,
+              fullName: true,
+              username: true,
+            },
           },
           organization: true,
         },
@@ -1366,7 +1372,18 @@ export class CompatibilityAdminService {
       this.prisma.auditLog.count(),
     ]);
     return {
-      data,
+      data: data.map((entry) => ({
+        ...entry,
+        ...(entry.action === "report.downloaded"
+          ? {
+              after: {
+                ...jsonObject(entry.after),
+                username: entry.actor?.username ?? null,
+                organizationName: entry.organization?.name ?? null,
+              },
+            }
+          : {}),
+      })),
       totalPages: Math.ceil(totalCount / limit),
       totalCount,
       currentPage: page,
