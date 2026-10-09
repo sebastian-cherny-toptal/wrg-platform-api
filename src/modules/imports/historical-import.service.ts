@@ -183,6 +183,11 @@ interface OrganizationSummary {
   eaRespondents: number;
   efsRespondents: number;
   warnings: string[];
+  responseChanges?: {
+    changed: boolean;
+    previousRespondents: number;
+    uploadedRespondents: number;
+  };
 }
 
 interface HistoricalImportDraft extends HistoricalImportMetadata {
@@ -339,6 +344,14 @@ function assertStoredWorkbooksReady(
         `Workbook "${workbook.fileName}" is no longer available. Upload both files again before committing.`,
       );
     }
+  }
+}
+
+function assertStoredWorkbookReady(workbook: StoredWorkbook): void {
+  if (!existsSync(workbook.filePath)) {
+    throw new BadRequestException(
+      `Workbook "${workbook.fileName}" is no longer available. Upload the file again before committing.`,
+    );
   }
 }
 
@@ -1336,9 +1349,9 @@ export class HistoricalImportService {
     );
     const hasEaFile = Boolean(files.eaFile);
     const hasEfsFile = Boolean(files.efsFile);
-    if (hasEaFile !== hasEfsFile) {
+    if (hasEaFile !== hasEfsFile && !metadata.programId) {
       throw new BadRequestException(
-        "Upload both EA and EFS workbooks, or leave both empty",
+        "Upload both EA and EFS workbooks when creating a program",
       );
     }
     if (!metadata.programId && (!files.eaFile || !files.efsFile)) {
@@ -1890,6 +1903,41 @@ export class HistoricalImportService {
         warningCount: 0,
       };
     }
+    if (draft.programId && (draft.eaFile || draft.efsFile)) {
+      const workbook = draft.eaFile ?? draft.efsFile;
+      if (!workbook) throw new BadRequestException("Upload a workbook");
+      assertStoredWorkbookReady(workbook);
+      try {
+        const analysis = await this.analyzeWorkbook(draft, workbook);
+        const kind = workbook.kind;
+        const summary: HistoricalImportValidationSummary = {
+          issues: analysis.issues,
+          workbooks: [analysis.summary],
+          organizations: [...analysis.organizations].map(
+            ([key, organization]) => ({
+              key,
+              displayName: organization.displayName,
+              ...(organization.workbookOrganizationId
+                ? {
+                    workbookOrganizationId: organization.workbookOrganizationId,
+                  }
+                : {}),
+              eaRespondents: kind === "EA" ? organization.respondents : 0,
+              efsRespondents: kind === "EFS" ? organization.respondents : 0,
+              warnings: [],
+            }),
+          ),
+          blockingErrorCount: analysis.errorCount,
+          warningCount: analysis.warningCount,
+        };
+        if (kind === "EFS") {
+          await this.addEfsResponseChanges(draft, workbook, summary);
+        }
+        return trimValidationSummary(summary);
+      } catch (error) {
+        throw toHttpException(error);
+      }
+    }
     assertStoredWorkbooksReady(draft);
     try {
       const eaAnalysis = await this.analyzeWorkbook(draft, draft.eaFile);
@@ -2072,7 +2120,7 @@ export class HistoricalImportService {
       }
       const kind = draft.eaFile ? "EA" : "EFS";
       const analysis = await this.analyzeWorkbook(draft, storedFile);
-      return trimValidationSummary({
+      const summary: HistoricalImportValidationSummary = {
         issues: analysis.issues,
         workbooks: [analysis.summary],
         organizations: [...analysis.organizations].map(
@@ -2089,9 +2137,160 @@ export class HistoricalImportService {
         ),
         blockingErrorCount: analysis.errorCount,
         warningCount: analysis.warningCount,
-      });
+      };
+      if (kind === "EFS" && draft.programId) {
+        await this.addEfsResponseChanges(draft, storedFile, summary);
+      }
+      return trimValidationSummary(summary);
     } catch (error) {
       throw toHttpException(error);
+    }
+  }
+
+  private async addEfsResponseChanges(
+    draft: HistoricalImportDraft,
+    workbook: StoredWorkbook,
+    summary: HistoricalImportValidationSummary,
+  ): Promise<void> {
+    if (!draft.programId) return;
+    const currentSurvey = await this.prisma.survey.findFirst({
+      where: {
+        programId: draft.programId,
+        OR: [
+          { metadata: { path: ["kind"], equals: "employee" } },
+          {
+            title: {
+              contains: "Employee Feedback Survey",
+              mode: "insensitive",
+            },
+          },
+          { externalId: { endsWith: "-efs", mode: "insensitive" } },
+          { externalId: { endsWith: ":efs", mode: "insensitive" } },
+        ],
+      },
+      orderBy: [{ endsAt: "desc" }, { createdAt: "desc" }],
+      select: { id: true },
+    });
+    if (!currentSurvey) return;
+
+    const enrollments = await this.prisma.organizationProgram.findMany({
+      where: { programId: draft.programId },
+      select: {
+        organizationId: true,
+        metrics: true,
+        organization: { select: { name: true } },
+      },
+    });
+    const keysByOrganizationId = new Map<string, string>();
+    const namesByKey = new Map<string, string>();
+    for (const enrollment of enrollments) {
+      const metrics = objectBody(enrollment.metrics);
+      const sourceName = String(
+        metrics.Source_Organization_Name ?? enrollment.organization.name,
+      );
+      const key = `name:${normalizeOrganizationName(sourceName)}`;
+      keysByOrganizationId.set(enrollment.organizationId, key);
+      namesByKey.set(key, sourceName);
+    }
+
+    const signature = (
+      completed: boolean,
+      responses: Array<{
+        value: unknown;
+        score: unknown;
+        question: { dataLabel: string };
+      }>,
+    ) =>
+      digest(
+        JSON.stringify({
+          completed,
+          responses: responses
+            .map(({ value, score, question }) => ({
+              dataLabel: question.dataLabel,
+              value,
+              score:
+                score === null || score === undefined ? null : String(score),
+            }))
+            .sort((left, right) =>
+              left.dataLabel.localeCompare(right.dataLabel),
+            ),
+        }),
+        64,
+      );
+    const existing = new Map<string, string[]>();
+    const respondents = await this.prisma.respondent.findMany({
+      where: { surveyId: currentSurvey.id },
+      select: {
+        organizationId: true,
+        completedAt: true,
+        responses: {
+          select: {
+            value: true,
+            score: true,
+            question: { select: { dataLabel: true } },
+          },
+        },
+      },
+    });
+    for (const respondent of respondents) {
+      if (!respondent.organizationId) continue;
+      const key = keysByOrganizationId.get(respondent.organizationId);
+      if (!key) continue;
+      const values = existing.get(key) ?? [];
+      values.push(
+        signature(Boolean(respondent.completedAt), respondent.responses),
+      );
+      existing.set(key, values);
+    }
+
+    const uploaded = new Map<string, string[]>();
+    const definition = await readXlsxSurveyDefinition({
+      fileName: workbook.fileName,
+      filePath: workbook.filePath,
+      includedQuestionLabels:
+        draft.surveyDefinition?.map(({ dataLabel }) => dataLabel) ?? [],
+      questionId: (dataLabel) => dataLabel,
+    });
+    await forEachXlsxSurveyRow(definition, {}, (row) => {
+      if (!row.organizationName?.trim()) return;
+      const key = organizationKey(row);
+      const values = uploaded.get(key) ?? [];
+      values.push(
+        signature(
+          row.completed,
+          row.responses.map(({ value, score, question }) => ({
+            value,
+            score,
+            question: { dataLabel: question.dataLabel },
+          })),
+        ),
+      );
+      uploaded.set(key, values);
+    });
+
+    const summaries = new Map(
+      summary.organizations.map((item) => [item.key, item]),
+    );
+    for (const key of new Set([...existing.keys(), ...uploaded.keys()])) {
+      const previous = (existing.get(key) ?? []).sort();
+      const next = (uploaded.get(key) ?? []).sort();
+      const changed = JSON.stringify(previous) !== JSON.stringify(next);
+      let organization = summaries.get(key);
+      if (!organization) {
+        organization = {
+          key,
+          displayName: namesByKey.get(key) ?? key.replace(/^name:/u, ""),
+          eaRespondents: 0,
+          efsRespondents: 0,
+          warnings: ["Missing from uploaded EFS"],
+        };
+        summary.organizations.push(organization);
+      }
+      organization.responseChanges = {
+        changed,
+        previousRespondents: previous.length,
+        uploadedRespondents: next.length,
+      };
     }
   }
 
@@ -2137,7 +2336,11 @@ export class HistoricalImportService {
     let projectSlug = projectSlugBase;
 
     try {
-      if (!editing || eaFile || efsFile) assertStoredWorkbooksReady(draft);
+      if (!editing) assertStoredWorkbooksReady(draft);
+      if (editing) {
+        if (eaFile) assertStoredWorkbookReady(eaFile);
+        if (efsFile) assertStoredWorkbookReady(efsFile);
+      }
       let slugSuffix = 1;
       while (
         creatingProject &&
@@ -2204,6 +2407,15 @@ export class HistoricalImportService {
                   fileName: eaFile.fileName,
                   sha256: eaFile.sha256,
                   sizeBytes: eaFile.sizeBytes,
+                },
+              }
+            : {}),
+          ...(efsFile
+            ? {
+                employeeFeedbackSurveyFile: {
+                  fileName: efsFile.fileName,
+                  sha256: efsFile.sha256,
+                  sizeBytes: efsFile.sizeBytes,
                 },
               }
             : {}),
@@ -2288,7 +2500,7 @@ export class HistoricalImportService {
           })),
         });
       }
-      if (eaFile && efsFile) {
+      if (eaFile || efsFile) {
         const organizationRows = await this.collectOrganizationRows(
           eaFile,
           efsFile,
@@ -2301,22 +2513,30 @@ export class HistoricalImportService {
           programId,
           projectSlug,
         );
-        await this.importSurvey(
-          this.prisma,
-          draft,
-          "EA",
-          eaFile,
-          programId,
-          organizationIds,
-        );
-        await this.importSurvey(
-          this.prisma,
-          draft,
-          "EFS",
-          efsFile,
-          programId,
-          organizationIds,
-        );
+        if (eaFile) {
+          const surveyId = await this.importSurvey(
+            this.prisma,
+            draft,
+            "EA",
+            eaFile,
+            programId,
+            organizationIds,
+          );
+          if (editing)
+            await this.removeReplacedSurveys(programId, "EA", surveyId);
+        }
+        if (efsFile) {
+          const surveyId = await this.importSurvey(
+            this.prisma,
+            draft,
+            "EFS",
+            efsFile,
+            programId,
+            organizationIds,
+          );
+          if (editing)
+            await this.removeReplacedSurveys(programId, "EFS", surveyId);
+        }
       }
       if (draft.surveyDefinition && draft.surveyDefinitionChanged && !efsFile) {
         const questions = await this.definitionQuestions(
@@ -2390,8 +2610,8 @@ export class HistoricalImportService {
   }
 
   private async collectOrganizationRows(
-    eaFile: StoredWorkbook,
-    efsFile: StoredWorkbook,
+    eaFile: StoredWorkbook | undefined,
+    efsFile: StoredWorkbook | undefined,
   ): Promise<
     Map<
       string,
@@ -2445,9 +2665,41 @@ export class HistoricalImportService {
         rows.set(key, existing);
       });
     };
-    await ingest(eaFile, "EA");
-    await ingest(efsFile, "EFS");
+    if (eaFile) await ingest(eaFile, "EA");
+    if (efsFile) await ingest(efsFile, "EFS");
     return rows;
+  }
+
+  private async removeReplacedSurveys(
+    programId: string,
+    kind: HistoricalSurveyKind,
+    replacementSurveyId: string,
+  ): Promise<void> {
+    const employee = kind === "EFS";
+    await this.prisma.survey.deleteMany({
+      where: {
+        programId,
+        id: { not: replacementSurveyId },
+        OR: employee
+          ? [
+              { metadata: { path: ["kind"], equals: "employee" } },
+              {
+                title: {
+                  contains: "Employee Feedback Survey",
+                  mode: "insensitive",
+                },
+              },
+              { externalId: { endsWith: "-efs", mode: "insensitive" } },
+              { externalId: { endsWith: ":efs", mode: "insensitive" } },
+            ]
+          : [
+              { metadata: { path: ["kind"], equals: "employer" } },
+              { title: { contains: "Employer", mode: "insensitive" } },
+              { externalId: { endsWith: "-ea", mode: "insensitive" } },
+              { externalId: { endsWith: ":ea", mode: "insensitive" } },
+            ],
+      },
+    });
   }
 
   private async createOrganizationsAndEnrollments(
@@ -3025,7 +3277,7 @@ export class HistoricalImportService {
     workbook: StoredWorkbook,
     programId: string,
     organizationIds: Map<string, string>,
-  ): Promise<void> {
+  ): Promise<string> {
     const importPrefix = importPrefixFor(draft.importId);
     const excludedOrganizationKeys = new Set(
       (draft.organizationPrograms ?? []).flatMap((entry) =>
@@ -3188,5 +3440,6 @@ export class HistoricalImportService {
       }
     });
     await flush();
+    return surveyId;
   }
 }

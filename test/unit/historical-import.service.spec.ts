@@ -1,11 +1,6 @@
 import ExcelJS from "exceljs";
 import assert from "node:assert/strict";
-import {
-  existsSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-} from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
@@ -233,6 +228,204 @@ describe("historical import service", () => {
       assert.equal(existsSync(stagedFilePath), false);
     } finally {
       process.chdir(previousCwd);
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("marks organizations whose EFS responses differ from the current program survey", async () => {
+    const root = mkdtempSync(join(tmpdir(), "historical-efs-reupload-"));
+    const efsPath = join(root, "efs.xlsx");
+    await writeWorkbook(efsPath, "Acme Corp", 1);
+    const prisma = {
+      project: {
+        findFirst: () => ({
+          id: "22222222-2222-4222-8222-222222222222",
+          name: "Test Project",
+        }),
+      },
+      program: {
+        findFirst: () => ({
+          id: "11111111-1111-4111-8111-111111111111",
+          projectId: "22222222-2222-4222-8222-222222222222",
+          metadata: {},
+        }),
+      },
+      question: {
+        findMany: () => [
+          {
+            dataLabel: "q_CoreEmployeeExperience_Test",
+            caption: "I feel supported at work.",
+            type: "likert",
+            metadata: {},
+            survey: {
+              programId: "11111111-1111-4111-8111-111111111111",
+              program: { year: 2026 },
+            },
+          },
+        ],
+      },
+      survey: {
+        findFirst: () => ({ id: "current-efs" }),
+      },
+      organizationProgram: {
+        findMany: () => [
+          {
+            organizationId: "33333333-3333-4333-8333-333333333333",
+            metrics: { Source_Organization_Name: "Acme Corp" },
+            organization: { name: "Acme Corp" },
+          },
+        ],
+      },
+      respondent: {
+        findMany: () => [
+          {
+            organizationId: "33333333-3333-4333-8333-333333333333",
+            completedAt: new Date("2026-01-01T00:00:00.000Z"),
+            responses: [
+              {
+                value: 2,
+                score: 2,
+                question: { dataLabel: "q_CoreEmployeeExperience_Test" },
+              },
+            ],
+          },
+        ],
+      },
+    };
+
+    try {
+      const service = new HistoricalImportService(prisma as never);
+      const result = await service.prepare(
+        {
+          sub: "admin",
+          roles: ["admin"],
+          permissions: [],
+          organizationId: null,
+        },
+        {
+          projectId: "22222222-2222-4222-8222-222222222222",
+          programId: "11111111-1111-4111-8111-111111111111",
+          programName: "Test Program",
+          programYear: 2026,
+          efsLaunchDate: "2026-01-01",
+          efsDeadline: "2026-12-31",
+        },
+        { efsFile: { filename: "efs.xlsx", buffer: readFileSync(efsPath) } },
+      );
+
+      const organization = result.validation.organizations[0] as unknown as {
+        responseChanges?: {
+          changed: boolean;
+          previousRespondents: number;
+          uploadedRespondents: number;
+        };
+      };
+      assert.deepEqual(organization.responseChanges, {
+        changed: true,
+        previousRespondents: 1,
+        uploadedRespondents: 1,
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("accepts an EFS-only replacement for an existing program", async () => {
+    const root = mkdtempSync(join(tmpdir(), "historical-efs-only-submit-"));
+    const efsPath = join(root, "efs.xlsx");
+    await writeWorkbook(efsPath, "Acme Corp", 1);
+    let committedFiles:
+      | { ea: string | undefined; efs: string | undefined }
+      | undefined;
+    const prisma = {
+      project: {
+        findFirst: () => ({
+          id: "22222222-2222-4222-8222-222222222222",
+          name: "Test Project",
+        }),
+      },
+      program: {
+        findFirst: () => ({
+          id: "11111111-1111-4111-8111-111111111111",
+          projectId: "22222222-2222-4222-8222-222222222222",
+          metadata: {},
+        }),
+      },
+      syncJob: { create: ({ data }: { data: unknown }) => data },
+    };
+
+    try {
+      const service = new HistoricalImportService(prisma as never);
+      const internals = service as unknown as {
+        validateDraft: () => Promise<{
+          issues: never[];
+          workbooks: never[];
+          organizations: never[];
+          blockingErrorCount: number;
+          warningCount: number;
+        }>;
+        commitDraft: (
+          principal: unknown,
+          draft: {
+            eaFile?: { fileName: string };
+            efsFile?: { fileName: string };
+            importId: string;
+          },
+        ) => Promise<unknown>;
+      };
+      internals.validateDraft = () =>
+        Promise.resolve({
+          issues: [],
+          workbooks: [],
+          organizations: [],
+          blockingErrorCount: 0,
+          warningCount: 0,
+        });
+      internals.commitDraft = (_principal, draft) => {
+        committedFiles = {
+          ea: draft.eaFile?.fileName,
+          efs: draft.efsFile?.fileName,
+        };
+        return Promise.resolve({
+          importId: draft.importId,
+          status: "succeeded",
+          metadata: {
+            programName: "Test Program",
+            programYear: 2026,
+            efsLaunchDate: "2026-01-01",
+            efsDeadline: "2026-12-31",
+          },
+        });
+      };
+
+      await service.submit(
+        {
+          sub: "admin",
+          roles: ["admin"],
+          permissions: [],
+          organizationId: null,
+        },
+        {
+          projectId: "22222222-2222-4222-8222-222222222222",
+          programId: "11111111-1111-4111-8111-111111111111",
+          programName: "Test Program",
+          programYear: 2026,
+          efsLaunchDate: "2026-01-01",
+          efsDeadline: "2026-12-31",
+        },
+        {
+          efsFile: {
+            filename: "replacement.xlsx",
+            buffer: readFileSync(efsPath),
+          },
+        },
+      );
+
+      assert.deepEqual(committedFiles, {
+        ea: undefined,
+        efs: "replacement.xlsx",
+      });
+    } finally {
       rmSync(root, { recursive: true, force: true });
     }
   });
