@@ -15,10 +15,8 @@ import { Logger } from "nestjs-pino";
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage } from "node:http";
 import type { Env } from "./config/env.js";
-import {
-  corsAllowedOrigins,
-  isCorsOriginAllowed,
-} from "./config/cors.js";
+import { corsAllowedOrigins, isCorsOriginAllowed } from "./config/cors.js";
+import { nativeCompatibilityRoutes } from "./config/native-routes.js";
 import { AppModule } from "./app.module.js";
 import { ServerErrorLoggingFilter } from "./common/http/server-error-exception.filter.js";
 import { requestLogPropsForRequest } from "./common/logging/request-logging.js";
@@ -107,24 +105,6 @@ export async function createApp(): Promise<NestFastifyApplication> {
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
   });
-  const nativeCompatibilityPrefixes = [
-    "user",
-    "client",
-    "admin",
-    "dashboard",
-    "payment",
-    "zoho",
-    "webhook",
-  ];
-  const nativeCompatibilityRoutes = nativeCompatibilityPrefixes.flatMap(
-    (prefix) => [
-      prefix,
-      `${prefix}/:one`,
-      `${prefix}/:one/:two`,
-      `${prefix}/:one/:two/:three`,
-      `${prefix}/:one/:two/:three/:four`,
-    ],
-  );
   app.setGlobalPrefix("api", {
     exclude: [
       ...nativeCompatibilityRoutes,
