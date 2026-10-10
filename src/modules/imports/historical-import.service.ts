@@ -4,6 +4,7 @@ import {
   Inject,
   Injectable,
   InternalServerErrorException,
+  Logger,
 } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import type { PrismaClient } from "@prisma/client";
@@ -990,6 +991,7 @@ async function insertBatches<T>(
 
 @Injectable()
 export class HistoricalImportService {
+  private readonly logger = new Logger(HistoricalImportService.name);
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
   async reuploadProgramEfs(
@@ -997,6 +999,14 @@ export class HistoricalImportService {
     programId: string,
     file: UploadedWorkbookFile,
     revision?: string,
+    options: {
+      importId?: string;
+      onProgress?: (progress: {
+        phase: string;
+        respondents: number;
+        responses: number;
+      }) => Promise<void>;
+    } = {},
   ) {
     this.assertAccess(principal);
     const program = await this.prisma.program.findUnique({
@@ -1004,7 +1014,7 @@ export class HistoricalImportService {
     });
     if (!program) throw new BadRequestException("Program does not exist");
     const metadata = objectBody(program.metadata);
-    const importId = randomUUID();
+    const importId = options.importId ?? randomUUID();
     const stagingDir = createRequestWorkspace(importId);
     const draft: HistoricalImportDraft = {
       importId,
@@ -1113,60 +1123,127 @@ export class HistoricalImportService {
         );
       if (!draft.efsLaunchDate || !draft.efsDeadline)
         throw new BadRequestException("The program is missing its EFS dates.");
-      await this.prisma.$transaction(
-        async (transaction) => {
-          // Serialize replacements of this program; readers retain the old survey until commit.
-          await transaction.$queryRaw`SELECT id FROM "Program" WHERE id = ${programId}::uuid FOR UPDATE`;
-          const currentProgram = await transaction.program.findUniqueOrThrow({
-            where: { id: programId },
-          });
-          if (
-            currentProgram.updatedAt.getTime() !== program.updatedAt.getTime()
-          )
-            throw new BadRequestException(
-              "The program changed. Review the EFS again before saving.",
-            );
-          const surveyId = await this.importSurvey(
-            transaction,
-            draft,
-            "EFS",
-            workbook,
-            programId,
-            organizationIds,
-          );
-          await transaction.survey.deleteMany({
-            where: { ...surveyWhere, id: { not: surveyId } },
-          });
-          await transaction.program.update({
-            where: { id: programId },
-            data: {
-              metadata: {
-                ...metadata,
-                employeeFeedbackSurveyFile: {
-                  fileName: workbook.fileName,
-                  sha256: workbook.sha256,
-                  sizeBytes: workbook.sizeBytes,
-                },
-              } as Prisma.InputJsonValue,
-            },
-          });
-          await transaction.syncJob.create({
-            data: {
-              provider: "historical-import",
-              kind: "efs-reupload",
-              externalId: importId,
-              idempotencyKey: `efs-reupload:${importId}`,
-              status: "SUCCEEDED",
-              input: auditInput(draft) as unknown as Prisma.InputJsonValue,
-              output: validation as unknown as Prisma.InputJsonValue,
-              startedAt: new Date(),
-              finishedAt: new Date(),
-            },
-          });
-        },
-        { timeout: 600_000, maxWait: 10_000 },
+      const surveyId = deterministicUuid(
+        `${importPrefixFor(importId)}:survey:EFS`,
       );
-      return { validation, revision: currentRevision, saved: true };
+      let published = false;
+      try {
+        // Staging markers keep this survey out of all active EFS selectors.
+        // Bulk inserts run independently; only publication needs a transaction.
+        await this.prisma.survey.deleteMany({
+          where: {
+            id: surveyId,
+            metadata: { path: ["kind"], equals: "employee-staging" },
+          },
+        });
+        await this.importSurvey(
+          this.prisma,
+          draft,
+          "EFS",
+          workbook,
+          programId,
+          organizationIds,
+          {
+            staging: true,
+            ...(options.onProgress ? { onProgress: options.onProgress } : {}),
+          },
+        );
+        await this.prisma.$transaction(
+          async (transaction) => {
+            // Serialize replacements of this program; readers retain the old survey until commit.
+            await transaction.$queryRaw`SELECT id FROM "Program" WHERE id = ${programId}::uuid FOR UPDATE`;
+            const currentProgram = await transaction.program.findUniqueOrThrow({
+              where: { id: programId },
+            });
+            if (
+              currentProgram.updatedAt.getTime() !== program.updatedAt.getTime()
+            )
+              throw new BadRequestException(
+                "The program changed. Review the EFS again before saving.",
+              );
+            // Retire old selectors without cascading millions of response deletes here.
+            await transaction.survey.updateMany({
+              where: { ...surveyWhere, id: { not: surveyId } },
+              data: {
+                status: "ARCHIVED",
+                title: "Replaced EFS",
+                externalId: null,
+                metadata: {
+                  kind: "replaced-employee",
+                  replacementSurveyId: surveyId,
+                },
+              },
+            });
+            await transaction.survey.update({
+              where: { id: surveyId },
+              data: {
+                status: "CLOSED",
+                title: `${draft.programName} Employee Feedback Survey`,
+                externalId: `${importPrefixFor(importId)}:survey:efs`,
+                metadata: {
+                  kind: "employee",
+                  historicalImportId: importId,
+                  sourceFile: workbook.fileName,
+                  sourceSha256: workbook.sha256,
+                },
+              },
+            });
+            await transaction.program.update({
+              where: { id: programId },
+              data: {
+                metadata: {
+                  ...metadata,
+                  employeeFeedbackSurveyFile: {
+                    fileName: workbook.fileName,
+                    sha256: workbook.sha256,
+                    sizeBytes: workbook.sizeBytes,
+                  },
+                } as Prisma.InputJsonValue,
+              },
+            });
+            await transaction.syncJob.create({
+              data: {
+                provider: "historical-import",
+                kind: "efs-reupload",
+                externalId: importId,
+                idempotencyKey: `efs-reupload:${importId}`,
+                status: "SUCCEEDED",
+                input: auditInput(draft) as unknown as Prisma.InputJsonValue,
+                output: validation as unknown as Prisma.InputJsonValue,
+                startedAt: new Date(),
+                finishedAt: new Date(),
+              },
+            });
+          },
+          { timeout: 30_000, maxWait: 10_000 },
+        );
+        published = true;
+        // Cleanup has no interactive transaction deadline and cannot unpublish a successful save.
+        await this.prisma.survey
+          .deleteMany({
+            where: {
+              programId,
+              id: { in: surveys.map((survey) => survey.id) },
+            },
+          })
+          .catch((error: unknown) => {
+            this.logger.warn(
+              `EFS ${importId} published; retired survey cleanup failed: ${error instanceof Error ? error.message : "Unknown error"}`,
+            );
+          });
+        return { validation, revision: currentRevision, saved: true };
+      } catch (error) {
+        if (!published)
+          await this.prisma.survey
+            .deleteMany({
+              where: {
+                id: surveyId,
+                metadata: { path: ["kind"], equals: "employee-staging" },
+              },
+            })
+            .catch(() => undefined);
+        throw error;
+      }
     } finally {
       rmSync(stagingDir, { recursive: true, force: true });
     }
@@ -3508,6 +3585,14 @@ export class HistoricalImportService {
     workbook: StoredWorkbook,
     programId: string,
     organizationIds: Map<string, string>,
+    options: {
+      staging?: boolean;
+      onProgress?: (progress: {
+        phase: string;
+        respondents: number;
+        responses: number;
+      }) => Promise<void>;
+    } = {},
   ): Promise<string> {
     const importPrefix = importPrefixFor(draft.importId);
     const excludedOrganizationKeys = new Set(
@@ -3561,13 +3646,14 @@ export class HistoricalImportService {
     await prisma.survey.create({
       data: {
         id: surveyId,
-        externalId: `${importPrefix}:survey:${kind.toLowerCase()}`,
+        externalId: `${importPrefix}:survey:${options.staging ? "efs-staging" : kind.toLowerCase()}`,
         programId,
-        title:
-          kind === "EA"
+        title: options.staging
+          ? "EFS import staging"
+          : kind === "EA"
             ? `${draft.programName} Employer Assessment`
             : `${draft.programName} Employee Feedback Survey`,
-        status: "CLOSED",
+        status: options.staging ? "DRAFT" : "CLOSED",
         startsAt:
           kind === "EFS"
             ? new Date(`${draft.efsLaunchDate}T00:00:00.000Z`)
@@ -3578,7 +3664,11 @@ export class HistoricalImportService {
             : new Date(`${draft.programYear}-05-31T23:59:59.999Z`),
         metadata: {
           historicalImportId: draft.importId,
-          kind: kind === "EA" ? "employer" : "employee",
+          kind: options.staging
+            ? "employee-staging"
+            : kind === "EA"
+              ? "employer"
+              : "employee",
           sourceFile: workbook.fileName,
           sourceSha256: workbook.sha256,
         },
@@ -3604,17 +3694,26 @@ export class HistoricalImportService {
     });
     const respondentBatch: Prisma.RespondentCreateManyInput[] = [];
     const responseBatch: Prisma.ResponseCreateManyInput[] = [];
+    let insertedRespondents = 0;
+    let insertedResponses = 0;
     const flush = async (): Promise<void> => {
       if (respondentBatch.length > 0) {
         await prisma.respondent.createMany({ data: respondentBatch });
+        insertedRespondents += respondentBatch.length;
         respondentBatch.length = 0;
       }
       if (responseBatch.length > 0) {
         await insertBatches(responseBatch, (data) =>
           prisma.response.createMany({ data }),
         );
+        insertedResponses += responseBatch.length;
         responseBatch.length = 0;
       }
+      await options.onProgress?.({
+        phase: "Importing responses",
+        respondents: insertedRespondents,
+        responses: insertedResponses,
+      });
     };
     await forEachXlsxSurveyRow(definition, {}, async (row) => {
       const displayName = row.organizationName?.trim();

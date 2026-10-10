@@ -62,6 +62,8 @@ async function fixture() {
   };
   let fail = false;
   let hasSurvey = true;
+  let expireBulkTransaction = false;
+  let inTransaction = false;
   let enrolledNames = ["YoloCares", "Unchanged", "Changed", "Missing"];
   const prisma = {
     program: {
@@ -84,9 +86,17 @@ async function fixture() {
       findFirst: () => (hasSurvey ? { id: "old" } : null),
       findMany: () => (hasSurvey ? [{ id: "old" }] : []),
       create: () => ({}),
-      deleteMany: () => {
-        writes.deleted = true;
+      deleteMany: ({
+        where,
+      }: {
+        where: { id: { in?: string[] } | string };
+      }) => {
+        if (typeof where.id !== "string" && where.id.in?.includes("old"))
+          writes.deleted = true;
+        return Promise.resolve({ count: 0 });
       },
+      updateMany: () => ({}),
+      update: () => ({}),
     },
     question: {
       findMany: () => [
@@ -109,6 +119,10 @@ async function fixture() {
     },
     response: {
       createMany: ({ data }: { data: unknown[] }) => {
+        if (expireBulkTransaction && inTransaction)
+          throw new Error(
+            "A query cannot be executed on an expired transaction",
+          );
         writes.responses += data.length;
       },
     },
@@ -118,8 +132,16 @@ async function fixture() {
       },
     },
     $queryRaw: () => [],
-    $transaction: (operation: (transaction: unknown) => Promise<void>) =>
-      operation(prisma),
+    $transaction: async (
+      operation: (transaction: unknown) => Promise<void>,
+    ) => {
+      inTransaction = true;
+      try {
+        await operation(prisma);
+      } finally {
+        inTransaction = false;
+      }
+    },
   };
   return {
     service: new HistoricalImportService(prisma as never),
@@ -140,6 +162,9 @@ async function fixture() {
     },
     noOrganizations: () => {
       enrolledNames = [];
+    },
+    expireBulkTransaction: () => {
+      expireBulkTransaction = true;
     },
     noSurvey: () => {
       hasSurvey = false;
@@ -170,6 +195,19 @@ test("previews missing responses, identical rows, changed answers at the same co
   assert.equal(byName.get("Missing")?.responseChanges?.uploadedRespondents, 0);
   assert.equal(writes.respondents.length, 0);
   assert.equal(writes.deleted, false);
+});
+
+test("large response batches finish without depending on an interactive transaction lifetime", async () => {
+  const { service, file, expireBulkTransaction } = await fixture();
+  const review = await service.reuploadProgramEfs(principal, "program", file);
+  expireBulkTransaction();
+  const result = await service.reuploadProgramEfs(
+    principal,
+    "program",
+    file,
+    review.revision,
+  );
+  assert.equal(result.saved, true);
 });
 
 test("blocks unknown organizations instead of creating or changing program enrollments", async () => {

@@ -20,6 +20,7 @@ import {
 } from "../auth/auth.module.js";
 import { ProgramSurveyDefinitionService } from "./program-survey-definition.service.js";
 import { HistoricalImportService } from "./historical-import.service.js";
+import { ProgramEfsJobs } from "./program-efs-jobs.js";
 
 @ApiTags("administration program survey definition")
 @ApiBearerAuth()
@@ -31,6 +32,7 @@ export class ProgramSurveyDefinitionController {
     private readonly definitions: ProgramSurveyDefinitionService,
     @Inject(HistoricalImportService)
     private readonly imports: HistoricalImportService,
+    @Inject(ProgramEfsJobs) private readonly efsJobs: ProgramEfsJobs,
   ) {}
 
   @Post("efs/preview")
@@ -49,7 +51,7 @@ export class ProgramSurveyDefinitionController {
   }
 
   @Post("efs")
-  @HttpCode(200)
+  @HttpCode(202)
   @ApiConsumes("multipart/form-data")
   async saveEfs(
     @CurrentUser() principal: Principal,
@@ -61,12 +63,19 @@ export class ProgramSurveyDefinitionController {
       throw new BadRequestException("Review the EFS before saving");
     return {
       success: true,
-      data: await this.imports.reuploadProgramEfs(
-        principal,
-        programId,
-        file,
-        revision,
-      ),
+      data: await this.efsJobs.enqueue(principal, programId, file, revision),
+    };
+  }
+
+  @Get("efs/jobs/:jobId")
+  async efsJobStatus(
+    @CurrentUser() principal: Principal,
+    @Param("programId") programId: string,
+    @Param("jobId") jobId: string,
+  ) {
+    return {
+      success: true,
+      data: await this.efsJobs.status(principal, programId, jobId),
     };
   }
 
