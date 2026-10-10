@@ -324,6 +324,8 @@ describe("historical import service", () => {
         changed: true,
         previousRespondents: 1,
         uploadedRespondents: 1,
+        previousCompleted: 1,
+        uploadedCompleted: 1,
       });
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -335,8 +337,7 @@ describe("historical import service", () => {
     const efsPath = join(root, "efs.xlsx");
     await writeWorkbook(efsPath, "Acme Corp", 1);
     let committedFiles:
-      | { ea: string | undefined; efs: string | undefined }
-      | undefined;
+      { ea: string | undefined; efs: string | undefined } | undefined;
     const prisma = {
       project: {
         findFirst: () => ({

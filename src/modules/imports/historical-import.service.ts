@@ -187,6 +187,8 @@ interface OrganizationSummary {
     changed: boolean;
     previousRespondents: number;
     uploadedRespondents: number;
+    previousCompleted?: number;
+    uploadedCompleted?: number;
   };
 }
 
@@ -230,6 +232,7 @@ export interface HistoricalImportWorkbookSummary {
 }
 
 export interface HistoricalImportValidationSummary {
+  responseDataRevision?: string;
   issues: HistoricalImportValidationIssue[];
   workbooks: HistoricalImportWorkbookSummary[];
   organizations: OrganizationSummary[];
@@ -988,6 +991,186 @@ async function insertBatches<T>(
 @Injectable()
 export class HistoricalImportService {
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
+
+  async reuploadProgramEfs(
+    principal: Principal,
+    programId: string,
+    file: UploadedWorkbookFile,
+    revision?: string,
+  ) {
+    this.assertAccess(principal);
+    const program = await this.prisma.program.findUnique({
+      where: { id: programId },
+    });
+    if (!program) throw new BadRequestException("Program does not exist");
+    const metadata = objectBody(program.metadata);
+    const importId = randomUUID();
+    const stagingDir = createRequestWorkspace(importId);
+    const draft: HistoricalImportDraft = {
+      importId,
+      stagingDir,
+      programId,
+      projectId: program.projectId,
+      programName: program.name,
+      programYear:
+        program.year ??
+        program.startsAt?.getUTCFullYear() ??
+        new Date().getUTCFullYear(),
+      efsLaunchDate:
+        program.startsAt?.toISOString().slice(0, 10) ??
+        String(metadata.efsLaunchDate ?? ""),
+      efsDeadline:
+        program.endsAt?.toISOString().slice(0, 10) ??
+        String(metadata.efsDeadline ?? ""),
+      ...(Array.isArray(metadata.surveyDefinition)
+        ? { surveyDefinition: metadata.surveyDefinition as SurveyDefinition }
+        : {}),
+      createdByUserId: principal.sub,
+      status: "committing",
+    };
+    try {
+      const workbook = this.storeWorkbook(draft, "EFS", file);
+      draft.efsFile = workbook;
+      const validation = await this.validatePreviewDraft(draft);
+      if (!validation.workbooks[0]?.respondents) {
+        validation.issues.push({
+          level: "error",
+          message: "The EFS contains no importable respondent rows.",
+        });
+        validation.blockingErrorCount++;
+      }
+      const enrollments = await this.prisma.organizationProgram.findMany({
+        where: { programId },
+        include: { organization: true },
+      });
+      const organizationIds = new Map<string, string>();
+      for (const organization of validation.organizations) {
+        if (!organization.efsRespondents) continue;
+        const matches = enrollments.filter((entry) => {
+          const metrics = objectBody(entry.metrics);
+          return (
+            Boolean(
+              organization.workbookOrganizationId &&
+              String(metrics.Source_Organization_ID ?? "") ===
+                organization.workbookOrganizationId,
+            ) ||
+            [
+              entry.organization.name,
+              String(metrics.Source_Organization_Name ?? ""),
+            ].some(
+              (name) =>
+                normalizeOrganizationName(name) ===
+                normalizeOrganizationName(organization.displayName),
+            )
+          );
+        });
+        const matched = matches[0];
+        if (matches.length !== 1 || !matched) {
+          validation.issues.push({
+            level: "error",
+            message: `${organization.displayName}: ${matches.length ? "matches multiple program organizations" : "does not match an organization in this program"}`,
+          });
+          validation.blockingErrorCount++;
+        } else organizationIds.set(organization.key, matched.organizationId);
+      }
+      const surveyWhere = {
+        programId,
+        OR: [
+          { metadata: { path: ["kind"], equals: "employee" } },
+          {
+            title: {
+              contains: "Employee Feedback Survey",
+              mode: "insensitive" as const,
+            },
+          },
+          { externalId: { endsWith: "-efs", mode: "insensitive" as const } },
+          { externalId: { endsWith: ":efs", mode: "insensitive" as const } },
+        ],
+      };
+      const surveys = await this.prisma.survey.findMany({
+        where: surveyWhere,
+        select: { id: true },
+        orderBy: { id: "asc" },
+      });
+      const currentRevision = digest(
+        JSON.stringify({
+          file: workbook.sha256,
+          surveys,
+          programUpdatedAt: program.updatedAt,
+          validation,
+        }),
+        64,
+      );
+      if (revision === undefined)
+        return { validation, revision: currentRevision, saved: false };
+      if (revision !== currentRevision)
+        throw new BadRequestException(
+          "The file or program data changed. Review the EFS again before saving.",
+        );
+      if (validation.blockingErrorCount)
+        throw new BadRequestException(
+          "Resolve EFS validation errors before saving.",
+        );
+      if (!draft.efsLaunchDate || !draft.efsDeadline)
+        throw new BadRequestException("The program is missing its EFS dates.");
+      await this.prisma.$transaction(
+        async (transaction) => {
+          // Serialize replacements of this program; readers retain the old survey until commit.
+          await transaction.$queryRaw`SELECT id FROM "Program" WHERE id = ${programId}::uuid FOR UPDATE`;
+          const currentProgram = await transaction.program.findUniqueOrThrow({
+            where: { id: programId },
+          });
+          if (
+            currentProgram.updatedAt.getTime() !== program.updatedAt.getTime()
+          )
+            throw new BadRequestException(
+              "The program changed. Review the EFS again before saving.",
+            );
+          const surveyId = await this.importSurvey(
+            transaction,
+            draft,
+            "EFS",
+            workbook,
+            programId,
+            organizationIds,
+          );
+          await transaction.survey.deleteMany({
+            where: { ...surveyWhere, id: { not: surveyId } },
+          });
+          await transaction.program.update({
+            where: { id: programId },
+            data: {
+              metadata: {
+                ...metadata,
+                employeeFeedbackSurveyFile: {
+                  fileName: workbook.fileName,
+                  sha256: workbook.sha256,
+                  sizeBytes: workbook.sizeBytes,
+                },
+              } as Prisma.InputJsonValue,
+            },
+          });
+          await transaction.syncJob.create({
+            data: {
+              provider: "historical-import",
+              kind: "efs-reupload",
+              externalId: importId,
+              idempotencyKey: `efs-reupload:${importId}`,
+              status: "SUCCEEDED",
+              input: auditInput(draft) as unknown as Prisma.InputJsonValue,
+              output: validation as unknown as Prisma.InputJsonValue,
+              startedAt: new Date(),
+              finishedAt: new Date(),
+            },
+          });
+        },
+        { timeout: 600_000, maxWait: 10_000 },
+      );
+      return { validation, revision: currentRevision, saved: true };
+    } finally {
+      rmSync(stagingDir, { recursive: true, force: true });
+    }
+  }
 
   async downloadDefaultSurveyDefinition(
     principal: Principal,
@@ -1993,7 +2176,7 @@ export class HistoricalImportService {
   }
 
   private async questionTemplates(
-    prisma: PrismaClient,
+    prisma: PrismaClient | Prisma.TransactionClient,
     draft: HistoricalImportDraft,
     programId: string | undefined,
     questions: XlsxQuestionDefinition[],
@@ -2139,7 +2322,11 @@ export class HistoricalImportService {
         warningCount: analysis.warningCount,
       };
       if (kind === "EFS" && draft.programId) {
-        await this.addEfsResponseChanges(draft, storedFile, summary);
+        summary.responseDataRevision = await this.addEfsResponseChanges(
+          draft,
+          storedFile,
+          summary,
+        );
       }
       return trimValidationSummary(summary);
     } catch (error) {
@@ -2151,8 +2338,8 @@ export class HistoricalImportService {
     draft: HistoricalImportDraft,
     workbook: StoredWorkbook,
     summary: HistoricalImportValidationSummary,
-  ): Promise<void> {
-    if (!draft.programId) return;
+  ): Promise<string> {
+    if (!draft.programId) return "";
     const currentSurvey = await this.prisma.survey.findFirst({
       where: {
         programId: draft.programId,
@@ -2171,7 +2358,6 @@ export class HistoricalImportService {
       orderBy: [{ endsAt: "desc" }, { createdAt: "desc" }],
       select: { id: true },
     });
-    if (!currentSurvey) return;
 
     const enrollments = await this.prisma.organizationProgram.findMany({
       where: { programId: draft.programId },
@@ -2188,7 +2374,22 @@ export class HistoricalImportService {
       const sourceName = String(
         metrics.Source_Organization_Name ?? enrollment.organization.name,
       );
-      const key = `name:${normalizeOrganizationName(sourceName)}`;
+      const uploadedOrganization = summary.organizations.find(
+        (organization) =>
+          Boolean(
+            organization.workbookOrganizationId &&
+            String(metrics.Source_Organization_ID ?? "") ===
+              organization.workbookOrganizationId,
+          ) ||
+          [sourceName, enrollment.organization.name].some(
+            (name) =>
+              normalizeOrganizationName(name) ===
+              normalizeOrganizationName(organization.displayName),
+          ),
+      );
+      const key =
+        uploadedOrganization?.key ??
+        `name:${normalizeOrganizationName(sourceName)}`;
       keysByOrganizationId.set(enrollment.organizationId, key);
       namesByKey.set(key, sourceName);
     }
@@ -2218,32 +2419,45 @@ export class HistoricalImportService {
         64,
       );
     const existing = new Map<string, string[]>();
-    const respondents = await this.prisma.respondent.findMany({
-      where: { surveyId: currentSurvey.id },
-      select: {
-        organizationId: true,
-        completedAt: true,
-        responses: {
-          select: {
-            value: true,
-            score: true,
-            question: { select: { dataLabel: true } },
+    const previousCompleted = new Map<string, number>();
+    for (let offset = 0; currentSurvey; offset += 250) {
+      const respondents = await this.prisma.respondent.findMany({
+        where: { surveyId: currentSurvey.id },
+        orderBy: { id: "asc" },
+        take: 250,
+        skip: offset,
+        select: {
+          organizationId: true,
+          completedAt: true,
+          responses: {
+            select: {
+              value: true,
+              score: true,
+              question: { select: { dataLabel: true } },
+            },
           },
         },
-      },
-    });
-    for (const respondent of respondents) {
-      if (!respondent.organizationId) continue;
-      const key = keysByOrganizationId.get(respondent.organizationId);
-      if (!key) continue;
-      const values = existing.get(key) ?? [];
-      values.push(
-        signature(Boolean(respondent.completedAt), respondent.responses),
-      );
-      existing.set(key, values);
+      });
+      for (const respondent of respondents) {
+        if (!respondent.organizationId) continue;
+        const key = keysByOrganizationId.get(respondent.organizationId);
+        if (!key) continue;
+        const values = existing.get(key) ?? [];
+        values.push(
+          signature(Boolean(respondent.completedAt), respondent.responses),
+        );
+        existing.set(key, values);
+        previousCompleted.set(
+          key,
+          (previousCompleted.get(key) ?? 0) +
+            Number(Boolean(respondent.completedAt)),
+        );
+      }
+      if (respondents.length < 250) break;
     }
 
     const uploaded = new Map<string, string[]>();
+    const uploadedCompleted = new Map<string, number>();
     const definition = await readXlsxSurveyDefinition({
       fileName: workbook.fileName,
       filePath: workbook.filePath,
@@ -2266,12 +2480,20 @@ export class HistoricalImportService {
         ),
       );
       uploaded.set(key, values);
+      uploadedCompleted.set(
+        key,
+        (uploadedCompleted.get(key) ?? 0) + Number(row.completed),
+      );
     });
 
     const summaries = new Map(
       summary.organizations.map((item) => [item.key, item]),
     );
-    for (const key of new Set([...existing.keys(), ...uploaded.keys()])) {
+    for (const key of new Set([
+      ...namesByKey.keys(),
+      ...existing.keys(),
+      ...uploaded.keys(),
+    ])) {
       const previous = (existing.get(key) ?? []).sort();
       const next = (uploaded.get(key) ?? []).sort();
       const changed = JSON.stringify(previous) !== JSON.stringify(next);
@@ -2290,8 +2512,17 @@ export class HistoricalImportService {
         changed,
         previousRespondents: previous.length,
         uploadedRespondents: next.length,
+        previousCompleted: previousCompleted.get(key) ?? 0,
+        uploadedCompleted: uploadedCompleted.get(key) ?? 0,
       };
     }
+    return digest(
+      JSON.stringify({
+        surveyId: currentSurvey?.id,
+        existing: [...existing].sort(([a], [b]) => a.localeCompare(b)),
+      }),
+      64,
+    );
   }
 
   private async cleanupFailedImport(
@@ -3271,7 +3502,7 @@ export class HistoricalImportService {
   }
 
   private async importSurvey(
-    prisma: PrismaClient,
+    prisma: PrismaClient | Prisma.TransactionClient,
     draft: HistoricalImportDraft,
     kind: HistoricalSurveyKind,
     workbook: StoredWorkbook,
