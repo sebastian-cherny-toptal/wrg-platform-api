@@ -34,11 +34,20 @@ const statusSelect = {
   status: true,
   output: true,
   error: true,
+  startedAt: true,
+  finishedAt: true,
 } as const;
-function view(record: Pick<SyncJob, "id" | "status" | "output" | "error">) {
+function view(
+  record: Pick<
+    SyncJob,
+    "id" | "status" | "output" | "error" | "startedAt" | "finishedAt"
+  >,
+) {
   const output = object(record.output);
   return {
     jobId: record.id,
+    startedAt: record.startedAt ?? null,
+    finishedAt: record.finishedAt ?? null,
     status: record.status,
     phase: String(output.phase ?? "Queued"),
     respondents: Number(output.respondents ?? 0),
@@ -122,6 +131,16 @@ export class ProgramEfsJobs {
     return view(record);
   }
 
+  async latest(principal: Principal, programId: string) {
+    assertAccess(principal);
+    const record = await this.prisma.syncJob.findFirst({
+      select: { id: true },
+      where: { externalId: programId, provider },
+      orderBy: { createdAt: "desc" },
+    });
+    return record ? this.status(principal, programId, record.id) : null;
+  }
+
   async status(principal: Principal, programId: string, jobId: string) {
     assertAccess(principal);
     let record = await this.prisma.syncJob.findFirst({
@@ -131,7 +150,7 @@ export class ProgramEfsJobs {
     if (!record) throw new NotFoundException("EFS save job not found");
     if (record.status === "RUNNING" || record.status === "FAILED") {
       const audit = await this.prisma.syncJob.findUnique({
-        select: { status: true },
+        select: { status: true, finishedAt: true },
         where: { idempotencyKey: `efs-reupload:${record.id}` },
       });
       if (audit?.status === "SUCCEEDED") {
@@ -141,7 +160,7 @@ export class ProgramEfsJobs {
           data: {
             status: "SUCCEEDED",
             error: null,
-            finishedAt: new Date(),
+            finishedAt: audit.finishedAt ?? new Date(),
             input: { programId },
             output: { ...object(record.output), phase: "Saved" },
           },

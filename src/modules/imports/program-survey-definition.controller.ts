@@ -67,6 +67,17 @@ export class ProgramSurveyDefinitionController {
     };
   }
 
+  @Get("efs/jobs/latest")
+  async latestEfsJob(
+    @CurrentUser() principal: Principal,
+    @Param("programId") programId: string,
+  ) {
+    return {
+      success: true,
+      data: await this.efsJobs.latest(principal, programId),
+    };
+  }
+
   @Get("efs/jobs/:jobId")
   async efsJobStatus(
     @CurrentUser() principal: Principal,

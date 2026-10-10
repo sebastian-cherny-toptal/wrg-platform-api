@@ -20,6 +20,8 @@ function fixture() {
     input: {} as Record<string, unknown>,
     output: {} as Record<string, unknown>,
     error: null as string | null,
+    startedAt: null as Date | null,
+    finishedAt: null as Date | null,
   };
   let published = false;
   const queued: Array<unknown> = [];
@@ -31,7 +33,8 @@ function fixture() {
         return record;
       },
       findFirst: ({ where }: { where: { id: string; externalId: string } }) =>
-        where.id === record.id && where.externalId === record.externalId
+        (!where.id || where.id === record.id) &&
+        where.externalId === record.externalId
           ? record
           : null,
       findUnique: () => (published ? { status: "SUCCEEDED" } : null),
@@ -194,4 +197,22 @@ test("polling recovers a successful publication if the worker has not updated th
   markPublished();
   assert.equal((await jobs.status(principal, "program", "job-id")).saved, true);
   assert.ok(!("contents" in record().input));
+});
+
+test("latest job is recovered without a browser job ID and exposes worker timestamps", async () => {
+  const { jobs, prisma } = fixture();
+  assert.equal(await jobs.latest(principal, "other-program"), null);
+  const startedAt = new Date("2026-10-10T17:00:00Z");
+  const finishedAt = new Date("2026-10-10T17:08:00Z");
+  prisma.syncJob.update({
+    data: { status: "SUCCEEDED", startedAt, finishedAt },
+  });
+  const result = await jobs.latest(principal, "program");
+  assert.equal(result?.saved, true);
+  assert.equal(result.startedAt, startedAt);
+  assert.equal(result.finishedAt, finishedAt);
+  await assert.rejects(
+    jobs.latest({ ...principal, roles: [] }, "program"),
+    /Access denied/u,
+  );
 });
