@@ -1,9 +1,15 @@
-import { InjectQueue, Processor, WorkerHost } from "@nestjs/bullmq";
+import {
+  InjectQueue,
+  OnWorkerEvent,
+  Processor,
+  WorkerHost,
+} from "@nestjs/bullmq";
 import {
   BadRequestException,
   ForbiddenException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
 } from "@nestjs/common";
 import { Prisma, type SyncJob } from "@prisma/client";
@@ -36,11 +42,18 @@ const statusSelect = {
   error: true,
   startedAt: true,
   finishedAt: true,
+  updatedAt: true,
 } as const;
 function view(
   record: Pick<
     SyncJob,
-    "id" | "status" | "output" | "error" | "startedAt" | "finishedAt"
+    | "id"
+    | "status"
+    | "output"
+    | "error"
+    | "startedAt"
+    | "finishedAt"
+    | "updatedAt"
   >,
 ) {
   const output = object(record.output);
@@ -48,6 +61,7 @@ function view(
     jobId: record.id,
     startedAt: record.startedAt ?? null,
     finishedAt: record.finishedAt ?? null,
+    lastProgressAt: record.updatedAt,
     status: record.status,
     phase: String(output.phase ?? "Queued"),
     respondents: Number(output.respondents ?? 0),
@@ -59,6 +73,7 @@ function view(
 
 @Injectable()
 export class ProgramEfsJobs {
+  private readonly logger = new Logger(ProgramEfsJobs.name);
   constructor(
     @InjectQueue(efsQueueName) private readonly queue: Queue<{ jobId: string }>,
     @Inject(PrismaService) private readonly prisma: PrismaService,
@@ -112,7 +127,7 @@ export class ProgramEfsJobs {
           jobId: record.id,
           attempts: 1,
           removeOnComplete: true,
-          removeOnFail: true,
+          removeOnFail: { count: 100 },
         },
       );
     } catch (error) {
@@ -167,12 +182,56 @@ export class ProgramEfsJobs {
         });
       }
     }
-    return view(record);
+    let queueState = record.status === "SUCCEEDED" ? "completed" : "failed";
+    if (record.status === "PENDING" || record.status === "RUNNING") {
+      let queued: Job<{ jobId: string }> | undefined;
+      try {
+        queued = await this.queue.getJob(record.id);
+        queueState = queued ? await queued.getState() : "missing";
+      } catch (error) {
+        // A Redis outage does not prove that the importer failed.
+        this.logger.warn(
+          `Could not inspect EFS queue job ${record.id}: ${error instanceof Error ? error.message : "Unknown error"}`,
+        );
+        return { ...view(record), queueState: "unavailable" };
+      }
+      const missing =
+        !queued && Date.now() - record.updatedAt.getTime() > 60_000;
+      if (queueState === "failed" || missing) {
+        const error = missing
+          ? "The EFS save is no longer in the worker queue. The worker may have stopped or lost the job. Review the file before retrying."
+          : (queued?.failedReason ??
+            "The EFS worker failed before it could report completion.");
+        await this.prisma.syncJob.updateMany({
+          where: { id: record.id, status: { in: ["PENDING", "RUNNING"] } },
+          data: { status: "FAILED", error, finishedAt: new Date() },
+        });
+        record = await this.prisma.syncJob.findUniqueOrThrow({
+          select: statusSelect,
+          where: { id: record.id },
+        });
+      }
+    }
+    return { ...view(record), queueState };
   }
 }
 
 @Processor(efsQueueName, { concurrency: 1 })
 export class ProgramEfsWorker extends WorkerHost {
+  private readonly logger = new Logger(ProgramEfsWorker.name);
+
+  @OnWorkerEvent("error")
+  onWorkerError(error: Error) {
+    this.logger.error(`EFS worker error: ${error.message}`, error.stack);
+  }
+
+  @OnWorkerEvent("stalled")
+  onStalled(jobId: string) {
+    this.logger.warn(
+      `EFS job ${jobId} stalled; BullMQ will recover it or fail it after its stall limit.`,
+    );
+  }
+
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(HistoricalImportService)

@@ -1,4 +1,12 @@
 import ExcelJS from "exceljs";
+import archiver from "archiver";
+import { Open } from "unzipper";
+import { createWriteStream } from "node:fs";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { pipeline } from "node:stream/promises";
+import type { Readable } from "node:stream";
 
 export type XlsxSurveyKind = "EA" | "EFS";
 
@@ -117,7 +125,8 @@ function humanizeDataLabel(dataLabel: string): string {
 }
 
 function demographicFilterLabel(dataLabel: string): string | undefined {
-  if (dataLabel === "f_PersonalDemographics_ethnicOrigin") return "Race/Ethnicity";
+  if (dataLabel === "f_PersonalDemographics_ethnicOrigin")
+    return "Race/Ethnicity";
   const match = /^f_(?:Personal|Workplace)Demographics_([^_]+)/u.exec(
     dataLabel,
   );
@@ -128,9 +137,7 @@ function demographicFilterLabel(dataLabel: string): string | undefined {
 }
 
 export function isExcludedSurveyQuestion(dataLabel: string): boolean {
-  return /^(?:\d+\.\s*)?(?:Company Size|Sample size)$/iu.test(
-    dataLabel.trim(),
-  );
+  return /^(?:\d+\.\s*)?(?:Company Size|Sample size)$/iu.test(dataLabel.trim());
 }
 
 export function xlsxQuestionType(dataLabel: string): string {
@@ -141,10 +148,7 @@ export function xlsxQuestionType(dataLabel: string): string {
   ) {
     return "likert";
   }
-  if (
-    dataLabel.startsWith("f_") ||
-    /^\d+\.\s*Select\b/iu.test(dataLabel)
-  ) {
+  if (dataLabel.startsWith("f_") || /^\d+\.\s*Select\b/iu.test(dataLabel)) {
     return "demographic";
   }
   if (
@@ -255,14 +259,91 @@ function isCompleted(
   );
 }
 
+/**
+ * Put workbook metadata before worksheet XML without materializing cell models.
+ * ExcelJS's streaming reader otherwise fails on valid ZIP entry orders (including
+ * its own document writer's output). Only the ZIP directory and shared strings
+ * are cached; worksheet XML is copied through disk and consumed in row batches.
+ */
+async function* firstWorksheetRows(
+  filePath: string,
+): AsyncGenerator<ExcelJS.Row> {
+  const directory = await mkdtemp(join(tmpdir(), "efs-stream-"));
+  const normalizedPath = join(directory, "ordered.xlsx");
+  const archive = archiver("zip", { store: true });
+  try {
+    const source = await Open.file(filePath);
+    const metadata = [
+      "xl/workbook.xml",
+      "xl/_rels/workbook.xml.rels",
+      "xl/styles.xml",
+      "xl/sharedStrings.xml",
+    ];
+    const worksheets = source.files.filter((entry) =>
+      /^xl\/worksheets\/sheet\d+\.xml$/u.test(entry.path),
+    );
+    if (!worksheets.length) throw new Error("Workbook contains no worksheets");
+    const copied = pipeline(archive, createWriteStream(normalizedPath));
+    // Attach rejection handling immediately, before awaiting ZIP finalization.
+    void copied.catch(() => undefined);
+    for (const name of metadata) {
+      const entry = source.files.find((file) => file.path === name);
+      if (entry) {
+        const stream = entry.stream();
+        stream.on("error", (error) => archive.destroy(error));
+        archive.append(stream, { name });
+      } else if (name === "xl/sharedStrings.xml") {
+        // An empty string table prevents ExcelJS from deferring sheet parsing to
+        // its own temporary files when the workbook only uses inline strings.
+        archive.append(
+          '<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="0" uniqueCount="0"/>',
+          { name },
+        );
+      }
+    }
+    for (const entry of worksheets) {
+      const stream = entry.stream();
+      stream.on("error", (error) => archive.destroy(error));
+      archive.append(stream, { name: entry.path });
+    }
+    await Promise.all([archive.finalize(), copied]);
+    const reader = new ExcelJS.stream.xlsx.WorkbookReader(normalizedPath, {
+      worksheets: "emit",
+      sharedStrings: "cache",
+      styles: "cache",
+      hyperlinks: "ignore",
+      entries: "ignore",
+    });
+    try {
+      for await (const worksheet of reader) {
+        // ZIP entry order can differ from the workbook's visible tab order.
+        const sheetId = (worksheet as typeof worksheet & { id: number }).id;
+        if (sheetId !== reader.model.sheets[0]?.id) continue;
+        for await (const row of worksheet) yield row;
+        return;
+      }
+      throw new Error("Workbook contains no worksheets");
+    } finally {
+      // Early header reads and failed row callbacks must close the source too.
+      const streamReader = reader as typeof reader & {
+        stream?: Readable;
+      };
+      streamReader.stream?.destroy();
+    }
+  } finally {
+    archive.abort();
+    await rm(directory, { recursive: true, force: true });
+  }
+}
+
 async function firstWorksheetRow(
   filePath: string,
 ): Promise<{ columnCount: number; row: ExcelJS.Row }> {
-  const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.readFile(filePath);
-  const worksheet = workbook.worksheets[0];
-  if (!worksheet) throw new Error("Workbook contains no worksheets");
-  return { columnCount: worksheet.columnCount, row: worksheet.getRow(1) };
+  for await (const row of firstWorksheetRows(filePath)) {
+    if (row.number === 1) return { columnCount: row.cellCount, row };
+    break;
+  }
+  throw new Error("Workbook header row is missing");
 }
 
 export async function readXlsxSurveyDefinition(
@@ -311,18 +392,8 @@ export async function forEachXlsxSurveyRow(
   options: IterateXlsxSurveyRowsOptions,
   callback: (row: XlsxSurveyRow) => Promise<void> | void,
 ): Promise<void> {
-  // ExcelJS's streaming reader assumes workbook metadata appears before sheet
-  // entries. Valid XLSX files produced by ExcelJS itself do not always have
-  // that ZIP entry order, which makes the reader dereference an undefined
-  // workbook model. The document reader handles either order reliably.
-  const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.readFile(definition.filePath);
-  const worksheet = workbook.worksheets[0];
-  if (!worksheet) {
-    throw new Error(`${definition.fileName}: workbook contains no worksheets`);
-  }
-  for (let rowNumber = 2; rowNumber <= worksheet.rowCount; rowNumber += 1) {
-    const row = worksheet.getRow(rowNumber);
+  for await (const row of firstWorksheetRows(definition.filePath)) {
+    if (row.number < 2) continue;
     const organizationName = sourceString(
       firstNonEmptyCell(row, definition.columns.organizationNames),
     );

@@ -22,6 +22,7 @@ function fixture() {
     error: null as string | null,
     startedAt: null as Date | null,
     finishedAt: null as Date | null,
+    updatedAt: new Date(),
   };
   let published = false;
   const queued: Array<unknown> = [];
@@ -39,13 +40,25 @@ function fixture() {
           : null,
       findUnique: () => (published ? { status: "SUCCEEDED" } : null),
       findUniqueOrThrow: () => record,
+      updateMany: ({ data }: { data: Partial<typeof record> }) => {
+        record = { ...record, ...data };
+        return { count: 1 };
+      },
       update: ({ data }: { data: Partial<typeof record> }) => {
         record = { ...record, ...data };
         return record;
       },
     },
   };
+  let queueState: string | undefined = "active";
   const queue = {
+    getJob: () =>
+      queueState
+        ? {
+            getState: () => queueState,
+            failedReason: "job stalled more than allowable limit",
+          }
+        : undefined,
     add: (name: string, data: unknown, options: unknown) => {
       queued.push({ name, data, options });
       return Promise.resolve();
@@ -55,6 +68,10 @@ function fixture() {
     jobs: new ProgramEfsJobs(queue as never, prisma as never),
     prisma,
     queued,
+    queue,
+    setQueueState: (state: string | undefined) => {
+      queueState = state;
+    },
     record: () => record,
     markPublished: () => {
       published = true;
@@ -214,5 +231,51 @@ test("latest job is recovered without a browser job ID and exposes worker timest
   await assert.rejects(
     jobs.latest({ ...principal, roles: [] }, "program"),
     /Access denied/u,
+  );
+});
+
+test("a queue-level failure cannot leave the database job reporting RUNNING", async () => {
+  const { jobs, prisma, setQueueState } = fixture();
+  prisma.syncJob.update({ data: { status: "RUNNING" } });
+  setQueueState("failed");
+  const result = await jobs.status(principal, "program", "job-id");
+  assert.equal(result.status, "FAILED");
+  assert.match(result.error ?? "", /stalled/u);
+});
+test("an abandoned RUNNING record with no queue job reports interruption", async () => {
+  const { jobs, prisma, setQueueState } = fixture();
+  prisma.syncJob.update({
+    data: { status: "RUNNING", updatedAt: new Date(Date.now() - 600_000) },
+  });
+  setQueueState(undefined);
+  const result = await jobs.status(principal, "program", "job-id");
+  assert.equal(result.status, "FAILED");
+  assert.match(result.error ?? "", /no longer in the worker queue/u);
+});
+test("slow active work is not failed just because progress has stopped changing", async () => {
+  const { jobs, prisma } = fixture();
+  prisma.syncJob.update({
+    data: { status: "RUNNING", updatedAt: new Date(Date.now() - 600_000) },
+  });
+  const result = await jobs.status(principal, "program", "job-id");
+  assert.equal(result.status, "RUNNING");
+});
+
+test("a Redis inspection failure does not falsely mark an active import failed", async () => {
+  const { jobs, prisma, queue } = fixture();
+  prisma.syncJob.update({ data: { status: "RUNNING" } });
+  queue.getJob = () => {
+    throw new Error("Redis unavailable");
+  };
+  const result = await jobs.status(principal, "program", "job-id");
+  assert.equal(result.status, "RUNNING");
+  assert.equal(result.queueState, "unavailable");
+});
+test("a newly created job is not considered interrupted before queue.add completes", async () => {
+  const { jobs, setQueueState } = fixture();
+  setQueueState(undefined);
+  assert.equal(
+    (await jobs.status(principal, "program", "job-id")).status,
+    "PENDING",
   );
 });
