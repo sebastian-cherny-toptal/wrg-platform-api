@@ -28,7 +28,15 @@ import {
 
 const testJwtSecret = "test-secret-that-is-at-least-32-characters";
 let deleteCalls = 0;
+const restoredReferences: string[] = [];
 const usersServiceStub = {
+  restore: (reference: string) => {
+    restoredReferences.push(reference);
+    return Promise.resolve({
+      success: true,
+      message: "User restored successfully",
+    });
+  },
   delete: () => {
     deleteCalls += 1;
     return Promise.resolve({
@@ -112,6 +120,41 @@ describe("delete user endpoint", () => {
       });
       assert.equal(forbidden.statusCode, 403);
       assert.equal(deleteCalls, 1);
+
+      restoredReferences.length = 0;
+      for (const roles of [["admin"], ["super_admin"]]) {
+        const token = jwt.sign({
+          sub: "admin-id",
+          organizationId: null,
+          roles,
+          permissions: [],
+        } satisfies Principal);
+        const restored = await app.inject({
+          method: "PUT",
+          url: "/user/restore/legacy-user-id",
+          headers: { authorization: `Bearer ${token}` },
+        });
+        assert.equal(restored.statusCode, 200, restored.body);
+        assert.equal(
+          restored.json<{ message: string }>().message,
+          "User restored successfully",
+        );
+      }
+      const forbiddenRestore = await app.inject({
+        method: "PUT",
+        url: "/user/restore/legacy-user-id",
+        headers: { authorization: `Bearer ${managerToken}` },
+      });
+      assert.equal(forbiddenRestore.statusCode, 403);
+      const unauthenticatedRestore = await app.inject({
+        method: "PUT",
+        url: "/user/restore/legacy-user-id",
+      });
+      assert.equal(unauthenticatedRestore.statusCode, 401);
+      assert.deepEqual(restoredReferences, [
+        "legacy-user-id",
+        "legacy-user-id",
+      ]);
     } finally {
       await app.close();
     }

@@ -246,6 +246,11 @@ interface DeleteUserResponse {
   message: "User deleted successfully";
 }
 
+interface RestoreUserResponse {
+  success: true;
+  message: "User restored successfully";
+}
+
 interface ClientLoginResponse {
   success: true;
   message: "true";
@@ -755,12 +760,16 @@ export class UsersService {
     if (!username) throw new BadRequestException("Username is required");
     // this.mailer.assertConfigured();
 
-    if (
-      await this.prisma.user.findUnique({
-        where: { username },
-        select: { id: true },
-      })
-    ) {
+    const existingUser = await this.prisma.user.findUnique({
+      where: { username },
+      select: { id: true, status: true },
+    });
+    if (existingUser?.status === "DISABLED") {
+      throw new ConflictException(
+        "User already exists: this username belongs to a disabled account. Find the user in Users Management and restore their account.",
+      );
+    }
+    if (existingUser) {
       throw new ConflictException("User already exists");
     }
 
@@ -1543,9 +1552,6 @@ export class UsersService {
     }
 
     const users = await this.prisma.user.findMany({
-      where: {
-        status: { not: "DISABLED" },
-      },
       orderBy: { createdAt: "desc" },
       select: {
         id: true,
@@ -1710,6 +1716,20 @@ export class UsersService {
     };
   }
 
+  async restore(reference: string): Promise<RestoreUserResponse> {
+    const target = await this.prisma.user.findFirst({
+      where: isUuid(reference) ? { id: reference } : { legacyId: reference },
+      select: { id: true },
+    });
+    if (!target) throw new NotFoundException("User not found");
+
+    await this.prisma.user.updateMany({
+      where: { id: target.id, status: "DISABLED" },
+      data: { status: "ACTIVE" },
+    });
+    return { success: true, message: "User restored successfully" };
+  }
+
   async delete(
     reference: string,
     principal?: Principal,
@@ -1813,6 +1833,15 @@ export class UsersController {
     @Query("select") select?: string | string[],
   ): Promise<ListUsersResponse> {
     return this.users.list(expand, select);
+  }
+
+  @Put("restore/:userId")
+  @HttpCode(200)
+  @UseGuards(JwtAuthGuard, AdminRoleGuard)
+  @ApiParam({ name: "userId", type: String })
+  @ApiOkResponse({ description: "The disabled user was restored." })
+  restore(@Param("userId") userId: string): Promise<RestoreUserResponse> {
+    return this.users.restore(userId);
   }
 
   @Delete("delete/:userId")
