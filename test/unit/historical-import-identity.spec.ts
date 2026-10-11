@@ -108,19 +108,23 @@ describe("historical import company continuity", () => {
       "Renamed Company",
     );
   });
-  it("does not reuse a matching name without explicit identity", async () => {
+  it("creates an organization without a selection even when a legacy name matches", async () => {
     const { writes, importRows } = setup([
       { id: "legacy", name: "Renamed Company", zohoAccountId: null },
     ]);
-    assert.notEqual(
-      (await importRows({ canonicalOrganizationId: "new" })).get(
-        "name:renamed company",
-      ),
-      "legacy",
-    );
+    assert.notEqual((await importRows()).get("name:renamed company"), "legacy");
     assert.equal(
       writes.filter(({ kind }) => kind === "company-create").length,
       1,
+    );
+  });
+  it("uses the same organization ID when an unassigned import is retried", async () => {
+    const { importRows } = setup([]);
+    const first = await importRows();
+    const retry = await importRows();
+    assert.equal(
+      first.get("name:renamed company"),
+      retry.get("name:renamed company"),
     );
   });
   it("supports explicit legacy mapping without altering other users or enrollments", async () => {
@@ -160,7 +164,7 @@ describe("historical import company continuity", () => {
     assert.equal(
       (
         await importRows(
-          { canonicalOrganizationId: "legacy" },
+          { organizationProgramId: "enrollment" },
           { programId: "program-2026" },
         )
       ).get("name:renamed company"),
