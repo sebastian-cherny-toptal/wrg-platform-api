@@ -157,6 +157,7 @@ export interface HistoricalImportMetadata {
     categoryRank?: string;
     purchasedEvSortingFilter?: string;
     rdPaymentType?: string;
+    kiaPaymentType?: string;
   }>;
   organizationPrograms?: Array<{
     organizationProgramId?: string;
@@ -178,6 +179,7 @@ export interface HistoricalImportMetadata {
     categoryRank?: string;
     purchasedEvSortingFilter?: string;
     rdPaymentType?: string;
+    kiaPaymentType?: string;
   }>;
   reportCatalog?: ReportCatalogProduct[];
   benchmarkCategories?: string[];
@@ -580,6 +582,7 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
             "purchasedEvSortingFilter",
           );
           const rdPaymentType = optionalString(entry, "rdPaymentType");
+          const kiaPaymentType = optionalString(entry, "kiaPaymentType");
           const surveysSent = Number(entry.surveysSent);
           const rawCompanySize = entry.companySize;
           const companySize =
@@ -627,6 +630,7 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
             ...(categoryRank ? { categoryRank } : {}),
             ...(purchasedEvSortingFilter ? { purchasedEvSortingFilter } : {}),
             ...(rdPaymentType ? { rdPaymentType } : {}),
+            ...(kiaPaymentType ? { kiaPaymentType } : {}),
           };
         });
   const organizationPrograms =
@@ -682,6 +686,7 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
             "purchasedEvSortingFilter",
           );
           const rdPaymentType = optionalString(entry, "rdPaymentType");
+          const kiaPaymentType = optionalString(entry, "kiaPaymentType");
           const isWinner = winnerStatusFromExternalValue(entry.isWinner);
           const isIncluded = entry.isIncluded !== false;
           const rawCompanySize = entry.companySize;
@@ -729,6 +734,7 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
             ...(categoryRank ? { categoryRank } : {}),
             ...(purchasedEvSortingFilter ? { purchasedEvSortingFilter } : {}),
             ...(rdPaymentType ? { rdPaymentType } : {}),
+            ...(kiaPaymentType ? { kiaPaymentType } : {}),
             surveysSent,
             isWinner,
             isIncluded,

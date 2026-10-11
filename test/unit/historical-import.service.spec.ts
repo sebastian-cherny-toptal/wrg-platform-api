@@ -959,6 +959,8 @@ describe("historical import service", () => {
             {
               organizationKey: "organization-1",
               organizationName: "Acme",
+              rdPaymentType: "Paid via ACH",
+              kiaPaymentType: "Paid via Check",
               surveysSent: 20,
               isWinner: "Y",
               isIncluded: true,
@@ -973,6 +975,14 @@ describe("historical import service", () => {
       assert.equal(result.metadata.zohoProjectId, "zoho-project-1");
       assert.equal(result.metadata.projectId, undefined);
       assert.equal(
+        result.metadata.organizationPrograms?.[0]?.rdPaymentType,
+        "Paid via ACH",
+      );
+      assert.equal(
+        result.metadata.organizationPrograms[0].kiaPaymentType,
+        "Paid via Check",
+      );
+      assert.equal(
         result.metadata.categoryPricing?.[1]?.pricingCategoryName,
         "25-99",
       );
@@ -983,7 +993,7 @@ describe("historical import service", () => {
         "Large",
       ]);
       assert.equal(
-        result.metadata.organizationPrograms?.[0]?.currentZohoCategory,
+        result.metadata.organizationPrograms[0].currentZohoCategory,
         "Small/Medium",
       );
       assert.equal(
