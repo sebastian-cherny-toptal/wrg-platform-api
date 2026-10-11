@@ -51,11 +51,11 @@ test("maps known custom question aliases and keeps only the reportable Yes optio
 
   assert.equal(result.importable, true);
   assert.deepEqual(result.definition[0]?.options, [
-    { Id: "Yes", Caption: "Yes", Position: 1 },
+    { Id: "1", Caption: "Yes", Position: 1 },
   ]);
 });
 
-test("reports a UK holiday that the current EA validator does not support", () => {
+test("supports UK holidays with explicit multi-select source columns", () => {
   const result = convertEaQuestionResponseWorkbook(
     sourceWorkbook([
       [
@@ -70,11 +70,10 @@ test("reports a UK holiday that the current EA validator does not support", () =
   );
 
   assert.equal(result.definition[0]?.dataLabel, defaults[1]?.dataLabel);
-  assert.equal(result.importable, false);
-  assert.match(
-    result.issues.find(({ code }) => code === "unsupported-answer")?.message ??
-      "",
-    /2nd January/u,
+  assert.equal(result.importable, true);
+  assert.equal(
+    result.definition[0]?.options?.[0]?.SourceColumn,
+    "q_OrganisationalBenefits_SelectPaidHolidays. 2nd January",
   );
 });
 
@@ -85,6 +84,7 @@ test("keeps matrix answers with their own question instead of the preceding ques
         "27. Please select bank holidays. (q_OrganisationalBenefits_SelectPaidHolidays)",
         null,
       ],
+      ["Each respondent could choose MULTIPLE responses.", null],
       [null, "New Year's Day (1)"],
       [
         "28.1 For each benefit, select its status. (q_OrganisationalBenefits_Benefits)",
@@ -103,7 +103,7 @@ test("keeps matrix answers with their own question instead of the preceding ques
       dataLabel === "q_OrganizationalBenefits_SelectPaidHolidays",
   );
   const benefits = result.definition.find(
-    ({ dataLabel }) => dataLabel === "q_OrganizationalBenefits_Benefits",
+    ({ dataLabel }) => dataLabel === "q_OrganizationalBenefits_Benefits.1",
   );
   assert.deepEqual(
     holidays?.options?.map(({ Id }) => Id),
@@ -111,6 +111,6 @@ test("keeps matrix answers with their own question instead of the preceding ques
   );
   assert.deepEqual(
     benefits?.options?.map(({ Id }) => Id),
-    ["Life Assurance - Standard Offering", "Life Assurance - Not Offered"],
+    ["1", "2"],
   );
 });

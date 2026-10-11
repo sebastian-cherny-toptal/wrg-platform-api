@@ -1,4 +1,12 @@
 import {
+  customEaDefinitionFromMetadata,
+  eaDefinitionMetadata,
+  isCustomEaDefinition,
+  mergeEaDefinitions,
+  normalizeEmployerAssessmentDefinition,
+  validateCustomEaSources,
+} from "../reports/custom-ea-report.js";
+import {
   BadRequestException,
   ForbiddenException,
   Inject,
@@ -248,6 +256,17 @@ export async function surveyDefinitionWorkbook(
     "question_type",
     "category",
     "display_order",
+    ...(definition.some((q) => q.ea)
+      ? [
+          "calculation",
+          "source_column",
+          "output_format",
+          "group_key",
+          "group_label",
+          "eligible_question",
+          "eligible_value",
+        ]
+      : []),
   ]);
   const answers = workbook.addWorksheet("Answers");
   answers.addRow([
@@ -256,6 +275,7 @@ export async function surveyDefinitionWorkbook(
     "answer_label",
     "display_order",
     "score",
+    ...(definition.some((q) => q.ea) ? ["source_column"] : []),
   ]);
   for (const question of definition) {
     if (isExcludedSurveyQuestion(question.dataLabel)) continue;
@@ -265,6 +285,17 @@ export async function surveyDefinitionWorkbook(
       question.type,
       question.categoryLabel,
       question.position,
+      ...(definition.some((q) => q.ea)
+        ? [
+            question.ea?.calculation,
+            question.ea?.sourceColumn,
+            question.ea?.format,
+            question.ea?.groupKey,
+            question.ea?.groupLabel,
+            question.ea?.eligibleQuestion,
+            question.ea?.eligibleValue,
+          ]
+        : []),
     ]);
     for (const option of question.options ?? [])
       answers.addRow([
@@ -273,11 +304,15 @@ export async function surveyDefinitionWorkbook(
         option.Caption,
         option.Position,
         option.Score,
+        ...(definition.some((q) => q.ea) ? [option.SourceColumn] : []),
       ]);
   }
   for (const sheet of [questions, answers]) {
     sheet.views = [{ state: "frozen", ySplit: 1, showGridLines: false }];
-    sheet.autoFilter = `A1:E${sheet.rowCount}`;
+    sheet.autoFilter = {
+      from: { row: 1, column: 1 },
+      to: { row: sheet.rowCount, column: sheet.columnCount },
+    };
     sheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
     sheet.getRow(1).fill = {
       type: "pattern",
@@ -492,6 +527,8 @@ export class ProgramSurveyDefinitionService {
     this.assertAccess(principal);
     const program = await this.program(this.prisma, reference);
     const defaults = await loadDefaultBenefitsBestPracticesDefinition();
+    const custom = customEaDefinitionFromMetadata(object(program.metadata));
+    if (custom) return surveyDefinitionWorkbook(custom);
     const configured = object(program.metadata).employerAssessmentDefinition;
     return surveyDefinitionWorkbook(
       mergeSurveyDefinitions(
@@ -516,8 +553,12 @@ export class ProgramSurveyDefinitionService {
       buffer.length > 25 * 1024 * 1024
     )
       throw new BadRequestException("Upload an XLSX file up to 25 MB");
-    const uploaded = await parseSurveyDefinition(buffer);
+    let uploaded: SurveyDefinition;
     try {
+      uploaded = normalizeEmployerAssessmentDefinition(
+        await parseSurveyDefinition(buffer),
+        await loadDefaultBenefitsBestPracticesDefinition(),
+      );
       validateBenefitsBestPracticesDefinition(
         uploaded,
         await loadDefaultBenefitsBestPracticesDefinition(),
@@ -530,13 +571,36 @@ export class ProgramSurveyDefinitionService {
     return this.prisma.$transaction(async (db) => {
       const program = await this.program(db, reference);
       const metadata = object(program.metadata);
-      const previous = metadata.employerAssessmentDefinition;
-      const definition = mergeSurveyDefinitions(
-        Array.isArray(previous)
-          ? (previous as unknown as SurveyDefinition)
-          : undefined,
-        uploaded,
-      );
+      const previous =
+        customEaDefinitionFromMetadata(metadata) ??
+        (Array.isArray(metadata.employerAssessmentDefinition)
+          ? (metadata.employerAssessmentDefinition as unknown as SurveyDefinition)
+          : undefined);
+      const definition = mergeEaDefinitions(previous, uploaded);
+      if (isCustomEaDefinition(definition)) {
+        const questions = await db.question.findMany({
+          where: {
+            survey: {
+              programId: program.id,
+              OR: [
+                { metadata: { path: ["kind"], equals: "employer" } },
+                {
+                  title: {
+                    contains: "Employer Assessment",
+                    mode: "insensitive",
+                  },
+                },
+              ],
+            },
+          },
+          select: { dataLabel: true },
+        });
+        const issues = validateCustomEaSources(
+          definition,
+          questions.map((q) => q.dataLabel),
+        );
+        if (issues.length) throw new BadRequestException(issues.join("; "));
+      }
       const unchanged =
         JSON.stringify(previous ?? []) === JSON.stringify(definition);
       if (!unchanged) {
@@ -545,9 +609,9 @@ export class ProgramSurveyDefinitionService {
           data: {
             metadata: {
               ...metadata,
-              employerAssessmentDefinition: JSON.parse(
-                JSON.stringify(definition),
-              ) as Prisma.InputJsonValue,
+              ...(JSON.parse(
+                JSON.stringify(eaDefinitionMetadata(definition)),
+              ) as Prisma.JsonObject),
               employerAssessmentDefinitionFile: {
                 fileName: basename(filename),
                 sha256: createHash("sha256").update(buffer).digest("hex"),

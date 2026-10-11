@@ -1,3 +1,13 @@
+import { resolveCanonicalOrganization } from "./organization-identity.js";
+import { CompatibilityZohoService } from "../crm-sync/compatibility-zoho.module.js";
+import {
+  customEaDefinitionFromMetadata,
+  eaDefinitionMetadata,
+  mergeEaDefinitions,
+  normalizeEmployerAssessmentDefinition,
+  validateCustomEaSources,
+  isCustomEaDefinition,
+} from "../reports/custom-ea-report.js";
 import {
   BadRequestException,
   ForbiddenException,
@@ -5,6 +15,7 @@ import {
   Injectable,
   InternalServerErrorException,
   Logger,
+  Optional,
 } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import type { PrismaClient } from "@prisma/client";
@@ -127,11 +138,13 @@ export interface HistoricalImportMetadata {
   efsDeadline: string;
   zohoWinnerOrganizations?: Array<{
     organizationId: string;
+    zohoAccountId?: string;
     organizationName?: string;
     currentZohoCategory?: string;
   }>;
   zohoOrganizations?: Array<{
     organizationId: string;
+    zohoAccountId?: string;
     organizationName?: string;
     isWinner: WinnerStatus | null;
     surveysSent: number;
@@ -148,6 +161,8 @@ export interface HistoricalImportMetadata {
   organizationPrograms?: Array<{
     organizationProgramId?: string;
     organizationKey?: string;
+    canonicalOrganizationId?: string;
+    zohoAccountId?: string;
     sourceOrganizationId?: string;
     organizationName?: string;
     surveysSent: number;
@@ -531,11 +546,13 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
           const entry = objectBody(raw);
           const organizationId = requiredString(entry, "organizationId");
           const organizationName = optionalString(entry, "organizationName");
+          const zohoAccountId = optionalString(entry, "zohoAccountId");
           const currentZohoCategory =
             optionalString(entry, "currentZohoCategory") ??
             optionalString(entry, "currentYearCategory");
           return {
             organizationId,
+            ...(zohoAccountId ? { zohoAccountId } : {}),
             ...(organizationName ? { organizationName } : {}),
             ...(currentZohoCategory ? { currentZohoCategory } : {}),
           };
@@ -550,6 +567,7 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
           const entry = objectBody(raw);
           const organizationId = requiredString(entry, "organizationId");
           const organizationName = optionalString(entry, "organizationName");
+          const zohoAccountId = optionalString(entry, "zohoAccountId");
           const stage = optionalString(entry, "stage");
           const currentZohoCategory =
             optionalString(entry, "currentZohoCategory") ??
@@ -596,6 +614,7 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
           }
           return {
             organizationId,
+            ...(zohoAccountId ? { zohoAccountId } : {}),
             ...(organizationName ? { organizationName } : {}),
             isWinner: winnerStatusFromExternalValue(entry.isWinner),
             surveysSent,
@@ -629,11 +648,16 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
             "organizationProgramId",
           );
           const organizationKey = optionalString(entry, "organizationKey");
+          const canonicalOrganizationId = optionalString(
+            entry,
+            "canonicalOrganizationId",
+          );
           const sourceOrganizationId = optionalString(
             entry,
             "sourceOrganizationId",
           );
           const organizationName = optionalString(entry, "organizationName");
+          const zohoAccountId = optionalString(entry, "zohoAccountId");
           const stage = optionalString(entry, "stage");
           const currentZohoCategory =
             optionalString(entry, "currentZohoCategory") ??
@@ -694,6 +718,8 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
           return {
             ...(organizationProgramId ? { organizationProgramId } : {}),
             ...(organizationKey ? { organizationKey } : {}),
+            ...(canonicalOrganizationId ? { canonicalOrganizationId } : {}),
+            ...(zohoAccountId ? { zohoAccountId } : {}),
             ...(sourceOrganizationId ? { sourceOrganizationId } : {}),
             ...(organizationName ? { organizationName } : {}),
             ...(currentZohoCategory ? { currentZohoCategory } : {}),
@@ -992,7 +1018,12 @@ async function insertBatches<T>(
 @Injectable()
 export class HistoricalImportService {
   private readonly logger = new Logger(HistoricalImportService.name);
-  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Optional()
+    @Inject(CompatibilityZohoService)
+    private readonly zoho?: CompatibilityZohoService,
+  ) {}
 
   async reuploadProgramEfs(
     principal: Principal,
@@ -1359,8 +1390,13 @@ export class HistoricalImportService {
     file: UploadedWorkbookFile,
   ): Promise<SurveyDefinition> {
     assertXlsxFile(file);
-    const definition = await parseSurveyDefinition(file.buffer);
+    const defaults = await loadDefaultBenefitsBestPracticesDefinition();
+    let definition: SurveyDefinition;
     try {
+      definition = normalizeEmployerAssessmentDefinition(
+        await parseSurveyDefinition(file.buffer),
+        defaults,
+      );
       validateBenefitsBestPracticesDefinition(
         definition,
         await loadDefaultBenefitsBestPracticesDefinition(),
@@ -1455,6 +1491,16 @@ export class HistoricalImportService {
     });
     const issues: HistoricalImportValidationIssue[] = [];
     const issueCounters = { listed: 0, suppressed: 0, errors: 0, warnings: 0 };
+    if (workbook.kind === "EA" && draft.employerAssessmentDefinition) {
+      for (const message of validateCustomEaSources(
+        draft.employerAssessmentDefinition,
+        definition.questions.map((q) => q.dataLabel),
+      ))
+        appendValidationIssue(issues, issueCounters, {
+          level: "error",
+          message,
+        });
+    }
     if (workbook.kind === "EFS") {
       for (const configured of draft.surveyDefinition ?? []) {
         const question = definition.questions.find(
@@ -1646,7 +1692,7 @@ export class HistoricalImportService {
         };
       }
       if (files.employerAssessmentDefinitionFile) {
-        draft.employerAssessmentDefinition = mergeSurveyDefinitions(
+        draft.employerAssessmentDefinition = mergeEaDefinitions(
           draft.employerAssessmentDefinition,
           await this.parseEmployerAssessmentDefinition(
             files.employerAssessmentDefinitionFile,
@@ -1760,7 +1806,7 @@ export class HistoricalImportService {
         draft.surveyDefinitionChanged = true;
       }
       if (files.employerAssessmentDefinitionFile) {
-        draft.employerAssessmentDefinition = mergeSurveyDefinitions(
+        draft.employerAssessmentDefinition = mergeEaDefinitions(
           draft.employerAssessmentDefinition,
           await this.parseEmployerAssessmentDefinition(
             files.employerAssessmentDefinitionFile,
@@ -1934,12 +1980,18 @@ export class HistoricalImportService {
               >,
             }
           : {}),
-        ...(Array.isArray(
+        ...((customEaDefinitionFromMetadata(objectBody(program.metadata)) ??
+        (Array.isArray(
           objectBody(program.metadata).employerAssessmentDefinition,
         )
+          ? (objectBody(program.metadata)
+              .employerAssessmentDefinition as SurveyDefinition)
+          : undefined))
           ? {
-              employerAssessmentDefinition: objectBody(program.metadata)
-                .employerAssessmentDefinition as SurveyDefinition,
+              employerAssessmentDefinition:
+                customEaDefinitionFromMetadata(objectBody(program.metadata)) ??
+                (objectBody(program.metadata)
+                  .employerAssessmentDefinition as SurveyDefinition),
             }
           : {}),
         ...(objectBody(program.metadata).employerAssessmentDefinitionFile
@@ -2067,6 +2119,12 @@ export class HistoricalImportService {
           ? { organizationProgramId: existing.organizationProgramId }
           : {}),
         organizationKey: key,
+        ...(existing?.canonicalOrganizationId
+          ? { canonicalOrganizationId: existing.canonicalOrganizationId }
+          : {}),
+        ...(existing?.zohoAccountId
+          ? { zohoAccountId: existing.zohoAccountId }
+          : {}),
         ...(details.workbookOrganizationId
           ? { sourceOrganizationId: details.workbookOrganizationId }
           : existing?.sourceOrganizationId
@@ -2115,6 +2173,33 @@ export class HistoricalImportService {
   ): Promise<HistoricalImportValidationSummary> {
     if (!draft.eaFile && !draft.efsFile && draft.programId) {
       const issues: HistoricalImportValidationIssue[] = [];
+      if (
+        draft.employerAssessmentDefinition &&
+        isCustomEaDefinition(draft.employerAssessmentDefinition)
+      ) {
+        const questions = await this.prisma.question.findMany({
+          where: {
+            survey: {
+              programId: draft.programId,
+              OR: [
+                { metadata: { path: ["kind"], equals: "employer" } },
+                {
+                  title: {
+                    contains: "Employer Assessment",
+                    mode: "insensitive",
+                  },
+                },
+              ],
+            },
+          },
+          select: { dataLabel: true },
+        });
+        for (const message of validateCustomEaSources(
+          draft.employerAssessmentDefinition,
+          questions.map((q) => q.dataLabel),
+        ))
+          issues.push({ level: "error", message });
+      }
       if (draft.surveyDefinition && draft.surveyDefinitionChanged) {
         const questions = await this.definitionQuestions(
           draft.programId,
@@ -2715,9 +2800,11 @@ export class HistoricalImportService {
             : {}),
           ...(draft.employerAssessmentDefinition
             ? {
-                employerAssessmentDefinition: JSON.parse(
-                  JSON.stringify(draft.employerAssessmentDefinition),
-                ) as Prisma.InputJsonValue,
+                ...(JSON.parse(
+                  JSON.stringify(
+                    eaDefinitionMetadata(draft.employerAssessmentDefinition),
+                  ),
+                ) as Prisma.JsonObject),
                 employerAssessmentDefinitionFile:
                   draft.employerAssessmentDefinitionFile ?? null,
               }
@@ -3196,8 +3283,144 @@ export class HistoricalImportService {
       select: {
         id: true,
         name: true,
+        zohoAccountId: true,
       },
     });
+    const verifiedZoho =
+      draft.zohoProgramId && this.zoho
+        ? await this.zoho.verifiedOrganizationsForProgram(
+            draft.zohoProgramId,
+            draft.projectName,
+          )
+        : [];
+    const configuredIdentity = new Map(
+      (draft.organizationPrograms ?? []).map((entry) => [
+        entry.organizationKey ?? entry.organizationProgramId,
+        entry,
+      ]),
+    );
+    const identityPlans = new Map<
+      string,
+      {
+        crm: (typeof verifiedZoho)[number] | undefined;
+        matched: (typeof existingEnrollments)[number] | undefined;
+        reusableOrganization:
+          (typeof existingOrganizations)[number] | undefined;
+        organizationId: string;
+      }
+    >();
+    const usedOrganizations = new Set<string>();
+    const usedAccounts = new Set<string>();
+    for (const [key, details] of organizationRows) {
+      const normalizedName = normalizeOrganizationName(details.displayName);
+      const identity = configuredIdentity.get(key);
+      const byEnrollment = identity?.organizationProgramId
+        ? existingEnrollments.filter(
+            ({ id }) => id === identity.organizationProgramId,
+          )
+        : [];
+      if (identity?.organizationProgramId && !byEnrollment.length) {
+        throw new BadRequestException(
+          "Selected enrollment does not belong to this program",
+        );
+      }
+      const bySource = details.workbookOrganizationId
+        ? existingEnrollments.filter(
+            ({ metrics }) =>
+              String(objectBody(metrics).Source_Organization_ID ?? "") ===
+              details.workbookOrganizationId,
+          )
+        : [];
+      const byCanonical =
+        identity?.canonicalOrganizationId &&
+        identity.canonicalOrganizationId !== "new"
+          ? existingEnrollments.filter(
+              ({ organizationId }) =>
+                organizationId === identity.canonicalOrganizationId,
+            )
+          : [];
+      const byName = existingEnrollments.filter(
+        ({ metrics }) =>
+          normalizeOrganizationName(
+            String(objectBody(metrics).Source_Organization_Name ?? ""),
+          ) === normalizedName,
+      );
+      const matchingEnrollments = byEnrollment.length
+        ? byEnrollment
+        : bySource.length
+          ? bySource
+          : byCanonical.length
+            ? byCanonical
+            : byName;
+      if (matchingEnrollments.length > 1)
+        throw new BadRequestException("Ambiguous existing enrollment identity");
+      const matched = matchingEnrollments[0];
+      const crmCandidates = verifiedZoho.filter((candidate) =>
+        identity?.sourceOrganizationId
+          ? candidate.organizationId === identity.sourceOrganizationId
+          : normalizeOrganizationName(
+              candidate.organizationName ?? undefined,
+            ) === normalizedName,
+      );
+      // Workbook source IDs may differ from CRM deal IDs; only a unique in-program name can suggest a match.
+      const nameCandidates = crmCandidates.length
+        ? crmCandidates
+        : verifiedZoho.filter(
+            (candidate) =>
+              normalizeOrganizationName(
+                candidate.organizationName ?? undefined,
+              ) === normalizedName,
+          );
+      if (nameCandidates.length > 1)
+        throw new BadRequestException(
+          "Ambiguous CRM company match; resolve the CRM mapping before importing",
+        );
+      const crm = nameCandidates[0];
+      if (crm?.zohoAccountId) {
+        if (usedAccounts.has(crm.zohoAccountId))
+          throw new BadRequestException(
+            "Multiple workbook companies map to the same CRM account",
+          );
+        usedAccounts.add(crm.zohoAccountId);
+      }
+      if (
+        identity?.zohoAccountId &&
+        identity.zohoAccountId !== crm?.zohoAccountId
+      ) {
+        throw new BadRequestException(
+          "CRM account identity could not be verified; refresh the import configuration",
+        );
+      }
+      const importedOrganizationId = deterministicUuid(
+        `${importPrefix}:organization:${key}`,
+      );
+      const retryOrganization = existingOrganizations.find(
+        ({ id, zohoAccountId }) =>
+          id === importedOrganizationId && zohoAccountId === crm?.zohoAccountId,
+      );
+      const selection =
+        identity?.canonicalOrganizationId === "new" && retryOrganization
+          ? retryOrganization.id
+          : identity?.canonicalOrganizationId;
+      const reusableOrganization = resolveCanonicalOrganization(
+        existingOrganizations,
+        selection,
+        crm?.zohoAccountId,
+        matched?.organizationId,
+      );
+      const organizationId = reusableOrganization?.id ?? importedOrganizationId;
+      if (usedOrganizations.has(organizationId))
+        throw new BadRequestException(
+          "Multiple workbook companies map to the same organization in this program",
+        );
+      usedOrganizations.add(organizationId);
+      identityPlans.set(key, {
+        crm,
+        matched,
+        reusableOrganization,
+        organizationId,
+      });
+    }
     for (const [key, details] of organizationRows) {
       const surveysSent = configuredSent.get(key) ?? details.efsRespondents;
       const isWinner = configuredWinners.get(key) ?? null;
@@ -3221,34 +3444,27 @@ export class HistoricalImportService {
       const benchmarkCategory = defaultCategory
         ? "Default"
         : configuredBenchmarkCategories.get(key);
-      const normalizedName = normalizeOrganizationName(details.displayName);
-      const matched = existingEnrollments.find(({ metrics }) => {
-        const values = objectBody(metrics);
-        if (
-          details.workbookOrganizationId &&
-          String(values.Source_Organization_ID ?? "") ===
-            details.workbookOrganizationId
-        )
-          return true;
-        return (
-          normalizeOrganizationName(
-            String(values.Source_Organization_Name ?? ""),
-          ) === normalizedName
+      const identityPlan = identityPlans.get(key);
+      if (!identityPlan)
+        throw new InternalServerErrorException(
+          "Organization identity plan is missing",
         );
-      });
-      const reusableOrganization = existingOrganizations.find((candidate) => {
-        // Workbook organization IDs are scoped to a program and must never be
-        // used as a cross-program identity.
-        return normalizeOrganizationName(candidate.name) === normalizedName;
-      });
-      const organizationId =
-        matched?.organizationId ??
-        reusableOrganization?.id ??
-        deterministicUuid(`${importPrefix}:organization:${key}`);
+      const { crm, matched, reusableOrganization, organizationId } =
+        identityPlan;
+      if (crm?.zohoAccountId && reusableOrganization) {
+        await prisma.organization.update({
+          where: { id: organizationId },
+          data: {
+            zohoAccountId: crm.zohoAccountId,
+            ...(crm.organizationName ? { name: crm.organizationName } : {}),
+          },
+        });
+      }
       organizationIds.set(key, organizationId);
       const token = digest(`${importPrefix}:organization:${key}`, 12);
       const organizationData = {
-        name: details.displayName,
+        name: crm?.organizationName ?? details.displayName,
+        ...(crm?.zohoAccountId ? { zohoAccountId: crm.zohoAccountId } : {}),
         slug: `${projectSlug}-${token}`,
         metadata: {
           historicalImportId: draft.importId,

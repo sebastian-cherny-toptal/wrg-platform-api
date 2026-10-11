@@ -1,4 +1,8 @@
 import {
+  customEaDefinitionFromMetadata,
+  generateCustomEaReport,
+} from "./custom-ea-report.js";
+import {
   BadRequestException,
   Controller,
   ForbiddenException,
@@ -3337,7 +3341,35 @@ export class CompatibilityReportsService {
       .send(Buffer.from(upload.contents));
   }
 
-  async employerBenchmark(principal: Principal, query: ReportQuery) {
+  async employerBenchmark(
+    principal: Principal,
+    query: ReportQuery,
+  ): Promise<{
+    success: boolean;
+    message: string;
+    data: {
+      tableHeaders: Array<{
+        title: string;
+        type: string;
+        subTitle: string;
+        color: string;
+      }>;
+      tableData: Array<{
+        title: string;
+        nestedData: Array<{
+          id: string;
+          title: string;
+          type: string;
+          nestedData: Array<{
+            title: string;
+            type: string;
+            groupLabel?: string;
+            dataValues: Array<number | string>;
+          }>;
+        }>;
+      }>;
+    };
+  }> {
     const context = await this.baseContext(principal, query, true);
     this.requiresDemo(principal, context, "BBP_Access");
     if (query.isDummy) {
@@ -3436,6 +3468,9 @@ export class CompatibilityReportsService {
               : "number",
             nestedData: question.responses.map((response) => ({
               title: response.label,
+              ...(response.groupLabel
+                ? { groupLabel: response.groupLabel }
+                : {}),
               type: response.format === "percent" ? "%" : "number",
               dataValues: response.dataValues.map((value) =>
                 this.publishedValue(value),
@@ -3471,6 +3506,7 @@ export class CompatibilityReportsService {
           responses: question.nestedData.map((response) => ({
             format: response.type === "%" ? "percent" : "number",
             label: response.title,
+            ...(response.groupLabel ? { groupLabel: response.groupLabel } : {}),
             values: response.dataValues,
           })),
         })),
@@ -4361,14 +4397,10 @@ export class CompatibilityReportsService {
           questionTypeId === 9 ||
           questionTypeId === "9";
       if (!isOpen) return false;
-      const organizationId = organizationSpecificQuestionId(
-        question.dataLabel,
-      );
+      const organizationId = organizationSpecificQuestionId(question.dataLabel);
       return (
         organizationId === null ||
-        normalizedOrganizationIds.has(
-          organizationId.toLocaleLowerCase("en"),
-        )
+        normalizedOrganizationIds.has(organizationId.toLocaleLowerCase("en"))
       );
     });
     const filterReference = queryFilter?.questionId;
@@ -5456,6 +5488,9 @@ export class CompatibilityReportsService {
           },
         ];
     if (cohorts[0]?.organizationIds.length === 0) return null;
+    const custom = customEaDefinitionFromMetadata(programMetadata);
+    if (custom)
+      return generateCustomEaReport({ definition: custom, answers, cohorts });
     const generated = generateBenefitsBestPracticesFromEa({
       template: await loadBenefitsBestPracticesTemplate(),
       answers,
@@ -6044,11 +6079,7 @@ export class CompatibilityReportsController {
     @Query("queryFilter") queryFilter: string | string[] | undefined,
     @Res() reply: FastifyReply,
   ): Promise<void> {
-    const query = this.reportQuery(
-      selectedProgramId,
-      organizationId,
-      isDummy,
-    );
+    const query = this.reportQuery(selectedProgramId, organizationId, isDummy);
     const workbook = await this.reports.feedbackWorkbook(
       principal,
       query,
@@ -6074,15 +6105,8 @@ export class CompatibilityReportsController {
     @Query("isDummy") isDummy: string | string[] | undefined,
     @Res() reply: FastifyReply,
   ): Promise<void> {
-    const query = this.reportQuery(
-      selectedProgramId,
-      organizationId,
-      isDummy,
-    );
-    const workbook = await this.reports.benchmarkWorkbook(
-      principal,
-      query,
-    );
+    const query = this.reportQuery(selectedProgramId, organizationId, isDummy);
+    const workbook = await this.reports.benchmarkWorkbook(principal, query);
     await this.recordAndSendWorkbook(
       principal,
       query,
@@ -6109,10 +6133,7 @@ export class CompatibilityReportsController {
       false,
       true,
     );
-    const workbook = await this.reports.benchmarkWorkbook(
-      principal,
-      query,
-    );
+    const workbook = await this.reports.benchmarkWorkbook(principal, query);
     await this.recordAndSendWorkbook(
       principal,
       query,
@@ -6169,11 +6190,7 @@ export class CompatibilityReportsController {
     @Res() reply: FastifyReply,
   ): Promise<void> {
     const selectedFilter = scalarQuery("filterQuestion", filterQuestion);
-    const query = this.reportQuery(
-      selectedProgramId,
-      organizationId,
-      isDummy,
-    );
+    const query = this.reportQuery(selectedProgramId, organizationId, isDummy);
     const workbook = await this.reports.responseDetailWorkbook(
       principal,
       query,
@@ -6416,15 +6433,8 @@ export class CompatibilityReportsController {
     @Query("isDummy") isDummy: string | string[] | undefined,
     @Res() reply: FastifyReply,
   ): Promise<void> {
-    const query = this.reportQuery(
-      selectedProgramId,
-      organizationId,
-      isDummy,
-    );
-    const workbook = await this.reports.annualTrendWorkbook(
-      principal,
-      query,
-    );
+    const query = this.reportQuery(selectedProgramId, organizationId, isDummy);
+    const workbook = await this.reports.annualTrendWorkbook(principal, query);
     await this.recordAndSendWorkbook(
       principal,
       query,

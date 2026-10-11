@@ -114,7 +114,7 @@ export class JwtAuthGuard extends AuthGuard("jwt") {
 }
 
 @Injectable()
-class JwtStrategy extends PassportStrategy(Strategy) {
+export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(
     @Inject(ConfigService)
     private readonly config: ConfigService<Env, true>,
@@ -171,6 +171,20 @@ class JwtStrategy extends PassportStrategy(Strategy) {
         uniqueProgramIds.size === 0
       ) {
         throw new UnauthorizedException("Dashboard preview has ended");
+      }
+    }
+    if (!principal.localAuthBypass) {
+      const user = await this.prisma.user.findUnique({
+        where: { id: principal.sub },
+        select: { organizationId: true, status: true },
+      });
+      if (
+        user?.status !== "ACTIVE" ||
+        user.organizationId !== principal.organizationId
+      ) {
+        throw new UnauthorizedException(
+          "Account access changed; sign in again",
+        );
       }
     }
     return principal;

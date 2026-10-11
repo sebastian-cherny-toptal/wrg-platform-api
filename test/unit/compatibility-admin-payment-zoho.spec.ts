@@ -1662,6 +1662,7 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
         KIA_Payment_Type: "Paid via ACH",
         Unmapped_Custom_Field: "preserved",
         organizationId: "460737994",
+        zohoAccountId: "zoho-account-1",
         organizationName: "Acme Holdings",
         isWinner: "Y",
         surveysSent: 125,

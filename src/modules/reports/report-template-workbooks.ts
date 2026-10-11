@@ -59,6 +59,7 @@ export interface BenefitsWorkbookSection {
   questions: Array<{
     text: string;
     responses: Array<{
+      groupLabel?: string;
       format?: "number" | "percent";
       label: string;
       values: Array<number | string>;
@@ -353,7 +354,9 @@ function setResponseDetailDemographics(
         cell.value = source.value;
         cell.style = source.style;
       }
-      sheet.getCell(2, column).value = safeValue(demographic.title.toUpperCase());
+      sheet.getCell(2, column).value = safeValue(
+        demographic.title.toUpperCase(),
+      );
       sheet.getCell(3, column).value = safeValue(option.label);
       column += 1;
     }
@@ -385,9 +388,7 @@ function subgroupAgreement(
 }
 
 function subgroupResponsePercentage(
-  distributions:
-    | Record<string, Record<string, number[]>>
-    | undefined,
+  distributions: Record<string, Record<string, number[]>> | undefined,
   groupLabel: string | undefined,
   label: string,
   responseIndex: number,
@@ -555,10 +556,7 @@ function workforceFeedbackDemographicToken(
 ): ExcelJS.CellValue {
   if (typeof value !== "string") return value;
   return value
-    .replace(
-      /DEMOGRAPHIC_COUNT_\d+/gu,
-      `DEMOGRAPHIC_COUNT_${optionIndex + 2}`,
-    )
+    .replace(/DEMOGRAPHIC_COUNT_\d+/gu, `DEMOGRAPHIC_COUNT_${optionIndex + 2}`)
     .replace(/_VALUE_\d+/gu, `_VALUE_${optionIndex + 3}`);
 }
 
@@ -940,11 +938,7 @@ export async function createWorkforceFeedbackWorkbook(input: {
       const label = cell.worksheet.getCell(3, cell.fullAddress.col).value;
       if (typeof label !== "string") return 0;
       const count =
-        demographicCount(
-          demographics,
-          label,
-          demographicGroupLabel(cell),
-        ) ?? 0;
+        demographicCount(demographics, label, demographicGroupLabel(cell)) ?? 0;
       return count;
     }
     return null;
@@ -1039,9 +1033,12 @@ export async function createBenchmarkWorkbook(input: {
     const firstColumn = 2 + pair * 2;
     for (const column of [firstColumn, firstColumn + 1]) {
       sheet.getCell(4, column).value = winner?.title ?? null;
-      sheet.getCell(5, column).value = pair === 0
-        ? input.cohortOrganizationCount ?? null
-        : winner?.employeeSize ? `(${winner.employeeSize} Employees)` : null;
+      sheet.getCell(5, column).value =
+        pair === 0
+          ? (input.cohortOrganizationCount ?? null)
+          : winner?.employeeSize
+            ? `(${winner.employeeSize} Employees)`
+            : null;
     }
     sheet.getCell(6, firstColumn).value = winner
       ? `${winner.title.replace(/\s+Employers$/iu, "")} Winners`
@@ -1067,12 +1064,7 @@ export async function createBenchmarkWorkbook(input: {
     }
     sheet.spliceColumns(lastColumn + 1, 9 - lastColumn);
     for (const merge of resizedMerges) {
-      sheet.mergeCells(
-        merge.row,
-        merge.startColumn,
-        merge.row,
-        lastColumn,
-      );
+      sheet.mergeCells(merge.row, merge.startColumn, merge.row, lastColumn);
     }
   }
   sheet.pageSetup.printArea = `A1:${columnName(lastColumn)}${sheet.rowCount}`;
@@ -1194,7 +1186,16 @@ export async function createBenefitsWorkbook(input: {
       rowNumber += 1;
 
       if (!directResponse) {
+        let previousGroup: string | undefined;
         for (const response of question.responses) {
+          if (response.groupLabel && response.groupLabel !== previousGroup) {
+            const groupRow = sheet.getRow(rowNumber);
+            applyPrototype(groupRow, prototypes.question);
+            groupRow.getCell(1).value = safeValue(response.groupLabel);
+            sheet.mergeCells(rowNumber, 1, rowNumber, lastColumn);
+            rowNumber += 1;
+          }
+          previousGroup = response.groupLabel;
           const responseRow = sheet.getRow(rowNumber);
           applyPrototype(responseRow, prototypes.response);
           responseRow.getCell(1).value = safeValue(response.label);
@@ -1600,11 +1601,7 @@ export async function createResponseDetailWorkbook(input: {
               Number(responseMatch[2]) - 1,
             )
           : undefined;
-      return demographicValue(
-        input.demographics,
-        cell,
-        subgroupValue ?? value,
-      );
+      return demographicValue(input.demographics, cell, subgroupValue ?? value);
     }
     return null;
   });

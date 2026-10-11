@@ -300,18 +300,6 @@ function jsonObject(value: Prisma.JsonValue): Prisma.JsonObject {
     : {};
 }
 
-function normalizedOrganizationName(value: unknown): string {
-  return String(value ?? "")
-    .trim()
-    .toLocaleLowerCase()
-    .replace(/[^a-z0-9]+/gu, " ")
-    .trim();
-}
-
-function organizationIdentityKeys(organization: { name: string }): Set<string> {
-  return new Set([`name:${normalizedOrganizationName(organization.name)}`]);
-}
-
 function basicClientReportAccess(
   value: Prisma.JsonValue,
 ): Prisma.InputJsonObject {
@@ -963,33 +951,11 @@ export class UsersService {
       );
     }
 
-    const identityKeys = organization
-      ? organizationIdentityKeys(organization)
-      : new Set<string>();
-    const equivalentOrganizations = organization
-      ? (
-          await this.prisma.organization.findMany({
-            select: {
-              id: true,
-              name: true,
-              metadata: true,
-              programs: { select: { metrics: true } },
-            },
-          })
-        ).filter((candidate) =>
-          [...organizationIdentityKeys(candidate)].some((key) =>
-            identityKeys.has(key),
-          ),
-        )
-      : [];
-    const equivalentOrganizationIds = equivalentOrganizations.map(
-      ({ id }) => id,
-    );
     const enrollments = organization
       ? await this.prisma.organizationProgram.findMany({
           where: {
             isIncluded: true,
-            organizationId: { in: equivalentOrganizationIds },
+            organizationId: organization.id,
             programId: { in: selectedPrograms.map(({ id }) => id) },
           },
           select: {
@@ -1006,14 +972,12 @@ export class UsersService {
         })
       : [];
     const selectedEnrollments = selectedPrograms
-      .map(
-        (program) =>
-          enrollments.find(
-            (enrollment) =>
-              enrollment.programId === program.id &&
-              enrollment.organizationId === organization?.id,
-          ) ??
-          enrollments.find((enrollment) => enrollment.programId === program.id),
+      .map((program) =>
+        enrollments.find(
+          (enrollment) =>
+            enrollment.programId === program.id &&
+            enrollment.organizationId === organization?.id,
+        ),
       )
       .filter((enrollment): enrollment is (typeof enrollments)[number] =>
         Boolean(enrollment),
@@ -1080,38 +1044,6 @@ export class UsersService {
           "user" | "organizationProgram"
         >,
       ) => {
-        if (organization && equivalentOrganizationIds.length > 1) {
-          const allEquivalentEnrollments =
-            await database.organizationProgram.findMany({
-              where: { organizationId: { in: equivalentOrganizationIds } },
-              select: { id: true, organizationId: true, programId: true },
-            });
-          const canonicalProgramIds = new Set(
-            allEquivalentEnrollments
-              .filter(
-                ({ organizationId }) => organizationId === organization.id,
-              )
-              .map(({ programId }) => programId),
-          );
-          await Promise.all(
-            allEquivalentEnrollments
-              .filter(
-                ({ organizationId, programId }) =>
-                  organizationId !== organization.id &&
-                  !canonicalProgramIds.has(programId),
-              )
-              .map(({ id }) =>
-                database.organizationProgram.update({
-                  where: { id },
-                  data: { organizationId: organization.id },
-                }),
-              ),
-          );
-          await database.user.updateMany({
-            where: { organizationId: { in: equivalentOrganizationIds } },
-            data: { organizationId: organization.id },
-          });
-        }
         const created = await database.user.create({
           data: {
             email,
@@ -1333,6 +1265,9 @@ export class UsersService {
       }
     }
 
+    let clientEnrollments: (Parameters<
+      typeof clientEnrollmentEntitlementData
+    >[0] & { id: string })[] = [];
     let selectedOrganizationId: string | undefined;
     let primaryOrganizationProgramId: string | null | undefined;
     let assignmentProjectIds: string[] | undefined;
@@ -1414,16 +1349,7 @@ export class UsersService {
         assignmentProjectIds = [
           ...new Set(enrollments.map(({ projectId }) => projectId)),
         ];
-        if (isClientRole) {
-          await Promise.all(
-            enrollments.map((enrollment) =>
-              this.prisma.organizationProgram.update({
-                where: { id: enrollment.id },
-                data: clientEnrollmentEntitlementData(enrollment),
-              }),
-            ),
-          );
-        }
+        if (isClientRole) clientEnrollments = enrollments;
       }
     } else if (dto.organizationId !== undefined) {
       throw new BadRequestException(
@@ -1439,92 +1365,121 @@ export class UsersService {
     };
 
     try {
-      const user = await this.prisma.user.update({
-        where: { id: target.id },
-        data: {
-          ...(email !== undefined ? { email } : {}),
-          ...(fullName !== undefined ? { fullName } : {}),
-          ...(dto.username !== undefined
-            ? {
-                username:
-                  normalizedUsername === ""
-                    ? null
-                    : (normalizedUsername ?? null),
-              }
-            : {}),
-          ...(dto.mobile !== undefined || dto.mfa !== undefined
-            ? { metadata }
-            : {}),
-          ...(selectedOrganizationId !== undefined
-            ? {
-                organization: { connect: { id: selectedOrganizationId } },
-                organizationProgram: primaryOrganizationProgramId
-                  ? { connect: { id: primaryOrganizationProgramId } }
-                  : { disconnect: true },
-              }
-            : role && !supportsOrganizationPrograms
+      const user = await this.prisma.$transaction(async (transaction) => {
+        for (const enrollment of clientEnrollments) {
+          await transaction.organizationProgram.update({
+            where: { id: enrollment.id },
+            data: clientEnrollmentEntitlementData(enrollment),
+          });
+        }
+        const organizationChanged =
+          selectedOrganizationId !== undefined &&
+          selectedOrganizationId !== target.organizationId;
+        const accessChanged =
+          organizationChanged ||
+          (programs !== undefined &&
+            (programs.length !== target.programs.length ||
+              programs.some(
+                ({ id }) =>
+                  !target.programs.some(({ programId }) => programId === id),
+              )));
+        if (accessChanged) {
+          await transaction.session.updateMany({
+            where: { userId: target.id, revokedAt: null },
+            data: { revokedAt: new Date() },
+          });
+          await transaction.impersonationGrant.updateMany({
+            where: { targetUserId: target.id, revokedAt: null },
+            data: { revokedAt: new Date() },
+          });
+        }
+        return transaction.user.update({
+          where: { id: target.id },
+          data: {
+            ...(email !== undefined ? { email } : {}),
+            ...(fullName !== undefined ? { fullName } : {}),
+            ...(dto.username !== undefined
               ? {
-                  organization: { disconnect: true },
-                  organizationProgram: { disconnect: true },
+                  username:
+                    normalizedUsername === ""
+                      ? null
+                      : (normalizedUsername ?? null),
                 }
               : {}),
-          ...(role
-            ? {
-                roles: {
-                  deleteMany: {},
-                  create: [{ roleId: role.id }],
-                },
-              }
-            : {}),
-          ...(programs !== undefined
-            ? {
-                programs: {
-                  deleteMany: {},
-                  create: programs.map(({ id }) => ({ programId: id })),
-                },
-              }
-            : {}),
-          ...(assignmentProjectIds !== undefined &&
-          assignmentProjectIds.length > 0 &&
-          (programs !== undefined || dto.organizationId !== undefined)
-            ? {
-                projects: {
-                  deleteMany: {},
-                  create: assignmentProjectIds.map((projectId) => ({
-                    projectId,
-                  })),
-                },
-              }
-            : projects !== undefined
+            ...(dto.mobile !== undefined || dto.mfa !== undefined
+              ? { metadata }
+              : {}),
+            ...(selectedOrganizationId !== undefined
               ? {
-                  projects: {
+                  organization: { connect: { id: selectedOrganizationId } },
+                  organizationProgram: primaryOrganizationProgramId
+                    ? { connect: { id: primaryOrganizationProgramId } }
+                    : { disconnect: true },
+                }
+              : role && !supportsOrganizationPrograms
+                ? {
+                    organization: { disconnect: true },
+                    organizationProgram: { disconnect: true },
+                  }
+                : {}),
+            ...(role
+              ? {
+                  roles: {
                     deleteMany: {},
-                    create: projects.map((project) => ({
-                      projectId: project.id,
-                    })),
+                    create: [{ roleId: role.id }],
                   },
                 }
               : {}),
-        },
-        select: {
-          id: true,
-          email: true,
-          username: true,
-          fullName: true,
-          status: true,
-          metadata: true,
-          createdAt: true,
-          roles: {
-            select: {
-              role: { select: { id: true, key: true, name: true } },
+            ...(programs !== undefined
+              ? {
+                  programs: {
+                    deleteMany: {},
+                    create: programs.map(({ id }) => ({ programId: id })),
+                  },
+                }
+              : {}),
+            ...(assignmentProjectIds !== undefined &&
+            assignmentProjectIds.length > 0 &&
+            (programs !== undefined || dto.organizationId !== undefined)
+              ? {
+                  projects: {
+                    deleteMany: {},
+                    create: assignmentProjectIds.map((projectId) => ({
+                      projectId,
+                    })),
+                  },
+                }
+              : projects !== undefined
+                ? {
+                    projects: {
+                      deleteMany: {},
+                      create: projects.map((project) => ({
+                        projectId: project.id,
+                      })),
+                    },
+                  }
+                : {}),
+          },
+          select: {
+            id: true,
+            email: true,
+            username: true,
+            fullName: true,
+            status: true,
+            metadata: true,
+            createdAt: true,
+            roles: {
+              select: {
+                role: { select: { id: true, key: true, name: true } },
+              },
+            },
+            projects: {
+              select: {
+                project: { select: { id: true, name: true } },
+              },
             },
           },
-          projects: {
-            select: {
-              project: { select: { id: true, name: true } },
-            },
-          },
-        },
+        });
       });
       const updatedMetadata = jsonObject(user.metadata);
       const mfa = updatedMetadata.mfa === "mobile" ? "mobile" : "email";

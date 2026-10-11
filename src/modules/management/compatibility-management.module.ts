@@ -135,6 +135,7 @@ function reportCategory(metricsValue: Prisma.JsonValue): string {
 }
 
 export type ProgramZohoResyncField =
+  | "zohoAccountId"
   | "organizationName"
   | "stage"
   | "isWinner"
@@ -192,7 +193,7 @@ interface ResyncEnrollment {
   reportAccess: Prisma.JsonValue;
   paymentDetails: Prisma.JsonValue;
   metrics: Prisma.JsonValue;
-  organization: { id: string; name: string };
+  organization: { id: string; name: string; zohoAccountId?: string | null };
 }
 
 interface ResyncMatch {
@@ -201,6 +202,7 @@ interface ResyncMatch {
 }
 
 const resyncFields: ProgramZohoResyncField[] = [
+  "zohoAccountId",
   "organizationName",
   "stage",
   "isWinner",
@@ -231,6 +233,8 @@ function resyncValues(
   const metrics = jsonObject(enrollment.metrics);
   if (zoho) {
     return {
+      zohoAccountId:
+        zoho.zohoAccountId ?? enrollment.organization.zohoAccountId ?? null,
       organizationName: zoho.organizationName,
       stage: zoho.stage,
       isWinner: zoho.isWinner,
@@ -246,6 +250,7 @@ function resyncValues(
     };
   }
   return {
+    zohoAccountId: enrollment.organization.zohoAccountId ?? null,
     organizationName: enrollment.organization.name,
     stage: enrollment.stage,
     isWinner: enrollment.isWinner,
@@ -302,6 +307,22 @@ export class ProgramZohoResyncService {
     const syncedAt = new Date();
     await this.prisma.$transaction(async (transaction) => {
       for (const { enrollment, zoho } of matches) {
+        if (
+          zoho.zohoAccountId &&
+          zoho.zohoAccountId !== enrollment.organization.zohoAccountId
+        ) {
+          const bound = await transaction.organization.updateMany({
+            where: {
+              id: enrollment.organization.id,
+              zohoAccountId: enrollment.organization.zohoAccountId ?? null,
+            },
+            data: { zohoAccountId: zoho.zohoAccountId },
+          });
+          if (bound.count !== 1)
+            throw new ConflictException(
+              "CRM identity changed; refresh the preview",
+            );
+        }
         const organizationName = zoho.organizationName?.trim() ?? "";
         if (
           organizationName &&
@@ -403,7 +424,9 @@ export class ProgramZohoResyncService {
             reportAccess: true,
             paymentDetails: true,
             metrics: true,
-            organization: { select: { id: true, name: true } },
+            organization: {
+              select: { id: true, name: true, zohoAccountId: true },
+            },
           },
         },
       },
@@ -433,19 +456,58 @@ export class ProgramZohoResyncService {
       const normalizedName = normalizedOrganizationIdentity(
         zohoOrganization.organizationName,
       );
-      const enrollment = program.organizations.find((candidate) => {
-        if (!remaining.has(candidate.id)) return false;
-        const candidateSourceId =
-          metadataString(candidate.metrics, "Source_Organization_ID") ?? "";
-        if (sourceId && candidateSourceId.trim() === sourceId) return true;
-        const candidateName =
-          metadataString(candidate.metrics, "Source_Organization_Name") ??
-          candidate.organization.name;
-        return Boolean(
+      const available = program.organizations.filter(({ id }) =>
+        remaining.has(id),
+      );
+      const byAccount = zohoOrganization.zohoAccountId
+        ? available.filter(
+            (candidate) =>
+              candidate.organization.zohoAccountId ===
+              zohoOrganization.zohoAccountId,
+          )
+        : [];
+      const bySource = available.filter(
+        (candidate) =>
+          sourceId &&
+          metadataString(
+            candidate.metrics,
+            "Source_Organization_ID",
+          )?.trim() === sourceId,
+      );
+      const byName = available.filter(
+        (candidate) =>
           normalizedName &&
-          normalizedOrganizationIdentity(candidateName) === normalizedName,
+          normalizedOrganizationIdentity(
+            metadataString(candidate.metrics, "Source_Organization_Name") ??
+              candidate.organization.name,
+          ) === normalizedName,
+      );
+      const candidates = byAccount.length
+        ? byAccount
+        : bySource.length
+          ? bySource
+          : byName;
+      if (candidates.length > 1)
+        throw new ConflictException(
+          "Ambiguous organization match; map the company explicitly before resyncing",
         );
-      });
+      const enrollment = candidates[0];
+      if (enrollment && zohoOrganization.zohoAccountId) {
+        const owner = await this.prisma.organization.findUnique({
+          where: { zohoAccountId: zohoOrganization.zohoAccountId },
+          select: { id: true },
+        });
+        if (
+          (owner && owner.id !== enrollment.organization.id) ||
+          (enrollment.organization.zohoAccountId &&
+            enrollment.organization.zohoAccountId !==
+              zohoOrganization.zohoAccountId)
+        ) {
+          throw new ConflictException(
+            "CRM account belongs to a different organization; resolve the mapping before resyncing",
+          );
+        }
+      }
       if (!enrollment) {
         unmatchedZoho.push({
           organizationId: zohoOrganization.organizationId,
@@ -506,6 +568,7 @@ export class ProgramZohoResyncService {
       matchedVersions: matches.map(({ enrollment }) => ({
         id: enrollment.id,
         updatedAt: enrollment.updatedAt.toISOString(),
+        organization: enrollment.organization,
       })),
     };
     return {

@@ -1,3 +1,4 @@
+import { CompatibilityZohoModule } from "../crm-sync/compatibility-zoho.module.js";
 import { Module } from "@nestjs/common";
 import { BullModule } from "@nestjs/bullmq";
 import {
@@ -12,7 +13,11 @@ import { ProgramSurveyDefinitionController } from "./program-survey-definition.c
 import { ProgramSurveyDefinitionService } from "./program-survey-definition.service.js";
 
 @Module({
-  imports: [AuthModule, BullModule.registerQueue({ name: efsQueueName })],
+  imports: [
+    AuthModule,
+    CompatibilityZohoModule,
+    BullModule.registerQueue({ name: efsQueueName }),
+  ],
   providers: [
     HistoricalImportService,
     ProgramSurveyDefinitionService,

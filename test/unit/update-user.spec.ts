@@ -26,6 +26,18 @@ import {
   UsersService,
 } from "../../src/modules/users/users.module.js";
 
+function withTransaction(prisma: PrismaService): PrismaService {
+  return Object.assign(prisma, {
+    $transaction: async (
+      work: (transaction: PrismaService) => Promise<unknown>,
+    ) => work(prisma),
+    session: { updateMany: () => Promise.resolve({ count: 1 }) },
+    impersonationGrant: {
+      updateMany: () => Promise.resolve({ count: 1 }),
+    },
+  });
+}
+
 const testJwtSecret = "test-secret-that-is-at-least-32-characters";
 let updateCalls = 0;
 const usersServiceStub = {
@@ -166,7 +178,7 @@ describe("update user endpoint", () => {
       },
     } as unknown as PrismaService;
     const mailer = {} as UserInvitationMailer;
-    const service = new UsersService(prisma, mailer);
+    const service = new UsersService(withTransaction(prisma), mailer);
     const self: Principal = {
       sub: targetId,
       organizationId: null,
@@ -227,7 +239,10 @@ describe("update user endpoint", () => {
         },
       },
     } as unknown as PrismaService;
-    const service = new UsersService(prisma, {} as UserInvitationMailer);
+    const service = new UsersService(
+      withTransaction(prisma),
+      {} as UserInvitationMailer,
+    );
 
     const response = await service.update(
       targetId,
@@ -263,6 +278,7 @@ describe("admin program assignments", () => {
             id: targetId,
             metadata: {},
             roles: [],
+            programs: [],
             projects: [{ projectId: "project-1" }],
           }),
         update: (args: { data: Record<string, unknown> }) => {
@@ -293,7 +309,10 @@ describe("admin program assignments", () => {
       },
     } as unknown as PrismaService;
     return {
-      service: new UsersService(prisma, {} as UserInvitationMailer),
+      service: new UsersService(
+        withTransaction(prisma),
+        {} as UserInvitationMailer,
+      ),
       saved: () => saved,
     };
   }
@@ -423,7 +442,10 @@ describe("bulk-compatible client updates", () => {
         },
       },
     } as unknown as PrismaService;
-    const service = new UsersService(prisma, {} as UserInvitationMailer);
+    const service = new UsersService(
+      withTransaction(prisma),
+      {} as UserInvitationMailer,
+    );
 
     await service.update(
       "user-1",
@@ -566,7 +588,10 @@ describe("bulk-compatible client updates", () => {
       },
     } as unknown as PrismaService;
 
-    await new UsersService(prisma, {} as UserInvitationMailer).update(
+    await new UsersService(
+      withTransaction(prisma),
+      {} as UserInvitationMailer,
+    ).update(
       "user-1",
       {
         roleId: "promotional-role",
@@ -642,7 +667,10 @@ describe("bulk-compatible client updates", () => {
       },
     } as unknown as PrismaService;
 
-    await new UsersService(prisma, {} as UserInvitationMailer).update(
+    await new UsersService(
+      withTransaction(prisma),
+      {} as UserInvitationMailer,
+    ).update(
       "user-1",
       {
         fullName: "Updated Promo User",
@@ -714,11 +742,10 @@ describe("bulk-compatible client updates", () => {
       },
     } as unknown as PrismaService;
 
-    await new UsersService(prisma, {} as UserInvitationMailer).update(
-      "user-1",
-      { roleId: "client-role" },
-      admin,
-    );
+    await new UsersService(
+      withTransaction(prisma),
+      {} as UserInvitationMailer,
+    ).update("user-1", { roleId: "client-role" }, admin);
 
     assert.ok(saved);
     assert.equal(entitlementUpdates, 1);
@@ -728,5 +755,112 @@ describe("bulk-compatible client updates", () => {
     assert.deepEqual(saved.organizationProgram, {
       connect: { id: "enrollment-1" },
     });
+  });
+});
+
+it("commits reassignment, entitlements, and revoked sessions together and rolls them all back on failure", async () => {
+  let failSave = true;
+  let state = {
+    organizationId: "legacy",
+    entitlements: 0,
+    sessionsRevoked: 0,
+    grantsRevoked: 0,
+  };
+  const target = {
+    id: "user-1",
+    organizationId: "legacy",
+    organizationProgramId: "old",
+    metadata: {},
+    projects: [],
+    programs: [{ programId: "old" }],
+    roles: [{ role: { id: "client-role", key: "client" } }],
+  };
+  const prisma = {
+    user: { findFirst: () => target },
+    organization: { findFirst: () => ({ id: "correct" }) },
+    program: { findMany: () => [{ id: "new", projectId: "project" }] },
+    organizationProgram: {
+      findMany: () => [
+        {
+          id: "enrollment",
+          programId: "new",
+          projectId: "project",
+          purchasedEvSortingFilter: null,
+          reportAccess: {},
+          metrics: {},
+          paymentDetails: {},
+        },
+      ],
+    },
+    $transaction: async (work: (transaction: unknown) => Promise<unknown>) => {
+      const pending = { ...state };
+      const transaction = {
+        organizationProgram: {
+          update: () => {
+            pending.entitlements += 1;
+          },
+        },
+        session: {
+          updateMany: () => {
+            pending.sessionsRevoked += 1;
+          },
+        },
+        impersonationGrant: {
+          updateMany: () => {
+            pending.grantsRevoked += 1;
+          },
+        },
+        user: {
+          update: ({
+            data,
+          }: {
+            data: { organization: { connect: { id: string } } };
+          }) => {
+            pending.organizationId = data.organization.connect.id;
+            if (failSave) throw new Error("Simulated database failure");
+            return {
+              id: "user-1",
+              email: "alex@example.com",
+              username: "alex",
+              fullName: "Alex",
+              metadata: {},
+              status: "ACTIVE",
+              roles: [],
+              projects: [],
+              createdAt: new Date(),
+            };
+          },
+        },
+      };
+      const result = await work(transaction);
+      state = pending;
+      return result;
+    },
+  };
+  const service = new UsersService(prisma as never, {} as UserInvitationMailer);
+  const input = { organizationId: "correct", programs: ["new"] };
+  const admin: Principal = {
+    sub: "admin",
+    roles: ["admin"],
+    permissions: [],
+    organizationId: null,
+  };
+  await assert.rejects(
+    service.update("user-1", input, admin),
+    /Simulated database failure/,
+  );
+  assert.deepEqual(state, {
+    organizationId: "legacy",
+    entitlements: 0,
+    sessionsRevoked: 0,
+    grantsRevoked: 0,
+  });
+  failSave = false;
+  await service.update("user-1", input, admin);
+  assert.deepEqual(state, {
+    organizationId: "correct",
+    entitlements: 1,
+    sessionsRevoked: 1,
+    grantsRevoked: 1,
   });
 });

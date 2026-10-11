@@ -1170,12 +1170,12 @@ export class CompatibilityAdminService {
     projectReference: string | undefined,
   ) {
     this.assertAdmin(principal);
-    if (!projectReference)
-      throw new BadRequestException("projectId is required");
-    const project = await this.project(projectReference);
+    const project = projectReference
+      ? await this.project(projectReference)
+      : undefined;
     return {
       success: true,
-      data: await this.matchingOrganizationOptions(project.id),
+      data: await this.matchingOrganizationOptions(project?.id),
     };
   }
 
@@ -1626,11 +1626,12 @@ export class CompatibilityAdminService {
       ...(projectId ? { projectId } : {}),
     };
     const organizations = await this.prisma.organization.findMany({
-      where: { programs: { some: enrollmentWhere } },
+      where: projectId ? { programs: { some: enrollmentWhere } } : {},
       orderBy: { name: "asc" },
       select: {
         id: true,
         name: true,
+        zohoAccountId: true,
         programs: {
           where: enrollmentWhere,
           select: { programId: true },
@@ -1640,6 +1641,9 @@ export class CompatibilityAdminService {
     return organizations.map((organization) => ({
       id: organization.id,
       name: organization.name,
+      ...(organization.zohoAccountId
+        ? { zohoAccountId: organization.zohoAccountId }
+        : {}),
       programIds: organization.programs.map(({ programId }) => programId),
     }));
   }

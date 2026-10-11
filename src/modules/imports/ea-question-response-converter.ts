@@ -4,6 +4,7 @@ import type {
   SurveyDefinitionQuestion,
 } from "./survey-definition.js";
 import { cellScalar } from "./xlsx-survey-importer.js";
+import { canonicalEaQuestionKey, eaEligibility } from "./ea-question-keys.js";
 
 export interface EaQuestionResponseIssue {
   code:
@@ -26,38 +27,17 @@ export interface EaQuestionResponseConversion {
 }
 
 interface SourceQuestion {
-  caption: string;
   key: string;
-  options: string[];
+  caption: string;
+  category: string;
   row: number;
+  matrixItem?: string;
+  groupLabel?: string;
+  instructions: string;
+  options: Array<{ label: string; code: string }>;
 }
-
-const exactQuestionAliases: Readonly<Record<string, string>> = {
-  q_OrganizationalOverview_FunActivities: "q_EmployerInformation_FunActivities",
-  q_OrganizationalOverview_RecognizingAchievements:
-    "q_EmployerInformation_RecognizingAchievements",
-  q_OrganizationalOverview_RecognizingMilestones:
-    "q_EmployerInformation_RecognizeEmployeeMilestones",
-  q_OrganizationalOverview_UtilizePreEmply:
-    "q_RecruitingandEmploymentPractices_UtilizePreEmply",
-  q_OrganizationalOverview_Screening:
-    "q_RecruitingandEmploymentPractices_Screening",
-  q_OrganizationalBenefits_ShareOptionScheme: "q_OrganizationalBenefits_Esop",
-  q_GivingBackandWorkLifeBalance_GivingBack:
-    "q_GivingBackandWorkplaceWellness_GivingBack",
-  q_GivingBackandWorkLifeBalance_FamilyFriendlyBen:
-    "q_GivingBackandWorkplaceWellness_FamilyFriendlyBen",
-  q_GivingBackandWorkLifeBalance_WLBBenefits:
-    "q_GivingBackandWorkplaceWellness_WLBBenefits",
-};
-
 function text(value: ExcelJS.CellValue): string {
-  const scalar = cellScalar(value);
-  return scalar === null ? "" : String(scalar).trim();
-}
-
-function decodeSurveyText(value: string): string {
-  return value
+  return String(cellScalar(value) ?? "")
     .replace(/&amp;/giu, "&")
     .replace(/&nbsp;/giu, " ")
     .replace(/&#39;|&apos;/giu, "'")
@@ -65,213 +45,173 @@ function decodeSurveyText(value: string): string {
     .replace(/\s+/gu, " ")
     .trim();
 }
-
-function normalizedLabel(value: string): string {
-  return decodeSurveyText(value)
-    .toLowerCase()
-    .replace(/[“”]/gu, '"')
-    .replace(/[‘’]/gu, "'")
-    .replace(/[^a-z0-9]+/gu, " ")
+function categoryForKey(key: string): string {
+  return (key.split("_")[1] ?? "Benefits & Best Practices")
+    .replace(/([a-z])([A-Z])/gu, "$1 $2")
+    .replace(/and/gu, " and ")
+    .replace(/\s+/gu, " ")
     .trim();
 }
-
-function canonicalQuestionKey(sourceKey: string): string {
-  let key = sourceKey
-    .replace(/^q_OrganisationalBenefits_/u, "q_OrganizationalBenefits_")
-    .replace(/_RecognisingAchievements$/u, "_RecognizingAchievements")
-    .replace(/_UtilisePreEmply$/u, "_UtilizePreEmply");
-  key = exactQuestionAliases[key] ?? key;
-  return key;
-}
-
-function sourceQuestionFromRow(
-  value: string,
-  row: number,
-): SourceQuestion | null {
-  const match = /\((q_[^)]+)\)\s*$/u.exec(value);
-  if (!match?.[1]) return null;
-  return {
-    caption: decodeSurveyText(
-      value.slice(0, match.index).replace(/^\d+(?:\.\d+)*\.?\s+/u, ""),
-    ),
-    key: match[1],
-    options: [],
-    row,
-  };
-}
-
-function optionLabel(value: string): string | null {
-  const match = /^(.*\S)\s+\(([^()]*)\)\s*$/u.exec(value);
-  if (!match?.[1]) return null;
-  const label = decodeSurveyText(match[1]);
-  if (!label || /^(?:open answer|\s*)$/iu.test(label)) return null;
-  return label;
-}
-
-function isQuestionBoundary(value: string): boolean {
-  return /^Page\s+\d+/iu.test(value) || /^\d+(?:\.\d+)*\.?\s+/u.test(value);
-}
-
-function isInstruction(value: string): boolean {
-  return (
-    !value ||
-    value === "4" ||
-    value.startsWith("{{") ||
-    /^Each respondent\b/iu.test(value) ||
-    /^(?:The asterisk|Employer Assessment Instructions)\b/iu.test(value)
-  );
-}
-
-function extractSourceQuestions(sheet: ExcelJS.Worksheet): SourceQuestion[] {
-  const questions: SourceQuestion[] = [];
-  for (let rowNumber = 1; rowNumber <= sheet.rowCount; rowNumber += 1) {
-    const question = sourceQuestionFromRow(
-      text(sheet.getRow(rowNumber).getCell(1).value),
-      rowNumber,
-    );
-    if (!question) continue;
-    let subprompt = "";
-    for (
-      let optionRow = rowNumber + 1;
-      optionRow <= sheet.rowCount;
-      optionRow += 1
-    ) {
-      const row = sheet.getRow(optionRow);
-      const first = decodeSurveyText(text(row.getCell(1).value));
-      const second = decodeSurveyText(text(row.getCell(2).value));
-      if (first && isQuestionBoundary(first)) break;
-      if (first && !isInstruction(first)) subprompt = first;
-      const label = optionLabel(second);
-      if (!label) continue;
-      question.options.push(subprompt ? `${subprompt} - ${label}` : label);
+function extractQuestions(sheet: ExcelJS.Worksheet): SourceQuestion[] {
+  const result: SourceQuestion[] = [];
+  let category = "";
+  for (let r = 1; r <= sheet.rowCount; r++) {
+    const first = text(sheet.getRow(r).getCell(1).value);
+    if (/^[A-Z &,-]{8,}$/u.test(first)) category = first;
+    const match = /\((q_[^)]+)\)\s*$/u.exec(first);
+    if (!match?.[1]) continue;
+    const item = /^\d+\.(\d+)\s/u.exec(first)?.[1];
+    const question: SourceQuestion = {
+      key: match[1],
+      caption: first.slice(0, match.index).replace(/^\d+(?:\.\d+)*\.?\s+/u, ""),
+      category: category || categoryForKey(match[1]),
+      row: r,
+      instructions: "",
+      options: [],
+      ...(item ? { matrixItem: item } : {}),
+    };
+    for (let next = r + 1; next <= sheet.rowCount; next++) {
+      const row = sheet.getRow(next);
+      const a = text(row.getCell(1).value),
+        b = text(row.getCell(2).value);
+      if (/^Page\s+\d+|^\d+(?:\.\d+)*\.?\s+/iu.test(a)) break;
+      if (/^Each respondent/iu.test(a)) question.instructions += a;
+      else if (item && a && !a.startsWith("{{")) question.groupLabel = a;
+      const option = /^(.*\S)\s+\(([^()]*)\)\s*$/u.exec(b);
+      if (option?.[1] && option[2] && !/^open answer$/iu.test(option[1]))
+        question.options.push({
+          label: option[1].trim(),
+          code: option[2].trim(),
+        });
     }
-    questions.push(question);
+    result.push(question);
   }
-  return questions;
+  return result;
 }
 
-function answerOptions(input: {
-  defaults: SurveyDefinitionQuestion;
-  source: SourceQuestion;
-}): NonNullable<SurveyDefinitionQuestion["options"]> {
-  const expected = input.defaults.options ?? [];
-  if (
-    input.defaults.dataLabel === "q_OrganizationalBenefits_NumberPaidHolidays"
-  ) {
-    return expected.map((option) => ({ ...option }));
-  }
-  const expectedByLabel = new Map(
-    expected.map((option) => [normalizedLabel(option.Id), option]),
-  );
-  const expectedYesOnly =
-    expected.length === 1 && normalizedLabel(expected[0]?.Id ?? "") === "yes";
-  return input.source.options.flatMap((caption, index) => {
-    if (expectedYesOnly && normalizedLabel(caption) !== "yes") return [];
-    const matching = expectedByLabel.get(normalizedLabel(caption));
-    return [
-      {
-        Id: matching?.Id ?? caption,
-        Caption: caption,
-        Position: index + 1,
-        ...(matching?.Score !== undefined ? { Score: matching.Score } : {}),
-      },
-    ];
-  });
-}
-
+/** Converts source semantics; captions and display positions never become raw codes. */
 export function convertEaQuestionResponseWorkbook(
   workbook: ExcelJS.Workbook,
   defaults: SurveyDefinition,
 ): EaQuestionResponseConversion {
   const sheet = workbook.getWorksheet("Questions") ?? workbook.worksheets[0];
   if (!sheet) throw new Error("Workbook contains no worksheets");
-  const sourceQuestions = extractSourceQuestions(sheet);
-  if (!sourceQuestions.length) {
+  const sources = extractQuestions(sheet);
+  if (!sources.length)
     throw new Error(
       "No survey questions with trailing q_ question keys were found",
     );
-  }
-
-  const defaultsByKey = new Map(
-    defaults.map((question) => [question.dataLabel, question]),
-  );
-  const converted = new Map<string, SurveyDefinitionQuestion>();
+  const definition: SurveyDefinition = [];
   const issues: EaQuestionResponseIssue[] = [];
-
-  for (const source of sourceQuestions) {
-    const canonicalKey = canonicalQuestionKey(source.key);
-    const defaultQuestion = defaultsByKey.get(canonicalKey);
-    if (!defaultQuestion) {
+  const sourceKeys = new Map(
+    sources.map((q) => [canonicalEaQuestionKey(q.key), q.key]),
+  );
+  for (const source of sources) {
+    const canonical = canonicalEaQuestionKey(source.key);
+    const numeric =
+      /NumberPaidHolidays|PctCostPaidByEmployerBenf|PctEmployeesWorkingRemote/u.test(
+        canonical,
+      );
+    const narrative = /could write/iu.test(source.instructions) && !numeric;
+    if (canonical.startsWith("q_SupplementaryQuestions_") || narrative) {
       issues.push({
         code: "unsupported-question",
-        message: `Question is not used by Benefits & Best Practices: ${source.key}`,
         questionKey: source.key,
         row: source.row,
+        message: `Excluded narrative/contact/non-report question: ${source.key}`,
       });
       continue;
     }
-    const options = answerOptions({ defaults: defaultQuestion, source });
-    const previous = converted.get(canonicalKey);
-    if (!previous) {
-      converted.set(canonicalKey, {
-        dataLabel: canonicalKey,
-        caption: source.caption,
-        ...(defaultQuestion.categoryLabel
-          ? { categoryLabel: defaultQuestion.categoryLabel }
-          : {}),
-        position: converted.size + 1,
-        ...(options.length ? { options } : {}),
-      });
-      continue;
-    }
-    previous.options ??= [];
-    for (const option of options) {
-      if (previous.options.some(({ Id }) => Id === option.Id)) {
-        issues.push({
-          code: "duplicate-answer",
-          message: `Duplicate answer ${option.Id} for ${canonicalKey}`,
-          questionKey: canonicalKey,
-          row: source.row,
-        });
-        continue;
-      }
-      previous.options.push({
-        ...option,
-        Position: previous.options.length + 1,
-      });
-    }
-  }
-
-  const definition = [...converted.values()];
-  for (const question of definition) {
-    const expected = defaultsByKey.get(question.dataLabel);
-    if (!expected) continue;
-    const allowed = new Set((expected.options ?? []).map(({ Id }) => Id));
-    for (const option of question.options ?? []) {
-      if (allowed.has(option.Id)) continue;
+    const multiple = /MULTIPLE responses/iu.test(source.instructions);
+    const yesNo =
+      source.options.length === 2 &&
+      source.options.some((o) => /^yes$/iu.test(o.label)) &&
+      source.options.some((o) => /^no$/iu.test(o.label));
+    const calculation = numeric
+      ? "mean"
+      : multiple
+        ? "multi"
+        : yesNo
+          ? "yesNo"
+          : "choice";
+    if (!numeric && !source.options.length) {
       issues.push({
-        code: "unsupported-answer",
-        message: `EA definition answer is not used by ${question.dataLabel}: ${option.Id}`,
-        questionKey: question.dataLabel,
+        code: "missing-question-key",
+        questionKey: source.key,
+        row: source.row,
+        message: `Questions row ${source.row}: cannot determine answer mappings for ${source.key}`,
       });
+      continue;
     }
+    const dataLabel = source.matrixItem
+      ? `${canonical}.${source.matrixItem}`
+      : canonical;
+    if (definition.some((q) => q.dataLabel === dataLabel)) {
+      issues.push({
+        code: "duplicate-answer",
+        questionKey: source.key,
+        row: source.row,
+        message: `Questions row ${source.row}: duplicate question ${dataLabel}`,
+      });
+      continue;
+    }
+    const sourceColumn = source.matrixItem
+      ? `${source.key}.${source.matrixItem}`
+      : source.key;
+    const eligible = source.matrixItem ? undefined : eaEligibility(canonical);
+    const eligibleSource = eligible ? sourceKeys.get(eligible) : undefined;
+    const configured: SurveyDefinitionQuestion = {
+      dataLabel,
+      caption: source.caption,
+      categoryLabel: source.category,
+      position: definition.length + 1,
+      ea: {
+        calculation,
+        sourceColumn,
+        format: numeric && !canonical.includes("Pct") ? "number" : "percent",
+        ...(source.matrixItem
+          ? {
+              groupKey: canonical,
+              groupLabel: source.groupLabel ?? `Benefit ${source.matrixItem}`,
+            }
+          : {}),
+        ...(eligibleSource
+          ? {
+              eligibleQuestion: eligibleSource,
+              eligibleValue:
+                sources
+                  .find((q) => q.key === eligibleSource)
+                  ?.options.find((o) => /^yes$/iu.test(o.label))?.code ?? "1",
+            }
+          : {}),
+      },
+    };
+    const options = source.options
+      .filter((o) => !yesNo || /^yes$/iu.test(o.label))
+      .map((option, index) => ({
+        Id:
+          calculation === "multi" || calculation === "mean"
+            ? option.label
+            : option.code,
+        Caption: option.label,
+        Position: index + 1,
+        ...(calculation === "multi" || calculation === "mean"
+          ? { SourceColumn: `${source.key}. ${option.label}` }
+          : {}),
+      }));
+    if (options.length) configured.options = options;
+    const defaultQuestion = defaults.find((q) => q.dataLabel === canonical);
+    if (!source.category && defaultQuestion?.categoryLabel)
+      configured.categoryLabel = defaultQuestion.categoryLabel;
+    definition.push(configured);
   }
-
-  const blockingCodes = new Set<EaQuestionResponseIssue["code"]>([
-    "unsupported-answer",
-    "missing-question-key",
-    "duplicate-answer",
-  ]);
   return {
     definition,
     issues,
-    sourceQuestionCount: sourceQuestions.length,
+    sourceQuestionCount: sources.length,
     supportedQuestionCount: definition.length,
-    answerCount: definition.reduce(
-      (count, question) => count + (question.options?.length ?? 0),
-      0,
-    ),
-    importable: !issues.some(({ code }) => blockingCodes.has(code)),
+    answerCount: definition.reduce((n, q) => n + (q.options?.length ?? 0), 0),
+    importable: !issues.some((i) => i.code !== "unsupported-question"),
   };
 }
 

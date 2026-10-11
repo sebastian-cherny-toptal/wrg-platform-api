@@ -101,6 +101,7 @@ const dealFields = [
 export interface ProgramOrganization {
   [key: string]: unknown;
   organizationId: string;
+  zohoAccountId?: string;
   organizationName: string | null;
   isWinner: WinnerStatus | null;
   surveysSent: number;
@@ -127,7 +128,10 @@ export function zohoOrganizationName(
     if (!normalizedProjectName) return value;
     const projectSeparator = value.lastIndexOf(" - ");
     if (projectSeparator <= 0) return value;
-    const suffix = value.slice(projectSeparator + 3).trim().toLowerCase();
+    const suffix = value
+      .slice(projectSeparator + 3)
+      .trim()
+      .toLowerCase();
     return suffix === normalizedProjectName
       ? value.slice(0, projectSeparator).trim()
       : value;
@@ -239,6 +243,14 @@ export class CompatibilityZohoService {
     projectName?: string,
   ): Promise<ProgramOrganization[]> {
     this.assertAccess(principal);
+    return this.verifiedOrganizationsForProgram(programId, projectName);
+  }
+
+  // Internal worker entry point. Returned account IDs come directly from CRM lookups.
+  async verifiedOrganizationsForProgram(
+    programId: string,
+    projectName?: string,
+  ): Promise<ProgramOrganization[]> {
     const normalizedProgramId = programId.trim();
     if (
       !normalizedProgramId ||
@@ -253,8 +265,9 @@ export class CompatibilityZohoService {
       dealFields,
     );
     return (
-      this.organizationsByProgram(deals, projectName).get(normalizedProgramId) ??
-      []
+      this.organizationsByProgram(deals, projectName).get(
+        normalizedProgramId,
+      ) ?? []
     );
   }
 
@@ -309,6 +322,7 @@ export class CompatibilityZohoService {
         organizations.push({
           ...deal,
           organizationId,
+          ...(account?.id ? { zohoAccountId: account.id } : {}),
           organizationName,
           isWinner: winnerStatusFromExternalValue(deal.Current_Year_Winner),
           surveysSent:

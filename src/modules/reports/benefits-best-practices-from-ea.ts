@@ -1,4 +1,8 @@
 import { readFile } from "node:fs/promises";
+import {
+  isCustomEaDefinition,
+  validateCustomEaDefinition,
+} from "./custom-ea-report.js";
 import { fileURLToPath } from "node:url";
 import {
   parseBenefitsBestPracticesWorkbook,
@@ -314,6 +318,10 @@ export function validateBenefitsBestPracticesDefinition(
   definition: SurveyDefinition,
   defaults: SurveyDefinition,
 ): void {
+  if (isCustomEaDefinition(definition)) {
+    validateCustomEaDefinition(definition);
+    return;
+  }
   const defaultsByKey = new Map(
     defaults.map((question) => [question.dataLabel, question]),
   );

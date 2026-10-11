@@ -9,11 +9,22 @@ export interface SurveyDefinitionQuestion {
   type?: string;
   position?: number;
   categoryLabel?: string;
+  /** EA-only calculation contract. Absent on legacy label overrides and EFS. */
+  ea?: {
+    calculation: "yesNo" | "choice" | "multi" | "mean";
+    sourceColumn: string;
+    format: "number" | "percent";
+    groupKey?: string;
+    groupLabel?: string;
+    eligibleQuestion?: string;
+    eligibleValue?: string;
+  };
   options?: Array<{
     Id: string;
     Caption: string;
     Position: number;
     Score?: number;
+    SourceColumn?: string;
   }>;
 }
 
@@ -123,6 +134,27 @@ export async function parseSurveyDefinition(
       );
     }
     const position = row.number("display_order");
+    const calculation = row.text("calculation");
+    if (
+      calculation &&
+      !["yesNo", "choice", "multi", "mean"].includes(calculation)
+    )
+      throw new BadRequestException(
+        `Questions row ${row.row}: invalid calculation`,
+      );
+    if (calculation && !row.text("source_column"))
+      throw new BadRequestException(
+        `Questions row ${row.row}: source_column is required`,
+      );
+    const format = row.text("output_format");
+    if (calculation && !["number", "percent"].includes(format))
+      throw new BadRequestException(
+        `Questions row ${row.row}: output_format must be number or percent`,
+      );
+    if (row.text("eligible_question") && !row.text("eligible_value"))
+      throw new BadRequestException(
+        `Questions row ${row.row}: eligible_value is required`,
+      );
     if (
       position !== undefined &&
       (!Number.isInteger(position) || position < 1)
@@ -137,6 +169,29 @@ export async function parseSurveyDefinition(
       ...(type ? { type } : {}),
       ...(position !== undefined ? { position } : {}),
       ...(row.text("category") ? { categoryLabel: row.text("category") } : {}),
+      ...(calculation
+        ? {
+            ea: {
+              calculation: calculation as NonNullable<
+                SurveyDefinitionQuestion["ea"]
+              >["calculation"],
+              sourceColumn: row.text("source_column"),
+              format: format as "number" | "percent",
+              ...(row.text("group_key")
+                ? { groupKey: row.text("group_key") }
+                : {}),
+              ...(row.text("group_label")
+                ? { groupLabel: row.text("group_label") }
+                : {}),
+              ...(row.text("eligible_question")
+                ? {
+                    eligibleQuestion: row.text("eligible_question"),
+                    eligibleValue: row.text("eligible_value"),
+                  }
+                : {}),
+            },
+          }
+        : {}),
     });
   }
   if (!questions.size)
@@ -184,6 +239,9 @@ export async function parseSurveyDefinition(
       Caption: caption,
       Position: position,
       ...(score !== undefined ? { Score: score } : {}),
+      ...(row.text("source_column")
+        ? { SourceColumn: row.text("source_column") }
+        : {}),
     });
   }
   for (const question of questions.values())

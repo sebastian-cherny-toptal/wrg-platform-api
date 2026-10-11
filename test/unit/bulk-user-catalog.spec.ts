@@ -225,3 +225,49 @@ describe("bulk user catalog", () => {
     assert.equal(JSON.stringify(response).includes("CR_Access"), false);
   });
 });
+
+it("offers legacy companies without included enrollments in the unscoped admin catalog", async () => {
+  let filter: unknown;
+  const service = new CompatibilityAdminService(
+    {
+      organization: {
+        findMany: (query: { where: unknown }) => {
+          filter = query.where;
+          return Promise.resolve([
+            {
+              id: "legacy",
+              name: "Legacy Company",
+              zohoAccountId: null,
+              programs: [],
+            },
+            {
+              id: "current",
+              name: "Current Company",
+              zohoAccountId: "account-42",
+              programs: [{ programId: "2026" }],
+            },
+          ]);
+        },
+      },
+    } as never,
+    {} as never,
+    {} as never,
+  );
+  assert.deepEqual(
+    (await service.organizationOptions(principal, undefined)).data,
+    [
+      { id: "legacy", name: "Legacy Company", programIds: [] },
+      {
+        id: "current",
+        name: "Current Company",
+        zohoAccountId: "account-42",
+        programIds: ["2026"],
+      },
+    ],
+  );
+  assert.deepEqual(filter, {});
+  await assert.rejects(
+    service.organizationOptions({ ...principal, roles: ["client"] }, undefined),
+    /Administrator access required/,
+  );
+});

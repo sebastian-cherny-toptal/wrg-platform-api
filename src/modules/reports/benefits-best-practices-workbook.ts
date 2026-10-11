@@ -7,6 +7,7 @@ export interface PublishedReportHeader {
 }
 
 export interface BenefitsBestPracticesResponseSnapshot {
+  groupLabel?: string;
   dataValues: Array<number | string>;
   format: "number" | "percent";
   label: string;
