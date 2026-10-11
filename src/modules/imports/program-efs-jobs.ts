@@ -18,6 +18,7 @@ import { basename } from "node:path";
 import { randomUUID } from "node:crypto";
 import { PrismaService } from "../../database/prisma.service.js";
 import type { Principal } from "../auth/auth.module.js";
+import { runEfsImportProcess } from "./efs-import-process.js";
 import { HistoricalImportService } from "./historical-import.service.js";
 
 const provider = "program-efs-reupload";
@@ -43,6 +44,7 @@ const statusSelect = {
   startedAt: true,
   finishedAt: true,
   updatedAt: true,
+  attempts: true,
 } as const;
 function view(
   record: Pick<
@@ -54,11 +56,13 @@ function view(
     | "startedAt"
     | "finishedAt"
     | "updatedAt"
+    | "attempts"
   >,
 ) {
   const output = object(record.output);
   return {
     jobId: record.id,
+    attempts: record.attempts,
     startedAt: record.startedAt ?? null,
     finishedAt: record.finishedAt ?? null,
     lastProgressAt: record.updatedAt,
@@ -212,11 +216,20 @@ export class ProgramEfsJobs {
         });
       }
     }
-    return { ...view(record), queueState };
+    const waiting =
+      record.status === "RUNNING" &&
+      ["waiting", "delayed", "waiting-children"].includes(queueState);
+    return {
+      ...view(record),
+      queueState,
+      ...(waiting
+        ? { status: "PENDING" as const, phase: "Waiting for worker recovery" }
+        : {}),
+    };
   }
 }
 
-@Processor(efsQueueName, { concurrency: 1 })
+@Processor(efsQueueName, { concurrency: 1, lockDuration: 120_000 })
 export class ProgramEfsWorker extends WorkerHost {
   private readonly logger = new Logger(ProgramEfsWorker.name);
 
@@ -241,8 +254,39 @@ export class ProgramEfsWorker extends WorkerHost {
   }
 
   override async process(job: Job<{ jobId: string }>) {
+    try {
+      await this.importProcess(job.data.jobId);
+    } catch (error) {
+      // A fatal child error cannot run its own catch handler. Record it here,
+      // while preserving a save that committed before the child exited.
+      const audit = await this.prisma.syncJob.findUnique({
+        where: { idempotencyKey: `efs-reupload:${job.data.jobId}` },
+        select: { status: true },
+      });
+      if (audit?.status === "SUCCEEDED") return;
+      await this.prisma.syncJob.updateMany({
+        where: { id: job.data.jobId, status: { in: ["PENDING", "RUNNING"] } },
+        data: {
+          status: "FAILED",
+          error:
+            error instanceof Error
+              ? error.message
+              : "EFS import process failed",
+          finishedAt: new Date(),
+          input: {},
+        },
+      });
+      throw error;
+    }
+  }
+
+  protected importProcess(jobId: string) {
+    return runEfsImportProcess(jobId);
+  }
+
+  async runImport(jobId: string) {
     const record = await this.prisma.syncJob.findUniqueOrThrow({
-      where: { id: job.data.jobId },
+      where: { id: jobId },
     });
     if (record.status === "SUCCEEDED") return;
     const input = object(record.input);
@@ -285,6 +329,7 @@ export class ProgramEfsWorker extends WorkerHost {
       },
     });
     let lastProgress = 0;
+    let lastMemoryLog = 0;
     let progress = {
       phase: "Checking uploaded data",
       respondents: 0,
@@ -305,6 +350,12 @@ export class ProgramEfsWorker extends WorkerHost {
             progress = next;
             if (Date.now() - lastProgress < 5_000) return;
             lastProgress = Date.now();
+            if (Date.now() - lastMemoryLog >= 30_000) {
+              lastMemoryLog = Date.now();
+              this.logger.log(
+                `EFS ${record.id}: ${next.respondents} respondents, ${next.responses} responses; heap ${Math.round(process.memoryUsage().heapUsed / 1048576)} MB`,
+              );
+            }
             await this.prisma.syncJob.update({
               select: statusSelect,
               where: { id: record.id },

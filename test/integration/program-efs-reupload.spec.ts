@@ -5,6 +5,10 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
+import {
+  ProgramEfsJobs,
+  ProgramEfsWorker,
+} from "../../src/modules/imports/program-efs-jobs.js";
 import { HistoricalImportService } from "../../src/modules/imports/historical-import.service.js";
 import {
   readXlsxSurveyDefinition,
@@ -99,6 +103,33 @@ test(
           position,
         })),
       });
+      // Optional realistic replacement case: exercise comparison and cleanup of
+      // millions of existing answers as well as insertion of the new workbook.
+      const seedRespondents = Number(
+        process.env.EFS_TEST_EXISTING_RESPONDENTS ?? 0,
+      );
+      if (seedRespondents > 0) {
+        const firstOrganizationId = [...organizationIds.values()][0];
+        assert.ok(firstOrganizationId);
+        await prisma.$executeRaw`
+          INSERT INTO "Respondent" (id, "surveyId", "organizationId", status, metadata, "updatedAt")
+          SELECT md5(${oldSurveyId} || ':' || n)::uuid, ${oldSurveyId}::uuid,
+            ${firstOrganizationId}::uuid, 'COMPLETED', '{}'::jsonb, CURRENT_TIMESTAMP
+          FROM generate_series(1, ${seedRespondents}::integer) AS n`;
+        await prisma.$executeRaw`
+          INSERT INTO "Response" (id, "respondentId", "questionId", value, score, "updatedAt")
+          SELECT md5(r.id::text || ':' || q.id::text)::uuid, r.id, q.id,
+            '4'::jsonb, 4, CURRENT_TIMESTAMP
+          FROM "Respondent" r JOIN "Question" q ON q."surveyId" = r."surveyId"
+          WHERE r."surveyId" = ${oldSurveyId}::uuid`;
+        console.log(
+          JSON.stringify({
+            seededExistingRespondents: seedRespondents,
+            seededExistingResponses:
+              seedRespondents * definition.questions.length,
+          }),
+        );
+      }
       const service = new HistoricalImportService(prisma as never);
       const file = {
         filename: "efs.xlsx",
@@ -110,23 +141,38 @@ test(
         file,
       );
       assert.equal(review.validation.blockingErrorCount, 0);
-      let lastLog = Date.now();
-      const saved = await service.reuploadProgramEfs(
+      const jobs = new ProgramEfsJobs(
+        { add: () => Promise.resolve(undefined) } as never,
+        prisma as never,
+      );
+      const queued = await jobs.enqueue(
         principal,
         programId,
         file,
         review.revision,
-        {
-          onProgress: (progress) => {
-            if (Date.now() - lastLog > 30_000) {
-              console.log(JSON.stringify(progress));
-              lastLog = Date.now();
-            }
-            return Promise.resolve();
-          },
-        },
       );
-      assert.equal(saved.saved, true);
+      const worker = new ProgramEfsWorker(prisma as never, service);
+      const reporter = setInterval(() => {
+        void prisma.syncJob
+          .findUnique({ where: { id: queued.jobId }, select: { output: true } })
+          .then((record) => {
+            console.log(
+              JSON.stringify({
+                progress: record?.output,
+                heapMB: Math.round(process.memoryUsage().heapUsed / 1048576),
+              }),
+            );
+          });
+      }, 10_000);
+      try {
+        await worker.process({ data: { jobId: queued.jobId } } as never);
+      } finally {
+        clearInterval(reporter);
+      }
+      assert.equal(
+        (await jobs.status(principal, programId, queued.jobId)).saved,
+        true,
+      );
       assert.equal(
         await prisma.respondent.count({ where: { survey: { programId } } }),
         expectedRespondents,

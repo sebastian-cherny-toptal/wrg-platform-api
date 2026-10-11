@@ -11,7 +11,8 @@ const principal = {
 };
 const label = "q_CoreEmployeeExperience_Test";
 
-async function fixture() {
+async function fixture(dataLabel = label, configured = false) {
+  const label = dataLabel;
   const workbook = new ExcelJS.Workbook();
   workbook.addWorksheet("Survey").addRows([
     [
@@ -38,6 +39,13 @@ async function fixture() {
       reportCatalog: [{ id: "report" }],
       categoryPricing: [{ tier: "Small" }],
       sentinel: "preserve",
+      ...(configured
+        ? {
+            surveyDefinition: [
+              { dataLabel: label, caption: "I feel supported", type: "likert" },
+            ],
+          }
+        : {}),
     },
   };
   const completed = (name: string, score: number) => ({
@@ -195,6 +203,40 @@ test("previews missing responses, identical rows, changed answers at the same co
   assert.equal(byName.get("Missing")?.responseChanges?.uploadedRespondents, 0);
   assert.equal(writes.respondents.length, 0);
   assert.equal(writes.deleted, false);
+});
+
+for (const organizationId of ["99", "178"]) {
+  test(`identical organization-specific Likert answers for ${organizationId} are unchanged on reupload`, async () => {
+    const { service, file } = await fixture(
+      `q_SupplementaryQuestions_1_ORGID_${organizationId}`,
+      true,
+    );
+    const review = await service.reuploadProgramEfs(principal, "program", file);
+    const organization = review.validation.organizations.find(
+      ({ displayName }) => displayName === "Unchanged",
+    );
+    assert.ok(organization?.responseChanges);
+    assert.equal(organization.responseChanges.previousRespondents, 1);
+    assert.equal(organization.responseChanges.uploadedRespondents, 1);
+    assert.equal(organization.responseChanges.changed, false);
+    assert.equal(
+      review.validation.organizations.find(
+        ({ displayName }) => displayName === "Changed",
+      )?.responseChanges?.changed,
+      true,
+    );
+  });
+}
+
+test("preview uses stored question types when no survey definition overrides them", async () => {
+  const { service, file } = await fixture("q_SupplementaryQuestions_1");
+  const review = await service.reuploadProgramEfs(principal, "program", file);
+  assert.equal(
+    review.validation.organizations.find(
+      ({ displayName }) => displayName === "Unchanged",
+    )?.responseChanges?.changed,
+    false,
+  );
 });
 
 test("large response batches finish without depending on an interactive transaction lifetime", async () => {

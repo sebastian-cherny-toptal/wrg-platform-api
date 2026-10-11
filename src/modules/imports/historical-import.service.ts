@@ -2542,6 +2542,21 @@ export class HistoricalImportService {
         draft.surveyDefinition?.map(({ dataLabel }) => dataLabel) ?? [],
       questionId: (dataLabel) => dataLabel,
     });
+    const templates = await this.questionTemplates(
+      this.prisma,
+      draft,
+      draft.programId,
+      definition.questions,
+    );
+    definition.questions = definition.questions.map((question) =>
+      applySurveyDefinition(
+        mergeHistoricalQuestionTemplate(
+          question,
+          templates.get(question.dataLabel),
+        ),
+        draft.surveyDefinition,
+      ),
+    );
     await forEachXlsxSurveyRow(definition, {}, (row) => {
       if (!row.organizationName?.trim()) return;
       const key = organizationKey(row);

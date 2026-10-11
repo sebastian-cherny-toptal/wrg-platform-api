@@ -23,6 +23,7 @@ function fixture() {
     startedAt: null as Date | null,
     finishedAt: null as Date | null,
     updatedAt: new Date(),
+    attempts: 0 as number | { increment: number },
   };
   let published = false;
   const queued: Array<unknown> = [];
@@ -131,7 +132,7 @@ test("worker reports progress and removes uploaded contents after successful pub
     },
   };
   const worker = new ProgramEfsWorker(prisma as never, imports as never);
-  await worker.process({ data: { jobId: "job-id" } } as never);
+  await worker.runImport("job-id");
   const status = await jobs.status(principal, "program", "job-id");
   assert.equal(status.status, "SUCCEEDED");
   assert.equal(status.respondents, 82);
@@ -153,10 +154,7 @@ test("failed imports report the error and discard the stored workbook", async ()
       reuploadProgramEfs: () => Promise.reject(new Error("insert failed")),
     } as never,
   );
-  await assert.rejects(
-    worker.process({ data: { jobId: "job-id" } } as never),
-    /insert failed/u,
-  );
+  await assert.rejects(worker.runImport("job-id"), /insert failed/u);
   assert.equal(record().status, "FAILED");
   assert.equal(record().error, "insert failed");
   assert.ok(!("contents" in record().input));
@@ -179,7 +177,7 @@ test("a restarted worker recognizes an already committed save without importing 
       },
     } as never,
   );
-  await worker.process({ data: { jobId: "job-id" } } as never);
+  await worker.runImport("job-id");
   assert.equal(record().status, "SUCCEEDED");
   assert.ok(!("contents" in record().input));
 });
@@ -278,4 +276,43 @@ test("a newly created job is not considered interrupted before queue.add complet
     (await jobs.status(principal, "program", "job-id")).status,
     "PENDING",
   );
+});
+
+test("a fatal import child exit marks the job failed while the API parent stays alive", async () => {
+  const { prisma, record } = fixture();
+  prisma.syncJob.update({ data: { status: "RUNNING" } });
+  class CrashedWorker extends ProgramEfsWorker {
+    protected override importProcess() {
+      return Promise.reject(new Error("EFS import process stopped (SIGABRT)"));
+    }
+  }
+  const worker = new CrashedWorker(prisma as never, {} as never);
+  await assert.rejects(
+    worker.process({ data: { jobId: "job-id" } } as never),
+    /SIGABRT/u,
+  );
+  assert.equal(record().status, "FAILED");
+  assert.deepEqual(record().input, {});
+});
+test("child failure after publication cannot mark successfully saved data failed", async () => {
+  const { prisma, record, markPublished } = fixture();
+  prisma.syncJob.update({ data: { status: "SUCCEEDED" } });
+  markPublished();
+  class CrashedWorker extends ProgramEfsWorker {
+    protected override importProcess() {
+      return Promise.reject(new Error("child stopped"));
+    }
+  }
+  await new CrashedWorker(prisma as never, {} as never).process({
+    data: { jobId: "job-id" },
+  } as never);
+  assert.equal(record().status, "SUCCEEDED");
+});
+test("a stalled attempt waiting for recovery is not presented as actively importing", async () => {
+  const { jobs, prisma, setQueueState } = fixture();
+  prisma.syncJob.update({ data: { status: "RUNNING" } });
+  setQueueState("waiting");
+  const result = await jobs.status(principal, "program", "job-id");
+  assert.equal(result.status, "PENDING");
+  assert.equal(result.phase, "Waiting for worker recovery");
 });
