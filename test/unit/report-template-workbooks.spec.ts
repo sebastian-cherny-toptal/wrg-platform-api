@@ -395,10 +395,7 @@ describe("workforce feedback workbook generation", () => {
       sheet.getCell(lastQuestionRow + 1, 2).value,
       "DYNAMIC SECTION - AVERAGE",
     );
-    assert.equal(
-      sheet.getCell(lastQuestionRow + 3, 2).value,
-      "SURVEY AVERAGE",
-    );
+    assert.equal(sheet.getCell(lastQuestionRow + 3, 2).value, "SURVEY AVERAGE");
     assert.ok(sheet.rowCount < 40, "report retains unused template rows");
 
     assert.equal(sheet.getColumn(2).width, 100);
@@ -429,7 +426,10 @@ describe("workforce feedback workbook generation", () => {
         {
           title: "Location",
           groupLabel: "Location",
-          options: [{ label: "Louisville", count: 10 }],
+          options: [
+            { label: "Louisville", count: 10 },
+            { label: "Small office", count: 4 },
+          ],
         },
       ],
       sections: [
@@ -449,6 +449,15 @@ describe("workforce feedback workbook generation", () => {
         },
       ],
       supplementaryQuestions: [
+        {
+          text: "I receive enough recognition",
+          agreement: 80,
+          neutral: 0,
+          disagreement: 20,
+          responseCount: 5,
+          demographicAgreement: { Location: { Louisville: 80 } },
+          demographicResponseCount: { Location: { Louisville: 5 } },
+        },
         {
           text: "Safety is a top priority for this organization",
           agreement: 40,
@@ -478,8 +487,32 @@ describe("workforce feedback workbook generation", () => {
         (value) => value === "Safety is a top priority for this organization",
       );
     assert.equal(sheet.getCell(surveyAverageRow, 4).value, 80);
+    const supplementaryAverageRow = sheet
+      .getColumn(2)
+      .values.findIndex(
+        (value) => value === "SUPPLEMENTARY QUESTIONS - AVERAGE",
+      );
+    assert.equal(supplementaryAverageRow, supplementaryQuestionRow + 1);
+    assert.ok(
+      Math.abs(
+        Number(sheet.getCell(supplementaryAverageRow, 4).value) - 160 / 3,
+      ) < 0.0001,
+    );
+    assert.ok(
+      Math.abs(
+        Number(sheet.getCell(supplementaryAverageRow, 5).value) - 100 / 3,
+      ) < 0.0001,
+    );
+    assert.equal(sheet.getCell(supplementaryAverageRow, 7).value, 60);
+    assert.equal(sheet.getCell(supplementaryAverageRow, 8).value, "x");
+    assert.equal(sheet.getCell(supplementaryAverageRow, 4).numFmt, "0");
+    assert.deepEqual(
+      sheet.getCell(supplementaryAverageRow, 2).fill,
+      sheet.getCell(surveyAverageRow, 2).fill,
+    );
+
     assert.ok(supplementaryTitleRow > surveyAverageRow);
-    assert.equal(supplementaryQuestionRow, supplementaryTitleRow + 1);
+    assert.equal(supplementaryQuestionRow, supplementaryTitleRow + 2);
     assert.equal(
       sheet.getCell(supplementaryQuestionRow, 2).value,
       "Safety is a top priority for this organization",
@@ -651,7 +684,10 @@ describe("workforce feedback workbook generation", () => {
     assert.ok(sheet);
     assert.equal(sheet.getCell("G2").value, "JOB LEVEL");
     assert.equal(sheet.getCell("G3").value, "Director or Above");
-    assert.equal(sheet.getCell("H3").value, "Salaried - Individual Contributor");
+    assert.equal(
+      sheet.getCell("H3").value,
+      "Salaried - Individual Contributor",
+    );
     assert.equal(sheet.getCell("G4").value, 22);
     assert.equal(sheet.getCell("H4").value, 0);
     assert.equal(sheet.getCell("G6").value, 75);
@@ -891,20 +927,92 @@ describe("workforce feedback workbook generation", () => {
     const surveyAverageRow = sheet
       .getColumn(2)
       .values.findIndex((value) => value === "SURVEY AVERAGE");
-    assert.equal(
-      sheet.getCell(surveyAverageRow, 4).value,
-      73.33333333333333,
-    );
+    assert.equal(sheet.getCell(surveyAverageRow, 4).value, 73.33333333333333);
     assert.equal(sheet.getCell(surveyAverageRow, 4).numFmt, "0");
-    assert.equal(
-      sheet.getCell(surveyAverageRow, 5).value,
-      16.666666666666668,
-    );
+    assert.equal(sheet.getCell(surveyAverageRow, 5).value, 16.666666666666668);
     assert.equal(sheet.getCell(surveyAverageRow, 5).numFmt, "0");
   });
 });
 
 describe("employee verbatim workbook generation", () => {
+  for (const demographicTitle of [undefined, "Department"]) {
+    it(`adds supplementary sheets in the standard format ${demographicTitle ? "with" : "without"} demographics`, async () => {
+      const questions = [
+        {
+          text: "Standard one",
+          responses: [{ answer: "People", demographic: "Sales" }],
+        },
+        { text: "Standard two", responses: [] },
+        {
+          text: "Supplementary one",
+          responses: Array.from({ length: 150 }, (_, index) => ({
+            answer: `Answer ${index + 1}`,
+            demographic: "Sales",
+          })),
+        },
+        { text: "Supplementary two", responses: [] },
+      ];
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.load(
+        (await createVerbatimWorkbook({
+          metadata: {
+            organizationName: "Test organization",
+            programName: "Test program",
+            surveyDates: "2026",
+          },
+          ...(demographicTitle ? { demographicTitle } : {}),
+          questions,
+        })) as never,
+      );
+      assert.deepEqual(
+        workbook.worksheets.map((sheet) => sheet.name),
+        ["Verbatims Q1", "Verbatims Q2", "Verbatims Q3", "Verbatims Q4"],
+      );
+      const standard = workbook.worksheets[0];
+      assert.ok(standard);
+      for (const [index, sheet] of workbook.worksheets.entries()) {
+        const question = questions[index];
+        assert.ok(question);
+        assert.equal(sheet.getCell("A4").value, question.text);
+        assert.equal(sheet.columnCount, demographicTitle ? 2 : 1);
+        assert.equal(sheet.rowCount, question.responses.length + 4);
+        assert.equal(sheet.getImages().length, 1);
+        assert.deepEqual(sheet.pageSetup, standard.pageSetup);
+        assert.deepEqual(sheet.getColumn(1).width, standard.getColumn(1).width);
+        assert.deepEqual(
+          sheet.getCell("A4").style,
+          standard.getCell("A4").style,
+        );
+        assert.match(String(sheet.getCell("A3").value), /Test organization/u);
+        sheet.eachRow((row) => {
+          row.eachCell((cell) => {
+            assert.doesNotMatch(String(cell.value ?? ""), /\{\{/u);
+          });
+        });
+      }
+      const supplementary = workbook.worksheets[2];
+      const emptySupplementary = workbook.worksheets[3];
+      assert.ok(supplementary);
+      assert.ok(emptySupplementary);
+      assert.equal(supplementary.getCell("A154").value, "Answer 150");
+      assert.deepEqual(
+        supplementary.getCell("A154").style,
+        standard.getCell("A5").style,
+      );
+      assert.deepEqual(conditionalFormattingRanges(supplementary), [
+        demographicTitle ? "A5:B154" : "A5:A154",
+      ]);
+      assert.deepEqual(
+        conditionalFormattingRanges(emptySupplementary),
+        [],
+      );
+      if (demographicTitle) {
+        assert.equal(supplementary.getCell("B4").value, "Department");
+        assert.equal(supplementary.getCell("B154").value, "Sales");
+      }
+    });
+  }
+
   it("removes the demographic column when no filter is applied", async () => {
     const buffer = await createVerbatimWorkbook({
       metadata: {
@@ -1040,7 +1148,10 @@ describe("benchmark workbook generation", () => {
     assert.equal(sheet.getCell("C9").value, "x");
     assert.ok(sheet.model.merges.includes("B1:C1"));
     assert.ok(sheet.model.merges.includes("A8:C8"));
-    assert.equal(sheet.model.merges.some((merge) => /[D-I]/u.test(merge)), false);
+    assert.equal(
+      sheet.model.merges.some((merge) => /[D-I]/u.test(merge)),
+      false,
+    );
   });
 
   it("fills the supplied nine-column benchmark template in cohort order", async () => {
@@ -1053,11 +1164,31 @@ describe("benchmark workbook generation", () => {
       headers: [
         { title: "All Size Categories", type: "All_Yes" },
         { title: "All Size Categories", type: "All_No" },
-        { title: "Small Employers", type: "Small_Yes", employeeSize: "15-49 US" },
-        { title: "Small Employers", type: "Small_No", employeeSize: "15-49 US" },
-        { title: "Medium Employers", type: "Medium_Yes", employeeSize: "50-249 US" },
-        { title: "Medium Employers", type: "Medium_No", employeeSize: "50-249 US" },
-        { title: "Large Employers", type: "Large_Yes", employeeSize: "250+ US" },
+        {
+          title: "Small Employers",
+          type: "Small_Yes",
+          employeeSize: "15-49 US",
+        },
+        {
+          title: "Small Employers",
+          type: "Small_No",
+          employeeSize: "15-49 US",
+        },
+        {
+          title: "Medium Employers",
+          type: "Medium_Yes",
+          employeeSize: "50-249 US",
+        },
+        {
+          title: "Medium Employers",
+          type: "Medium_No",
+          employeeSize: "50-249 US",
+        },
+        {
+          title: "Large Employers",
+          type: "Large_Yes",
+          employeeSize: "250+ US",
+        },
         { title: "Large Employers", type: "Large_No", employeeSize: "250+ US" },
       ],
       categories: [

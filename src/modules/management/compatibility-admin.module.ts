@@ -793,6 +793,19 @@ export class CompatibilityAdminService {
     };
   }
 
+  async deleteEmptyOrganizations(principal: Principal) {
+    this.assertAdmin(principal);
+    return this.prisma.$transaction(
+      async (transaction) => {
+        const result = await transaction.organization.deleteMany({
+          where: { programs: { none: {} }, users: { none: {} } },
+        });
+        return { success: true, data: { deletedCount: result.count } };
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
+  }
+
   async deleteOrganization(principal: Principal, id: string) {
     this.assertAdmin(principal);
     if (!isUuid(id)) throw new NotFoundException("Organization not found");
@@ -1889,6 +1902,11 @@ export class CompatibilityAdminController {
   @Get("organizations")
   organizationDirectory(@CurrentUser() principal: Principal) {
     return this.admin.organizationDirectory(principal);
+  }
+
+  @Delete("organizations/empty")
+  deleteEmptyOrganizations(@CurrentUser() principal: Principal) {
+    return this.admin.deleteEmptyOrganizations(principal);
   }
 
   @Delete("organizations/:id")

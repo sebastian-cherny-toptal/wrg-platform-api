@@ -25,6 +25,55 @@ async function exampleWorkbook(): Promise<Buffer> {
 }
 
 describe("Benefits & Best Practices workbook parsing", () => {
+  for (const headerCount of [2, 8, 10]) {
+    it(`removes stale template rows and fills section/footer bands across ${headerCount} cohorts`, async () => {
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.load(
+        (await createBenefitsWorkbook({
+          headers: Array.from(
+            { length: headerCount },
+            (_, i) => `Cohort ${i + 1}`,
+          ),
+          sections: [
+            {
+              title: "Employee Feedback, Development, and Engagement",
+              questions: [
+                {
+                  text: "Do you offer training?",
+                  responses: [
+                    {
+                      label: "Yes",
+                      format: "percent",
+                      values: Array.from({ length: headerCount }, () => 80),
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        })) as never,
+      );
+      const sheet = workbook.worksheets[0];
+      assert.ok(sheet);
+      const notes: number[] = [];
+      sheet.eachRow((row) => {
+        if (String(row.getCell(1).value ?? "").includes("Insufficient data"))
+          notes.push(row.number);
+      });
+      assert.deepEqual(notes, [11]);
+      assert.equal(sheet.rowCount, 11);
+      for (const row of [8, 11]) {
+        for (let column = 1; column <= headerCount + 1; column += 1) {
+          const fill = sheet.getCell(row, column).fill as ExcelJS.Fill;
+          assert.equal(fill.type, "pattern");
+          assert.equal(fill.pattern, "solid");
+          assert.match(fill.fgColor?.argb ?? "", /2E1065$/u);
+        }
+      }
+      assert.equal(sheet.getCell("B10").value, 0.8);
+    });
+  }
+
   it("parses report headers, sections, questions, and percentages", async () => {
     const snapshot = await parseBenefitsBestPracticesWorkbook(
       await exampleWorkbook(),

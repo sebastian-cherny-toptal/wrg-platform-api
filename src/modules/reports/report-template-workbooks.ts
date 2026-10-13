@@ -840,7 +840,8 @@ function buildWorkforceFeedbackRows(
     }
 
     applyWorkforceFeedbackRowBlueprint(sheet, rowNumber, sectionAverage);
-    sheet.getCell(rowNumber, 2).value = `${section.title.toUpperCase()} - AVERAGE`;
+    sheet.getCell(rowNumber, 2).value =
+      `${section.title.toUpperCase()} - AVERAGE`;
     writeWorkforceFeedbackAverageValues(
       sheet,
       rowNumber,
@@ -886,6 +887,14 @@ function buildWorkforceFeedbackRows(
       );
       rowNumber += 1;
     }
+    applyWorkforceFeedbackRowBlueprint(sheet, rowNumber, surveyAverage);
+    sheet.getCell(rowNumber, 2).value = "SUPPLEMENTARY QUESTIONS - AVERAGE";
+    writeWorkforceFeedbackAverageValues(
+      sheet,
+      rowNumber,
+      demographics,
+      supplementaryQuestions,
+    );
   }
 }
 
@@ -1097,7 +1106,7 @@ export async function createBenefitsWorkbook(input: {
   );
   const prototypes = {
     direct: rowStyles(45),
-    footnote: rowStyles(215),
+    footnote: rowStyles(222),
     question: rowStyles(9),
     response: rowStyles(10),
     section: rowStyles(8),
@@ -1109,7 +1118,11 @@ export async function createBenefitsWorkbook(input: {
     const endColumn = columnNumber(/:([A-Z]+)\d+$/u.exec(merge)?.[1] ?? "A");
     if (startRow >= 8 || endColumn > lastColumn) sheet.unMergeCells(merge);
   }
-  sheet.spliceRows(8, sheet.rowCount - 7);
+  // ExcelJS does not clear a trailing block with a single spliceRows call.
+  // Remove each row from the end so no template content survives the rebuild.
+  for (let row = sheet.rowCount; row >= 8; row -= 1) {
+    sheet.spliceRows(row, 1);
+  }
   if (lastColumn < 9) {
     sheet.spliceColumns(lastColumn + 1, 9 - lastColumn);
   }
@@ -1247,6 +1260,34 @@ export async function createVerbatimWorkbook(input: {
   questions: VerbatimWorkbookQuestion[];
 }): Promise<Buffer> {
   const workbook = await loadTemplate("employee-verbatims.xlsx");
+  const templateSheet = workbook.worksheets[0];
+  if (!templateSheet) throw new Error("Employee verbatim template is empty");
+  for (
+    let index = workbook.worksheets.length;
+    index < input.questions.length;
+    index += 1
+  ) {
+    const sheet = workbook.addWorksheet(`Verbatims Q${index + 1}`);
+    const model = structuredClone(templateSheet.model);
+    const clonedModel = {
+      ...model,
+      id: sheet.id,
+      name: sheet.name,
+      // ExcelJS reads mergeCells but exposes merges in the worksheet model.
+      mergeCells: model.merges,
+    };
+    sheet.model = clonedModel;
+    sheet.eachRow((row) => {
+      row.eachCell((cell) => {
+        if (typeof cell.value === "string") {
+          cell.value = cell.value.replace(
+            /\{\{QUESTION_1_/gu,
+            `{{QUESTION_${index + 1}_`,
+          );
+        }
+      });
+    });
+  }
   const includeDemographic = Boolean(input.demographicTitle?.trim());
   workbook.eachSheet((sheet, sheetId) => {
     const responseCount = input.questions[sheetId - 1]?.responses.length ?? 0;
@@ -1263,7 +1304,8 @@ export async function createVerbatimWorkbook(input: {
       }
       const tokenIndex = String(index + 1).padStart(3, "0");
       row.getCell(1).value = `{{QUESTION_${sheetId}_RESPONSE_${tokenIndex}}}`;
-      row.getCell(2).value = `{{QUESTION_${sheetId}_DEMOGRAPHIC_${tokenIndex}}}`;
+      row.getCell(2).value =
+        `{{QUESTION_${sheetId}_DEMOGRAPHIC_${tokenIndex}}}`;
     }
   });
   fillTokens(workbook, (name) => {

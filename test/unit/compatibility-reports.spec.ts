@@ -449,12 +449,14 @@ describe("compatibility report categories", () => {
             legacyId: null,
             externalId: null,
             metadata: {},
-            responses: administrativeQuestions.map(({ value, ...question }) => ({
-              questionId: question.id,
-              value,
-              score: null,
-              question,
-            })),
+            responses: administrativeQuestions.map(
+              ({ value, ...question }) => ({
+                questionId: question.id,
+                value,
+                score: null,
+                question,
+              }),
+            ),
           },
         ],
       },
@@ -497,11 +499,7 @@ describe("compatibility report categories", () => {
         ],
       },
     };
-    const question = benchmarkQuestion(
-      "core",
-      "Core Employee Experience",
-      2,
-    );
+    const question = benchmarkQuestion("core", "Core Employee Experience", 2);
     const prisma = {
       program: {
         findFirst: () => ({
@@ -581,7 +579,7 @@ describe("compatibility report categories", () => {
     assert.equal(sheet.getCell("J2").value, null);
   });
 
-  it("adds only the current organization's supplementary Likert questions below the survey average", async () => {
+  it("shows only the current organization's supplementary Likert questions in Detailed Results and the workbook", async () => {
     const core = benchmarkQuestion("core", "Core Employee Experience", 1);
     const supplementary = {
       ...benchmarkQuestion("supplementary", "Supplementary Questions", 2),
@@ -592,6 +590,12 @@ describe("compatibility report categories", () => {
       ...benchmarkQuestion("other-supplementary", "Supplementary Questions", 3),
       dataLabel: "q_SupplementaryQuestions_1_ORGID_15",
       caption: "Question for another organization",
+    };
+    const supplementaryOpenQuestion = {
+      ...supplementary,
+      id: "supplementary-open",
+      type: "text",
+      caption: "Open supplementary question",
     };
     const prisma = {
       program: {
@@ -640,7 +644,12 @@ describe("compatibility report categories", () => {
         }),
       },
       question: {
-        findMany: () => [core, supplementary, otherOrganizationSupplementary],
+        findMany: () => [
+          core,
+          supplementary,
+          otherOrganizationSupplementary,
+          supplementaryOpenQuestion,
+        ],
       },
       respondent: {
         findMany: () =>
@@ -667,6 +676,55 @@ describe("compatibility report categories", () => {
       },
     } as unknown as PrismaService;
     const service = new CompatibilityReportsService(prisma);
+    const principal = {
+      sub: "client-1",
+      organizationId: "organization-1",
+      roles: ["client"],
+      permissions: [],
+    };
+    const query = { selectedProgramId: "program-1", isDummy: false };
+    const sections = await service.responseBreakdownBySection(principal, query);
+    assert.deepEqual(
+      sections.data.map((section) => Object.keys(section)[0]),
+      ["Core Employee Experience", "Supplementary Questions"],
+    );
+    const supplementarySection = sections.data[1]?.["Supplementary Questions"];
+    assert.ok(supplementarySection);
+    const disagreement = supplementarySection.find(
+      (row) => "ResponseCaption" in row && row.ResponseCaption === "Disagree",
+    );
+    assert.ok(disagreement && "percentage" in disagreement);
+    assert.equal(disagreement.percentage, 100);
+    const totals = supplementarySection.find((row) => "questionRange" in row);
+    assert.ok(totals && "questionRange" in totals);
+    assert.deepEqual(totals.questionRange, [supplementary.id]);
+    const details = await service.responseBreakdown(principal, query, [
+      supplementary.id,
+    ]);
+    assert.equal(details.data.length, 1);
+    const detail = details.data[0];
+    assert.ok(detail);
+    assert.equal(detail.question, supplementary.caption);
+    assert.equal(
+      detail.responses.find(
+        ({ ResponseCaption }) => ResponseCaption === "Strongly Disagree",
+      )?.percent,
+      100,
+    );
+
+    await assert.rejects(
+      service.responseBreakdown(principal, query, [
+        otherOrganizationSupplementary.id,
+      ]),
+      /Questions not found/u,
+    );
+    await assert.rejects(
+      service.responseBreakdown(principal, query, [
+        supplementaryOpenQuestion.id,
+      ]),
+      /Questions not found/u,
+    );
+
     const buffer = await service.feedbackWorkbook(
       {
         sub: "client-1",
@@ -1187,6 +1245,21 @@ describe("compatibility report categories", () => {
       caption: "Question for Allied",
       position: 2,
     };
+    const secondStandardQuestion = {
+      ...standardQuestion,
+      id: "open-standard-two",
+      dataLabel: "q_OpenEnded_2",
+      caption: "What do you value?",
+      position: 4,
+    };
+    const supplementaryQuestion = {
+      ...standardQuestion,
+      id: "supplementary-open",
+      dataLabel: "q_Custom_ORGID_656",
+      caption: "Another question for Allied",
+      position: 5,
+      metadata: { QuestionTypeId: 9, reportRole: "supplementary" },
+    };
     const otherOrganizationQuestion = {
       ...standardQuestion,
       id: "open-organization-999",
@@ -1245,6 +1318,8 @@ describe("compatibility report categories", () => {
           standardQuestion,
           currentOrganizationQuestion,
           otherOrganizationQuestion,
+          secondStandardQuestion,
+          supplementaryQuestion,
         ],
       },
       respondent: {
@@ -1258,6 +1333,14 @@ describe("compatibility report categories", () => {
               {
                 questionId: currentOrganizationQuestion.id,
                 value: `Allied answer ${index + 1}`,
+              },
+              {
+                questionId: secondStandardQuestion.id,
+                value: `Second standard answer ${index + 1}`,
+              },
+              {
+                questionId: supplementaryQuestion.id,
+                value: `Additional Allied answer ${index + 1}`,
               },
             ],
           })),
@@ -1277,7 +1360,12 @@ describe("compatibility report categories", () => {
 
     assert.deepEqual(
       result.data.map(({ caption }) => caption),
-      ["What should we improve?", "Question for Allied"],
+      [
+        "What should we improve?",
+        "Question for Allied",
+        "What do you value?",
+        "Another question for Allied",
+      ],
     );
     await assert.rejects(
       service.openResponseAnswers(
@@ -1306,6 +1394,23 @@ describe("compatibility report categories", () => {
       )) as never,
     );
     const workbookText: string[] = [];
+    assert.deepEqual(
+      workbook.worksheets.map((sheet) => sheet.getCell("A4").value),
+      [
+        "What should we improve?",
+        "What do you value?",
+        "Question for Allied",
+        "Another question for Allied",
+      ],
+    );
+    assert.equal(
+      workbook.worksheets[2]?.getCell("A5").value,
+      "Allied answer 1",
+    );
+    assert.equal(
+      workbook.worksheets[3]?.getCell("A5").value,
+      "Additional Allied answer 1",
+    );
     workbook.eachSheet((sheet) => {
       sheet.eachRow((row) => {
         row.eachCell((cell) => workbookText.push(String(cell.value ?? "")));
@@ -1867,51 +1972,107 @@ describe("compatibility report categories", () => {
 
   it("orders benchmark cohorts by configured tier, shows employee sizes, and divides by respondents who answered", async () => {
     const question = benchmarkQuestion("q-core", "Core Employee Experience", 1);
-    const organizationIds = Array.from({ length: 88 }, (_, index) => `organization-${index + 1}`);
+    const organizationIds = Array.from(
+      { length: 88 },
+      (_, index) => `organization-${index + 1}`,
+    );
     const prisma = {
-      program: { findFirst: () => ({
-        id: "program-1", projectId: "project-1", name: "UK Campaign 2026", year: 2026,
-        startsAt: null, metadata: { benchmarkCategories: ["Small", "Boutique"] },
-        project: { id: "project-1", name: "UK Campaign" },
-        zohoCategories: [
-          { tier: "Boutique", zohoCategoryName: "Boutique", employeeSize: "15-34 UK", sortOrder: 0 },
-          { tier: "Small", zohoCategoryName: "Small", employeeSize: "35-74 UK", sortOrder: 1 },
-        ],
-      }) },
-      organizationProgram: {
-        findFirst: () => ({ id: "enrollment-1", reportAccess: { WBC_Access: "yes" }, metrics: {}, metadata: {}, organization: { name: "Example Organization" } }),
-        findMany: () => organizationIds.map((organizationId, index) => ({
-          organizationId, isWinner: "Y", currentZohoCategory: index < 5 ? "Boutique" : "Small",
-          benchmarkCategory: null, metrics: {}, organization: { metadata: {} },
-        })),
+      program: {
+        findFirst: () => ({
+          id: "program-1",
+          projectId: "project-1",
+          name: "UK Campaign 2026",
+          year: 2026,
+          startsAt: null,
+          metadata: { benchmarkCategories: ["Small", "Boutique"] },
+          project: { id: "project-1", name: "UK Campaign" },
+          zohoCategories: [
+            {
+              tier: "Boutique",
+              zohoCategoryName: "Boutique",
+              employeeSize: "15-34 UK",
+              sortOrder: 0,
+            },
+            {
+              tier: "Small",
+              zohoCategoryName: "Small",
+              employeeSize: "35-74 UK",
+              sortOrder: 1,
+            },
+          ],
+        }),
       },
-      survey: { findFirst: () => ({ id: "survey-1", title: "Employee Feedback Survey", startsAt: null, endsAt: null }) },
+      organizationProgram: {
+        findFirst: () => ({
+          id: "enrollment-1",
+          reportAccess: { WBC_Access: "yes" },
+          metrics: {},
+          metadata: {},
+          organization: { name: "Example Organization" },
+        }),
+        findMany: () =>
+          organizationIds.map((organizationId, index) => ({
+            organizationId,
+            isWinner: "Y",
+            currentZohoCategory: index < 5 ? "Boutique" : "Small",
+            benchmarkCategory: null,
+            metrics: {},
+            organization: { metadata: {} },
+          })),
+      },
+      survey: {
+        findFirst: () => ({
+          id: "survey-1",
+          title: "Employee Feedback Survey",
+          startsAt: null,
+          endsAt: null,
+        }),
+      },
       question: { findMany: () => [question] },
-      response: { findMany: () => organizationIds.slice(0, 87).map((organizationId, index) => ({
-        questionId: question.id, value: index < 73 ? "Agree" : "Disagree", score: null,
-        respondent: { organizationId },
-      })) },
+      response: {
+        findMany: () =>
+          organizationIds.slice(0, 87).map((organizationId, index) => ({
+            questionId: question.id,
+            value: index < 73 ? "Agree" : "Disagree",
+            score: null,
+            respondent: { organizationId },
+          })),
+      },
     } as unknown as PrismaService;
     const service = new CompatibilityReportsService(prisma);
-    const principal = { sub: "client-1", organizationId: organizationIds[0] ?? null, roles: ["client"], permissions: [] };
+    const principal = {
+      sub: "client-1",
+      organizationId: organizationIds[0] ?? null,
+      roles: ["client"],
+      permissions: [],
+    };
     const query = { selectedProgramId: "program-1", isDummy: false };
 
     const report = await service.workforceComparison(principal, query);
-    assert.deepEqual(report.data.tableHeaders.slice(2, 6).map(({ title, employeeSize }) => ({ title, employeeSize })), [
-      { title: "Boutique Employers", employeeSize: "15-34 UK" },
-      { title: "Boutique Employers", employeeSize: "15-34 UK" },
-      { title: "Small Employers", employeeSize: "35-74 UK" },
-      { title: "Small Employers", employeeSize: "35-74 UK" },
-    ]);
+    assert.deepEqual(
+      report.data.tableHeaders
+        .slice(2, 6)
+        .map(({ title, employeeSize }) => ({ title, employeeSize })),
+      [
+        { title: "Boutique Employers", employeeSize: "15-34 UK" },
+        { title: "Boutique Employers", employeeSize: "15-34 UK" },
+        { title: "Small Employers", employeeSize: "35-74 UK" },
+        { title: "Small Employers", employeeSize: "35-74 UK" },
+      ],
+    );
     assert.equal(
-      (report.data.data[0]?.dataValues as Array<number | string> | undefined)?.[0],
+      (
+        report.data.data[0]?.dataValues as Array<number | string> | undefined
+      )?.[0],
       (73 * 100) / 87,
       "73 positive answers must be divided by 87 answers, not 88 cohort members",
     );
 
     const workbook = new ExcelJS.Workbook();
     const workbookBytes = await service.benchmarkWorkbook(principal, query);
-    await workbook.xlsx.load(workbookBytes as unknown as Parameters<typeof workbook.xlsx.load>[0]);
+    await workbook.xlsx.load(
+      workbookBytes as unknown as Parameters<typeof workbook.xlsx.load>[0],
+    );
     const sheet = workbook.getWorksheet("Workforce Benchmark Comparisons");
     assert.ok(sheet);
     assert.equal(sheet.getCell("D4").text, "Boutique Employers");

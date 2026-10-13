@@ -33,6 +33,43 @@ function setup(programs = 0, users = 0, found = true) {
   return { service, deleted: () => deleted };
 }
 describe("organization directory", () => {
+  it("bulk deletes only organizations with neither programs nor users in a serializable transaction", async () => {
+    let called = false;
+    const transaction = {
+      organization: {
+        deleteMany: (args: unknown) => {
+          called = true;
+          assert.deepEqual(args, {
+            where: { programs: { none: {} }, users: { none: {} } },
+          });
+          return Promise.resolve({ count: 3 });
+        },
+      },
+    };
+    const service = new CompatibilityAdminService(
+      {
+        $transaction: async (
+          callback: (value: typeof transaction) => Promise<unknown>,
+          options: unknown,
+        ) => {
+          assert.deepEqual(options, { isolationLevel: "Serializable" });
+          return callback(transaction);
+        },
+      } as never,
+      {} as never,
+      {} as never,
+    );
+    await assert.rejects(
+      service.deleteEmptyOrganizations({ ...principal, roles: ["client"] }),
+      /Administrator access required/,
+    );
+    assert.equal(called, false);
+    assert.deepEqual(await service.deleteEmptyOrganizations(principal), {
+      success: true,
+      data: { deletedCount: 3 },
+    });
+    assert.equal(called, true);
+  });
   it("deletes an organization with no programs or users", async () => {
     const context = setup();
     assert.deepEqual(await context.service.deleteOrganization(principal, id), {

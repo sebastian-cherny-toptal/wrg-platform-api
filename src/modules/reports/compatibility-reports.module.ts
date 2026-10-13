@@ -2031,7 +2031,10 @@ export class CompatibilityReportsService {
   ) {
     const context = await this.context(principal, query);
     this.requiresDemo(principal, context, accessKey);
-    const questions = await this.benchmarkQuestions(context.survey.id);
+    const questions = await this.benchmarkQuestions(
+      context.survey.id,
+      this.organizationQuestionIds(context),
+    );
     const respondents = await this.organizationRespondents(
       context,
       queryFilter,
@@ -2091,7 +2094,10 @@ export class CompatibilityReportsService {
   ) {
     const context = await this.context(principal, query);
     this.requiresDemo(principal, context, "WFR_Access");
-    const questions = await this.benchmarkQuestions(context.survey.id);
+    const questions = await this.benchmarkQuestions(
+      context.survey.id,
+      this.organizationQuestionIds(context),
+    );
     const selected = this.resolveQuestions(questions, questionRange);
     const respondents = await this.organizationRespondents(
       context,
@@ -3980,9 +3986,16 @@ export class CompatibilityReportsService {
         "Only the purchased sorting filter is available",
       );
     }
-    const reportQuestions = filterQuestion
-      ? questions.filter(({ id }) => id !== filterQuestion.id)
-      : questions;
+    const reportQuestions = (
+      filterQuestion
+        ? questions.filter(({ id }) => id !== filterQuestion.id)
+        : questions
+    ).sort((left, right) => {
+      const isSupplementary = (question: BenchmarkQuestion) =>
+        isSupplementaryQuestion(question) ||
+        organizationSpecificQuestionId(question.dataLabel) !== null;
+      return Number(isSupplementary(left)) - Number(isSupplementary(right));
+    });
     const respondents = await this.prisma.respondent.findMany({
       where: {
         surveyId: context.survey.id,
@@ -4389,13 +4402,16 @@ export class CompatibilityReportsService {
       const reportRole = metadataString(question.metadata, "reportRole");
       const type = question.type.toLowerCase();
       const questionTypeId = jsonObject(question.metadata).QuestionTypeId;
+      const hasOpenType =
+        question.dataLabel.toLowerCase().includes("openended") ||
+        type.includes("open") ||
+        type.includes("text") ||
+        questionTypeId === 9 ||
+        questionTypeId === "9";
       const isOpen = reportRole
-        ? reportRole === "verbatim"
-        : question.dataLabel.toLowerCase().includes("openended") ||
-          type.includes("open") ||
-          type.includes("text") ||
-          questionTypeId === 9 ||
-          questionTypeId === "9";
+        ? reportRole === "verbatim" ||
+          (reportRole === "supplementary" && hasOpenType)
+        : hasOpenType;
       if (!isOpen) return false;
       const organizationId = organizationSpecificQuestionId(question.dataLabel);
       return (
@@ -5242,9 +5258,10 @@ export class CompatibilityReportsService {
   ): Map<string, BenchmarkQuestion[]> {
     const result = new Map<string, BenchmarkQuestion[]>();
     for (const question of questions) {
-      const category =
-        metadataString(question.metadata, "categoryLabel") ??
-        categoryFromDataLabel(question.dataLabel);
+      const category = isSupplementaryQuestion(question)
+        ? "Supplementary Questions"
+        : (metadataString(question.metadata, "categoryLabel") ??
+          categoryFromDataLabel(question.dataLabel));
       const existing = result.get(category) ?? [];
       existing.push(question);
       result.set(category, existing);
