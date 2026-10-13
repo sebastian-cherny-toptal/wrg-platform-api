@@ -12,6 +12,7 @@ describe("admin view counts", () => {
     const service = new CompatibilityAdminService(
       {
         project: { count: count("project", 4) },
+        organization: { count: count("organization", 7) },
         user: { count: count("user", 5) },
         order: { count: count("order", 8) },
         auditLog: { count: count("auditLog", 13) },
@@ -35,6 +36,7 @@ describe("admin view counts", () => {
 
     assert.deepEqual(response.data, {
       projects: 4,
+      organizations: 7,
       users: 5,
       keyImpactAnalyses: 2,
       orders: 8,

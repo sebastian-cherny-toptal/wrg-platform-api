@@ -775,6 +775,7 @@ export class CompatibilityAdminService {
         displayId:
           organization.externalId ?? organization.legacyId ?? organization.id,
         name: organization.name,
+        createdAt: organization.createdAt,
         projects: [
           ...new Map(
             organization.programs.map(({ project }) => [
@@ -1121,22 +1122,31 @@ export class CompatibilityAdminService {
       "INVOICED",
       "REQUIRES_PAYMENT",
     ];
-    const [projects, users, orders, activity, roles, pendingKia] =
-      await Promise.all([
-        this.prisma.project.count(),
-        this.prisma.user.count({ where: { status: { not: "DISABLED" } } }),
-        this.prisma.order.count({
-          where: { status: { in: visibleOrderStatuses } },
-        }),
-        this.prisma.auditLog.count(),
-        this.prisma.role.count(),
-        this.pendingKeyImpactAnalyses(principal),
-      ]);
+    const [
+      projects,
+      organizations,
+      users,
+      orders,
+      activity,
+      roles,
+      pendingKia,
+    ] = await Promise.all([
+      this.prisma.project.count(),
+      this.prisma.organization.count(),
+      this.prisma.user.count({ where: { status: { not: "DISABLED" } } }),
+      this.prisma.order.count({
+        where: { status: { in: visibleOrderStatuses } },
+      }),
+      this.prisma.auditLog.count(),
+      this.prisma.role.count(),
+      this.pendingKeyImpactAnalyses(principal),
+    ]);
     return {
       success: true,
       data: {
         projects,
         users,
+        organizations,
         keyImpactAnalyses: pendingKia.data.length,
         orders,
         activity,
