@@ -193,6 +193,106 @@ describe("Benefits & Best Practices workbook parsing", () => {
     );
   });
 
+  for (const categories of [
+    ["All", "Boutique", "Small", "Medium", "Large"],
+    Array.from({ length: 14 }, (_, index) => `Category ${index + 1}`),
+  ]) {
+    it(`exports all ${categories.length * 2} cohort columns with template formatting`, async () => {
+      const headers = categories.flatMap((category) => [
+        `${category} Winners`,
+        `${category} Non-Winners`,
+      ]);
+      const values = headers.map((_, index) => index + 1);
+      const buffer = await createBenefitsWorkbook({
+        headers,
+        sections: [
+          {
+            title: "Benefits",
+            questions: [
+              {
+                text: "Offer healthcare?",
+                responses: [{ format: "percent", label: "Yes", values }],
+              },
+              {
+                text: "Paid holidays",
+                responses: [
+                  { format: "number", label: "Paid holidays", values },
+                ],
+              },
+            ],
+          },
+        ],
+      });
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.load(buffer as never);
+      const sheet = workbook.getWorksheet("Benefits & Best Practices");
+      assert.ok(sheet);
+      assert.equal(sheet.columnCount, headers.length + 1);
+      for (let index = 0; index < headers.length; index += 1) {
+        const column = index + 2;
+        const value = values[index];
+        assert.ok(value !== undefined);
+        assert.equal(sheet.getCell(6, column).value, headers[index]);
+        assert.equal(sheet.getCell(10, column).value, value / 100);
+        assert.equal(sheet.getCell(10, column).numFmt, "0%");
+        assert.equal(sheet.getCell(11, column).value, values[index]);
+        assert.equal(sheet.getCell(11, column).numFmt, "0");
+        assert.equal(sheet.getColumn(column).width, sheet.getColumn(2).width);
+        assert.deepEqual(
+          sheet.getCell(6, column).style,
+          sheet.getCell(6, 2).style,
+        );
+        assert.deepEqual(
+          sheet.getCell(10, column).style,
+          sheet.getCell(10, 2).style,
+        );
+        assert.deepEqual(
+          sheet.getCell(11, column).style,
+          sheet.getCell(11, 2).style,
+        );
+      }
+      const lastLetter = sheet.getColumn(headers.length + 1).letter;
+      for (const row of [1, 8, 9, 12]) {
+        assert.ok(
+          sheet.model.merges.includes(
+            `${row === 1 ? "B" : "A"}${row}:${lastLetter}${row}`,
+          ),
+        );
+      }
+      assert.equal(sheet.pageSetup.printArea, `A1:${lastLetter}12`);
+      for (let pair = 0; pair < categories.length; pair += 1) {
+        const column = 2 + pair * 2;
+        assert.equal(sheet.getCell(3, column).value, "Averaged Responses");
+        assert.equal(
+          sheet.getCell(4, column).value,
+          categories[pair] === "All"
+            ? "All Size Categories"
+            : `${categories[pair]} Employers`,
+        );
+        for (const row of [3, 4, 5]) {
+          assert.ok(
+            sheet.model.merges.includes(
+              `${sheet.getColumn(column).letter}${row}:${sheet.getColumn(column + 1).letter}${row}`,
+            ),
+          );
+        }
+      }
+      const parsed = await parseBenefitsBestPracticesWorkbook(
+        buffer,
+        "all-categories.xlsx",
+      );
+      assert.equal(parsed.headers.length, headers.length);
+      const section = parsed.sections[0];
+      assert.ok(section);
+      assert.deepEqual(
+        section.questions
+          .flatMap((question) => question.responses)
+          .find((response) => response.label === "Paid holidays")?.dataValues,
+        values,
+      );
+    });
+  }
+
   it("creates a single-column workbook when no cohorts are available", async () => {
     const buffer = await createBenefitsWorkbook({ headers: [], sections: [] });
 

@@ -1080,26 +1080,27 @@ export async function createBenefitsWorkbook(input: {
   const workbook = await loadTemplate("benefits-best-practices.xlsx");
   const sheet = workbook.getWorksheet("Benefits & Best Practices");
   if (!sheet) throw new Error("Benefits template has no worksheet");
-  const headerCount = Math.min(input.headers.length, 8);
+  const headerCount = input.headers.length;
   const lastColumn = headerCount + 1;
   const cloneStyle = (cell: ExcelJS.Cell): Partial<ExcelJS.Style> =>
     structuredClone(cell.style);
+  // The template has four cohort pairs. Repeat its final pair's formatting
+  // for any additional categories, while keeping the question column distinct.
+  const templateColumn = (column: number): number =>
+    column <= 9 ? column : 8 + ((column - 2) % 2);
+  const rowStyles = (row: number): Array<Partial<ExcelJS.Style>> =>
+    Array.from({ length: lastColumn }, (_, index) =>
+      cloneStyle(sheet.getCell(row, templateColumn(index + 1))),
+    );
+  const headerStyles = Array.from({ length: 7 }, (_, index) =>
+    rowStyles(index + 1),
+  );
   const prototypes = {
-    direct: Array.from({ length: 9 }, (_, index) =>
-      cloneStyle(sheet.getCell(45, index + 1)),
-    ),
-    footnote: Array.from({ length: 9 }, (_, index) =>
-      cloneStyle(sheet.getCell(215, index + 1)),
-    ),
-    question: Array.from({ length: 9 }, (_, index) =>
-      cloneStyle(sheet.getCell(9, index + 1)),
-    ),
-    response: Array.from({ length: 9 }, (_, index) =>
-      cloneStyle(sheet.getCell(10, index + 1)),
-    ),
-    section: Array.from({ length: 9 }, (_, index) =>
-      cloneStyle(sheet.getCell(8, index + 1)),
-    ),
+    direct: rowStyles(45),
+    footnote: rowStyles(215),
+    question: rowStyles(9),
+    response: rowStyles(10),
+    section: rowStyles(8),
   };
 
   sheet.unMergeCells("B1:I1");
@@ -1111,6 +1112,22 @@ export async function createBenefitsWorkbook(input: {
   sheet.spliceRows(8, sheet.rowCount - 7);
   if (lastColumn < 9) {
     sheet.spliceColumns(lastColumn + 1, 9 - lastColumn);
+  }
+  for (let column = 10; column <= lastColumn; column += 1) {
+    const source = sheet.getColumn(templateColumn(column));
+    const target = sheet.getColumn(column);
+    if (source.width !== undefined) target.width = source.width;
+    target.style = structuredClone(source.style);
+    for (let row = 1; row <= 7; row += 1) {
+      sheet.getCell(row, column).style = structuredClone(
+        headerStyles[row - 1]?.[column - 1] ?? {},
+      );
+    }
+  }
+  for (let column = 10; column < lastColumn; column += 2) {
+    for (const row of [3, 4, 5]) {
+      sheet.mergeCells(row, column, row, column + 1);
+    }
   }
   if (headerCount > 0) sheet.mergeCells(1, 2, 1, lastColumn);
 
