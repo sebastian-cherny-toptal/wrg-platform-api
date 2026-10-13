@@ -580,7 +580,8 @@ export class CompatibilityPaymentService {
       principal.permissions.includes("ops.manage");
     if (
       !canManageAllOrganizations &&
-      principal.organizationId !== order.organizationId
+      (!principal.organizationId ||
+        principal.organizationId !== order.organizationId)
     ) {
       throw new ForbiddenException("Order access denied");
     }

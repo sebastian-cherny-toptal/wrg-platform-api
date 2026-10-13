@@ -757,6 +757,64 @@ export class CompatibilityAdminService {
       .send(Buffer.from(upload.contents));
   }
 
+  async organizationDirectory(principal: Principal) {
+    this.assertAdmin(principal);
+    const organizations = await this.prisma.organization.findMany({
+      orderBy: { name: "asc" },
+      include: {
+        programs: { include: { project: true, program: true } },
+        users: {
+          select: { id: true, fullName: true, email: true, username: true },
+        },
+      },
+    });
+    return {
+      success: true,
+      data: organizations.map((organization) => ({
+        id: organization.id,
+        displayId:
+          organization.externalId ?? organization.legacyId ?? organization.id,
+        name: organization.name,
+        projects: [
+          ...new Map(
+            organization.programs.map(({ project }) => [
+              project.id,
+              { id: project.id, name: project.name },
+            ]),
+          ).values(),
+        ],
+        programs: organization.programs.map(({ program }) => ({
+          id: program.id,
+          name: program.name,
+        })),
+        users: organization.users,
+      })),
+    };
+  }
+
+  async deleteOrganization(principal: Principal, id: string) {
+    this.assertAdmin(principal);
+    if (!isUuid(id)) throw new NotFoundException("Organization not found");
+    return this.prisma.$transaction(
+      async (transaction) => {
+        const organization = await transaction.organization.findUnique({
+          where: { id },
+          select: { _count: { select: { programs: true, users: true } } },
+        });
+        if (!organization)
+          throw new NotFoundException("Organization not found");
+        if (organization._count.programs || organization._count.users) {
+          throw new ConflictException(
+            "Remove this organization from its Project and Users before deleting it",
+          );
+        }
+        await transaction.organization.delete({ where: { id } });
+        return { success: true };
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
+  }
+
   async organizations(
     principal: Principal,
     reference?: string,
@@ -1292,8 +1350,8 @@ export class CompatibilityAdminService {
           productName: productName || null,
           purchaserUsername:
             order.purchaser?.username ?? order.purchaser?.email ?? null,
-          client: order.organization.name,
-          organizationName: order.organization.name,
+          client: order.organization?.name ?? "Deleted organization",
+          organizationName: order.organization?.name ?? "Deleted organization",
           sortingFilter: sortingFilter ?? null,
           sortingFilterLabel: sortingFilter
             ? (sortingFilterLabelByReference.get(sortingFilter) ?? null)
@@ -1303,11 +1361,13 @@ export class CompatibilityAdminService {
           isPaid: order.status === "PAID",
           paymentId: order.paymentIntentId,
           createAt: order.createdAt,
-          organizationId: {
-            ...jsonObject(order.organization.metadata),
-            _id: order.organization.legacyId ?? order.organization.id,
-            Account_Name: order.organization.name,
-          },
+          organizationId: order.organization
+            ? {
+                ...jsonObject(order.organization.metadata),
+                _id: order.organization.legacyId ?? order.organization.id,
+                Account_Name: order.organization.name,
+              }
+            : null,
           organizationprogramId: order.organizationProgram
             ? {
                 ...jsonObject(order.organizationProgram.metrics),
@@ -1814,6 +1874,19 @@ export class CompatibilityAdminController {
     @Query("projectId") projectId: string | undefined,
   ) {
     return this.admin.organizationOptions(principal, projectId);
+  }
+
+  @Get("organizations")
+  organizationDirectory(@CurrentUser() principal: Principal) {
+    return this.admin.organizationDirectory(principal);
+  }
+
+  @Delete("organizations/:id")
+  deleteOrganization(
+    @CurrentUser() principal: Principal,
+    @Param("id") id: string,
+  ) {
+    return this.admin.deleteOrganization(principal, id);
   }
 
   @Get("getOrganizations")
