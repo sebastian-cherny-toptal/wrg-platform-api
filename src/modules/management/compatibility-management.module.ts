@@ -251,7 +251,9 @@ function resyncValues(
   }
   return {
     zohoAccountId: enrollment.organization.zohoAccountId ?? null,
-    organizationName: enrollment.organization.name,
+    organizationName:
+      metadataString(enrollment.metrics, "Source_Organization_Name") ??
+      enrollment.organization.name,
     stage: enrollment.stage,
     isWinner: enrollment.isWinner,
     surveysSent: numeric(metrics.Surveys_Sent),
@@ -443,6 +445,7 @@ export class ProgramZohoResyncService {
     );
     const remaining = new Set(program.organizations.map(({ id }) => id));
     const matches: ResyncMatch[] = [];
+    const accountConflicts: string[] = [];
     const unmatchedZoho: ProgramZohoResyncPreview["unmatchedZoho"] = [];
     for (const zohoOrganization of zohoOrganizations) {
       if (
@@ -495,7 +498,7 @@ export class ProgramZohoResyncService {
       if (enrollment && zohoOrganization.zohoAccountId) {
         const owner = await this.prisma.organization.findUnique({
           where: { zohoAccountId: zohoOrganization.zohoAccountId },
-          select: { id: true },
+          select: { id: true, name: true },
         });
         if (
           (owner && owner.id !== enrollment.organization.id) ||
@@ -503,8 +506,23 @@ export class ProgramZohoResyncService {
             enrollment.organization.zohoAccountId !==
               zohoOrganization.zohoAccountId)
         ) {
-          throw new ConflictException(
-            "CRM account belongs to a different organization; resolve the mapping before resyncing",
+          const reasons: string[] = [];
+          if (owner && owner.id !== enrollment.organization.id) {
+            reasons.push(
+              `this Zoho account is already linked to platform organization "${owner.name}" (ID: ${owner.id})`,
+            );
+          }
+          if (
+            enrollment.organization.zohoAccountId &&
+            enrollment.organization.zohoAccountId !==
+              zohoOrganization.zohoAccountId
+          ) {
+            reasons.push(
+              `the matched platform organization is already linked to Zoho Account ID ${enrollment.organization.zohoAccountId}`,
+            );
+          }
+          accountConflicts.push(
+            `Platform organization "${enrollment.organization.name}" (ID: ${enrollment.organization.id}), matched to Zoho organization "${zohoOrganization.organizationName}" (Source Organization ID: ${sourceId || "not provided"}, Zoho Account ID: ${zohoOrganization.zohoAccountId}): ${reasons.join("; ")}.`,
           );
         }
       }
@@ -517,6 +535,11 @@ export class ProgramZohoResyncService {
       }
       remaining.delete(enrollment.id);
       matches.push({ enrollment, zoho: zohoOrganization });
+    }
+    if (accountConflicts.length) {
+      throw new ConflictException(
+        `Cannot resync: ${accountConflicts.length} organization account mapping conflict${accountConflicts.length === 1 ? "" : "s"} found. ${accountConflicts.join(" ")} Resolve these mappings before resyncing. No changes were applied.`,
+      );
     }
     matches.sort((left, right) =>
       left.enrollment.id.localeCompare(right.enrollment.id),

@@ -217,7 +217,7 @@ describe("native management compatibility endpoints", () => {
       [
         {
           field: "organizationName",
-          previous: "Acme Health LLC",
+          previous: "Acme Health",
           next: "Acme Health Group",
         },
         { field: "stage", previous: "Invited", next: "Closed" },
