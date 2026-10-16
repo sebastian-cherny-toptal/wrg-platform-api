@@ -26,6 +26,8 @@ import {
   ProgramZohoResyncService,
 } from "../../src/modules/management/compatibility-management.module.js";
 
+import { OrganizationReconciliationService } from "../../src/modules/management/organization-reconciliation.service.js";
+
 const testJwtSecret = "test-secret-that-is-at-least-32-characters";
 const calls = new Map<string, number>();
 const mark = (name: string) => {
@@ -70,6 +72,14 @@ class TestJwtStrategy extends PassportStrategy(Strategy) {
   providers: [
     { provide: CompatibilityManagementService, useValue: managementStub },
     { provide: ProgramZohoResyncService, useValue: programZohoResyncStub },
+    {
+      provide: OrganizationReconciliationService,
+      useValue: {
+        report: () => mark("organizationReconciliationReport"),
+        preview: () => mark("organizationReconciliationPreview"),
+        apply: () => mark("organizationReconciliationApply"),
+      },
+    },
     TestJwtStrategy,
     JwtAuthGuard,
   ],
@@ -475,7 +485,39 @@ describe("native management compatibility endpoints", () => {
           headers,
           payload: { revision: "a".repeat(64) },
         }),
+        app.inject({
+          method: "GET",
+          url: "/admin/programs/program-1/organization-reconciliation",
+          headers,
+        }),
+        app.inject({
+          method: "POST",
+          url: "/admin/programs/program-1/organization-reconciliation/preview",
+          headers,
+          payload: { conflictIds: ["conflict-id"] },
+        }),
+        app.inject({
+          method: "POST",
+          url: "/admin/programs/program-1/organization-reconciliation/apply",
+          headers,
+          payload: { conflictIds: ["conflict-id"], revision: "a".repeat(64) },
+        }),
       ]);
+      for (const [method, suffix] of [
+        ["GET", ""],
+        ["POST", "/preview"],
+        ["POST", "/apply"],
+      ] as const) {
+        assert.equal(
+          (
+            await app.inject({
+              method,
+              url: `/admin/programs/program-1/organization-reconciliation${suffix}`,
+            })
+          ).statusCode,
+          401,
+        );
+      }
       for (const response of responses) {
         assert.equal(response.statusCode, 200, response.body);
       }
@@ -490,6 +532,9 @@ describe("native management compatibility endpoints", () => {
         permissions: 1,
         programZohoResyncPreview: 1,
         programZohoResyncApply: 1,
+        organizationReconciliationReport: 1,
+        organizationReconciliationPreview: 1,
+        organizationReconciliationApply: 1,
       });
     } finally {
       await app.close();

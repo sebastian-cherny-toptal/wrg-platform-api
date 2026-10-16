@@ -49,6 +49,9 @@ import {
   type ProgramOrganization,
 } from "../crm-sync/compatibility-zoho.module.js";
 
+import { OrganizationReconciliationService } from "./organization-reconciliation.service.js";
+import type { OrganizationAccountConflict } from "./organization-reconciliation.types.js";
+
 const organizationsConnectionHeaders = [
   "Alias Name",
   "Organization ID",
@@ -394,10 +397,20 @@ export class ProgramZohoResyncService {
     };
   }
 
+  async mappingConflicts(principal: Principal, programReference: string) {
+    const result = await this.buildPreview(principal, programReference, true);
+    return { programId: result.preview.programId, conflicts: result.conflicts };
+  }
+
   private async buildPreview(
     principal: Principal,
     programReference: string,
-  ): Promise<{ preview: ProgramZohoResyncPreview; matches: ResyncMatch[] }> {
+    collectConflicts = false,
+  ): Promise<{
+    preview: ProgramZohoResyncPreview;
+    matches: ResyncMatch[];
+    conflicts: OrganizationAccountConflict[];
+  }> {
     const allowedProjectIds = await this.allowedProjectIds(principal);
     const program = await this.prisma.program.findFirst({
       where: {
@@ -443,9 +456,42 @@ export class ProgramZohoResyncService {
       zohoProgramId,
       program.project.name,
     );
+    const owners = new Map<string, { id: string; name: string } | null>();
+    if (collectConflicts) {
+      const accountIds = [
+        ...new Set(
+          zohoOrganizations.flatMap((item) =>
+            item.zohoAccountId ? [item.zohoAccountId] : [],
+          ),
+        ),
+      ];
+      for (const accountId of accountIds) owners.set(accountId, null);
+      const linkedOrganizations = accountIds.length
+        ? await this.prisma.organization.findMany({
+            where: { zohoAccountId: { in: accountIds } },
+            select: { id: true, name: true, zohoAccountId: true },
+          })
+        : [];
+      for (const organization of linkedOrganizations) {
+        if (organization.zohoAccountId)
+          owners.set(organization.zohoAccountId, organization);
+      }
+    }
+    const accountOwner = async (accountId: string) => {
+      if (!owners.has(accountId))
+        owners.set(
+          accountId,
+          await this.prisma.organization.findUnique({
+            where: { zohoAccountId: accountId },
+            select: { id: true, name: true },
+          }),
+        );
+      return owners.get(accountId) ?? null;
+    };
     const remaining = new Set(program.organizations.map(({ id }) => id));
     const matches: ResyncMatch[] = [];
     const accountConflicts: string[] = [];
+    const conflicts: OrganizationAccountConflict[] = [];
     const unmatchedZoho: ProgramZohoResyncPreview["unmatchedZoho"] = [];
     for (const zohoOrganization of zohoOrganizations) {
       if (
@@ -490,16 +536,39 @@ export class ProgramZohoResyncService {
         : bySource.length
           ? bySource
           : byName;
-      if (candidates.length > 1)
-        throw new ConflictException(
-          "Ambiguous organization match; map the company explicitly before resyncing",
-        );
+      if (candidates.length > 1) {
+        const message =
+          "Ambiguous organization match; map the company explicitly before resyncing";
+        if (!collectConflicts) throw new ConflictException(message);
+        const owner = zohoOrganization.zohoAccountId
+          ? await accountOwner(zohoOrganization.zohoAccountId)
+          : null;
+        for (const candidate of candidates) {
+          conflicts.push({
+            id: `ambiguous:${candidate.id}:${sourceId}:${zohoOrganization.zohoAccountId ?? ""}`,
+            organizationProgramId: candidate.id,
+            sourceOrganizationId: candidate.organization.id,
+            sourceOrganizationName: candidate.organization.name,
+            savedZohoAccountId: candidate.organization.zohoAccountId ?? null,
+            sourceId,
+            zohoOrganizationName: zohoOrganization.organizationName,
+            zohoAccountId: zohoOrganization.zohoAccountId ?? "",
+            matchedBy: byAccount.length
+              ? "account"
+              : bySource.length
+                ? "sourceId"
+                : "name",
+            targetOrganizationId: owner?.id ?? null,
+            targetOrganizationName: owner?.name ?? null,
+            reasons: [message],
+            blockingReason: message,
+          });
+        }
+        continue;
+      }
       const enrollment = candidates[0];
       if (enrollment && zohoOrganization.zohoAccountId) {
-        const owner = await this.prisma.organization.findUnique({
-          where: { zohoAccountId: zohoOrganization.zohoAccountId },
-          select: { id: true, name: true },
-        });
+        const owner = await accountOwner(zohoOrganization.zohoAccountId);
         if (
           (owner && owner.id !== enrollment.organization.id) ||
           (enrollment.organization.zohoAccountId &&
@@ -521,6 +590,24 @@ export class ProgramZohoResyncService {
               `the matched platform organization is already linked to Zoho Account ID ${enrollment.organization.zohoAccountId}`,
             );
           }
+          conflicts.push({
+            id: enrollment.id,
+            organizationProgramId: enrollment.id,
+            sourceOrganizationId: enrollment.organization.id,
+            sourceOrganizationName: enrollment.organization.name,
+            savedZohoAccountId: enrollment.organization.zohoAccountId ?? null,
+            sourceId,
+            zohoOrganizationName: zohoOrganization.organizationName,
+            zohoAccountId: zohoOrganization.zohoAccountId,
+            matchedBy: byAccount.length
+              ? "account"
+              : bySource.length
+                ? "sourceId"
+                : "name",
+            targetOrganizationId: owner?.id ?? null,
+            targetOrganizationName: owner?.name ?? null,
+            reasons,
+          });
           accountConflicts.push(
             `Platform organization "${enrollment.organization.name}" (ID: ${enrollment.organization.id}), matched to Zoho organization "${zohoOrganization.organizationName}" (Source Organization ID: ${sourceId || "not provided"}, Zoho Account ID: ${zohoOrganization.zohoAccountId}): ${reasons.join("; ")}.`,
           );
@@ -536,10 +623,13 @@ export class ProgramZohoResyncService {
       remaining.delete(enrollment.id);
       matches.push({ enrollment, zoho: zohoOrganization });
     }
-    if (accountConflicts.length) {
-      throw new ConflictException(
-        `Cannot resync: ${accountConflicts.length} organization account mapping conflict${accountConflicts.length === 1 ? "" : "s"} found. ${accountConflicts.join(" ")} Resolve these mappings before resyncing. No changes were applied.`,
-      );
+    if (accountConflicts.length && !collectConflicts) {
+      throw new ConflictException({
+        statusCode: 409,
+        code: "ORGANIZATION_ACCOUNT_CONFLICT",
+        conflictCount: accountConflicts.length,
+        message: `Cannot resync: ${accountConflicts.length} organization account mapping conflict${accountConflicts.length === 1 ? "" : "s"} found. ${accountConflicts.join(" ")} Resolve these mappings before resyncing. No changes were applied.`,
+      });
     }
     matches.sort((left, right) =>
       left.enrollment.id.localeCompare(right.enrollment.id),
@@ -605,6 +695,7 @@ export class ProgramZohoResyncService {
         missingLocal,
       },
       matches,
+      conflicts,
     };
   }
 
@@ -1245,6 +1336,8 @@ export class CompatibilityManagementController {
     private readonly management: CompatibilityManagementService,
     @Inject(ProgramZohoResyncService)
     private readonly programZohoResync: ProgramZohoResyncService,
+    @Inject(OrganizationReconciliationService)
+    private readonly reconciliation: OrganizationReconciliationService,
   ) {}
 
   @Get("getroles")
@@ -1345,6 +1438,34 @@ export class CompatibilityManagementController {
     return this.programZohoResync.apply(principal, programId, body.revision);
   }
 
+  @Get("programs/:programId/organization-reconciliation")
+  organizationReconciliationReport(
+    @CurrentUser() principal: Principal,
+    @Param("programId") programId: string,
+  ) {
+    return this.reconciliation.report(principal, programId);
+  }
+
+  @Post("programs/:programId/organization-reconciliation/preview")
+  @HttpCode(200)
+  organizationReconciliationPreview(
+    @CurrentUser() principal: Principal,
+    @Param("programId") programId: string,
+    @Body() body: unknown,
+  ) {
+    return this.reconciliation.preview(principal, programId, body);
+  }
+
+  @Post("programs/:programId/organization-reconciliation/apply")
+  @HttpCode(200)
+  organizationReconciliationApply(
+    @CurrentUser() principal: Principal,
+    @Param("programId") programId: string,
+    @Body() body: unknown,
+  ) {
+    return this.reconciliation.apply(principal, programId, body);
+  }
+
   @Delete("projects/:id")
   deleteProject(@CurrentUser() principal: Principal, @Param("id") id: string) {
     return this.management.deleteProject(principal, id);
@@ -1369,7 +1490,15 @@ export class CompatibilityManagementController {
 
 @Module({
   imports: [AuthModule, CompatibilityZohoModule],
-  providers: [CompatibilityManagementService, ProgramZohoResyncService],
+  providers: [
+    CompatibilityManagementService,
+    ProgramZohoResyncService,
+    {
+      provide: "OrganizationConflictSource",
+      useExisting: ProgramZohoResyncService,
+    },
+    OrganizationReconciliationService,
+  ],
   controllers: [CompatibilityManagementController],
 })
 export class CompatibilityManagementModule {}
