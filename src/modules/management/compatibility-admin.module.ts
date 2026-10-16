@@ -737,6 +737,18 @@ export class CompatibilityAdminService {
     };
   }
 
+  async deleteCustomReportUpload(principal: Principal, id: string) {
+    this.assertPermission(principal, "uploadDownloadCustomReportAccess");
+    if (!isUuid(id)) throw new NotFoundException("Custom report not found");
+    const deleted = await this.prisma.customReportUpload.deleteMany({
+      where: { id },
+    });
+    if (deleted.count === 0) {
+      throw new NotFoundException("Custom report not found");
+    }
+    return { success: true, data: { deletedCount: deleted.count } };
+  }
+
   async downloadCustomReport(
     principal: Principal,
     id: string,
@@ -1875,6 +1887,14 @@ export class CompatibilityAdminController {
     @Req() request: FastifyRequest,
   ) {
     return this.admin.uploadCustomReport(principal, request);
+  }
+
+  @Delete("custom-reports/:id")
+  deleteCustomReportUpload(
+    @CurrentUser() principal: Principal,
+    @Param("id") id: string,
+  ) {
+    return this.admin.deleteCustomReportUpload(principal, id);
   }
 
   @Get("custom-reports/:id/download")

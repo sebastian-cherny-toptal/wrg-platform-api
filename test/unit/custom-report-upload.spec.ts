@@ -98,3 +98,55 @@ describe("custom report uploads", () => {
     );
   });
 });
+
+describe("custom report deletion", () => {
+  const id = "d079f93c-3195-4278-be34-52ee2866782d";
+  it("hard deletes only the selected uploaded report", async () => {
+    let query: unknown;
+    const service = new CompatibilityAdminService(
+      {
+        customReportUpload: {
+          deleteMany: (input: unknown) => {
+            query = input;
+            return Promise.resolve({ count: 1 });
+          },
+        },
+      } as never,
+      {} as never,
+      {} as never,
+    );
+    assert.deepEqual(await service.deleteCustomReportUpload(principal, id), {
+      success: true,
+      data: { deletedCount: 1 },
+    });
+    assert.deepEqual(query, { where: { id } });
+  });
+  it("rejects unauthorized users before deleting", async () => {
+    const service = new CompatibilityAdminService(
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+    await assert.rejects(
+      service.deleteCustomReportUpload({ ...principal, roles: ["client"] }, id),
+      /Access denied/u,
+    );
+  });
+  it("returns not found for invalid or already deleted reports", async () => {
+    const service = new CompatibilityAdminService(
+      {
+        customReportUpload: { deleteMany: () => Promise.resolve({ count: 0 }) },
+      } as never,
+      {} as never,
+      {} as never,
+    );
+    await assert.rejects(
+      service.deleteCustomReportUpload(principal, "invalid"),
+      /Custom report not found/u,
+    );
+    await assert.rejects(
+      service.deleteCustomReportUpload(principal, id),
+      /Custom report not found/u,
+    );
+  });
+});
