@@ -938,6 +938,7 @@ export class CompatibilityAdminService {
               metadata.sourceOrganizationName ??
               null,
             Account_Name: organization.name,
+            zohoAccountId: organization.zohoAccountId ?? null,
             stripeCustomerId: organization.stripeCustomerId,
             createAt: organization.createdAt,
             orgPrograms: enrollments.map((enrollment) => ({

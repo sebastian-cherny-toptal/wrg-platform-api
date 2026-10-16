@@ -1096,6 +1096,7 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
                 legacyId: null,
                 externalId: null,
                 name: "AccuTemp Services",
+                zohoAccountId: "9007199254740993",
                 stripeCustomerId: null,
                 metadata: {},
                 createdAt: new Date("2026-01-01T00:00:00.000Z"),
@@ -1123,6 +1124,12 @@ describe("native admin, payment and Zoho compatibility endpoints", () => {
       roles: ["admin"],
       permissions: [],
     });
+
+    assert.ok(
+      response.data.every(
+        (organization) => organization.zohoAccountId === "9007199254740993",
+      ),
+    );
 
     assert.deepEqual(
       response.data.map((organization) => ({
