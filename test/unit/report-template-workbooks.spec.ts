@@ -1135,7 +1135,6 @@ describe("benchmark workbook generation", () => {
         },
       ],
       surveyAverage: [89, "x"],
-      cohortOrganizationCount: 13,
     });
 
     const workbook = new ExcelJS.Workbook();
@@ -1143,6 +1142,8 @@ describe("benchmark workbook generation", () => {
     const sheet = workbook.getWorksheet("Workforce Benchmark Comparisons");
     assert.ok(sheet);
     assert.equal(sheet.columnCount, 3);
+    assert.equal(sheet.getCell("B5").value, null);
+    assert.equal(sheet.getCell("C5").value, null);
     assert.equal(sheet.pageSetup.printArea, "A1:C106");
     assert.equal(sheet.getCell("B9").value, 90);
     assert.equal(sheet.getCell("C9").value, "x");
@@ -1204,7 +1205,6 @@ describe("benchmark workbook generation", () => {
         },
       ],
       surveyAverage: [89, 79, 88, 78, 87, 77, 86, 76],
-      cohortOrganizationCount: 42,
     });
 
     const workbook = new ExcelJS.Workbook();
@@ -1212,7 +1212,11 @@ describe("benchmark workbook generation", () => {
     const sheet = workbook.getWorksheet("Workforce Benchmark Comparisons");
     assert.ok(sheet);
     assert.equal(sheet.getCell("A6").value, "PROGRAM: Test program");
-    assert.equal(sheet.getCell("B5").value, 42);
+    assert.equal(sheet.getCell("B5").value, null);
+    assert.equal(sheet.getCell("C5").value, null);
+    assert.equal(sheet.getCell("D5").value, "(15-49 US Employees)");
+    assert.equal(sheet.getCell("F5").value, "(50-249 US Employees)");
+    assert.equal(sheet.getCell("H5").value, "(250+ US Employees)");
     assert.deepEqual(
       ["B9", "C9", "D9", "E9", "F9", "G9", "H9", "I9"].map(
         (address) => sheet.getCell(address).value,

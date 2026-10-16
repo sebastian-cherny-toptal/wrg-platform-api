@@ -962,7 +962,6 @@ export async function createBenchmarkWorkbook(input: {
   headers: BenchmarkWorkbookHeader[];
   categories: BenchmarkWorkbookCategory[];
   surveyAverage: Array<number | string>;
-  cohortOrganizationCount?: number;
 }): Promise<Buffer> {
   const workbook = await loadTemplate("benchmark-comparison.xlsx");
   const groupSlots = {
@@ -986,9 +985,6 @@ export async function createBenchmarkWorkbook(input: {
   };
   fillTokens(workbook, (name) => {
     if (name === "PROGRAM_NAME") return input.metadata.programName;
-    if (name === "COHORT_ORGANIZATION_COUNT") {
-      return input.cohortOrganizationCount ?? "";
-    }
     const surveyAverageMatch =
       /^SURVEY_AVERAGE_(ALL_WINNER|ALL_NON_WINNER|SMALL_WINNER|SMALL_NON_WINNER|MEDIUM_WINNER|MEDIUM_NON_WINNER|LARGE_WINNER|LARGE_NON_WINNER)$/u.exec(
         name,
@@ -1043,11 +1039,9 @@ export async function createBenchmarkWorkbook(input: {
     for (const column of [firstColumn, firstColumn + 1]) {
       sheet.getCell(4, column).value = winner?.title ?? null;
       sheet.getCell(5, column).value =
-        pair === 0
-          ? (input.cohortOrganizationCount ?? null)
-          : winner?.employeeSize
-            ? `(${winner.employeeSize} Employees)`
-            : null;
+        pair > 0 && winner?.employeeSize
+          ? `(${winner.employeeSize} Employees)`
+          : null;
     }
     sheet.getCell(6, firstColumn).value = winner
       ? `${winner.title.replace(/\s+Employers$/iu, "")} Winners`

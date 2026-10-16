@@ -2945,7 +2945,6 @@ export class CompatibilityReportsService {
           : [],
       })),
       surveyAverage,
-      cohortOrganizationCount: report.data.cohortOrganizationCount,
     });
   }
 
