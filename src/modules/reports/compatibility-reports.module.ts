@@ -5482,10 +5482,10 @@ export class CompatibilityReportsService {
       return Object.keys(values).length > 0 ? [{ organizationId, values }] : [];
     });
     if (answers.length === 0) return null;
-    const groups = this.groups(context).filter(
-      (group) => group.organizationIds.length > 0,
-    );
-    const cohorts = groups.length
+    // Keep empty winner/non-winner partners so exports retain one pair per
+    // size category. Their unavailable results are rendered as x.
+    const groups = this.groups(context);
+    const cohorts = groups.some((group) => group.organizationIds.length > 0)
       ? groups.map((group) => ({
           title:
             group.size === "All"

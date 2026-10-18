@@ -868,6 +868,8 @@ describe("Benefits & Best Practices generation from EA", () => {
     const organizationIds = [...winnerIds, ...nonWinnerIds];
     let hasEmployerSurvey = true;
     let hasWinnerAssignments = true;
+    let includeNonWinners = true;
+    let includeSizeCategories = false;
     const prisma = {
       program: {
         findFirst: () => ({
@@ -876,7 +878,9 @@ describe("Benefits & Best Practices generation from EA", () => {
           name: "EA Only 2026",
           year: 2026,
           startsAt: null,
-          metadata: {} as Prisma.JsonValue,
+          metadata: (includeSizeCategories
+            ? { benchmarkCategories: ["Small"] }
+            : {}) as Prisma.JsonValue,
           project: { id: "project-1", name: "EA Only" },
         }),
       },
@@ -889,18 +893,20 @@ describe("Benefits & Best Practices generation from EA", () => {
           organization: { name: "Winner One" },
         }),
         findMany: () =>
-          organizationIds.map((organizationId, index) => ({
-            organizationId,
-            isWinner: hasWinnerAssignments
-              ? index < winnerIds.length
-                ? "Y"
-                : "N"
-              : null,
-            currentZohoCategory: "Small",
-            benchmarkCategory: "Small",
-            metrics: {},
-            organization: { metadata: {} },
-          })),
+          organizationIds
+            .filter((id) => includeNonWinners || winnerIds.includes(id))
+            .map((organizationId, index) => ({
+              organizationId,
+              isWinner: hasWinnerAssignments
+                ? index < winnerIds.length
+                  ? "Y"
+                  : "N"
+                : null,
+              currentZohoCategory: "Small",
+              benchmarkCategory: "Small",
+              metrics: {},
+              organization: { metadata: {} },
+            })),
       },
       survey: {
         findFirst: ({ where }: { where: { OR?: unknown[] } }) =>
@@ -969,6 +975,34 @@ describe("Benefits & Best Practices generation from EA", () => {
     assert.equal(sheet.getCell(funRow + 1, allWinners + 2).value, 1);
     assert.equal(sheet.getCell(funRow + 1, allNonWinners + 2).value, 0.2);
 
+    includeNonWinners = false;
+    includeSizeCategories = true;
+    const winnersOnlyReport = await service.employerBenchmark(principal, query);
+    assert.deepEqual(
+      winnersOnlyReport.data.tableHeaders.map(({ type }) => type),
+      ["All_Yes", "All_No", "Small_Yes", "Small_No"],
+      "Keep the Non-Winners column even when there are no non-winner organizations",
+    );
+    const winnersOnlyWorkbook = new ExcelJS.Workbook();
+    await winnersOnlyWorkbook.xlsx.load(
+      (await service.employerBenchmarkWorkbook(principal, query)) as never,
+    );
+    const winnersOnlySheet = winnersOnlyWorkbook.getWorksheet(
+      "Benefits & Best Practices",
+    );
+    assert.ok(winnersOnlySheet);
+    assert.equal(winnersOnlySheet.getCell("B6").value, "All Winners");
+    assert.equal(winnersOnlySheet.getCell("C6").value, "All Non-Winners");
+    assert.equal(winnersOnlySheet.getCell("D6").value, "Small Winners");
+    assert.equal(winnersOnlySheet.getCell("E6").value, "Small Non-Winners");
+    assert.equal(winnersOnlySheet.getCell("B4").value, "All Size Categories");
+    assert.equal(winnersOnlySheet.getCell("D4").value, "Small Employers");
+    assert.equal(winnersOnlySheet.getCell(funRow + 1, 3).value, "x");
+    assert.equal(winnersOnlySheet.getCell(funRow + 1, 4).value, 1);
+    assert.equal(winnersOnlySheet.getCell(funRow + 1, 5).value, "x");
+
+    includeNonWinners = true;
+    includeSizeCategories = false;
     hasWinnerAssignments = false;
     const unrankedReport = await service.employerBenchmark(principal, query);
     assert.deepEqual(unrankedReport.data.tableHeaders, [

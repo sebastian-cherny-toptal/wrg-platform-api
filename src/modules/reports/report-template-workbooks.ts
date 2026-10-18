@@ -964,36 +964,52 @@ export async function createBenchmarkWorkbook(input: {
   surveyAverage: Array<number | string>;
 }): Promise<Buffer> {
   const workbook = await loadTemplate("benchmark-comparison.xlsx");
-  const groupSlots = {
-    ALL_WINNER: 0,
-    ALL_NON_WINNER: 1,
-    SMALL_WINNER: 2,
-    SMALL_NON_WINNER: 3,
-    MEDIUM_WINNER: 4,
-    MEDIUM_NON_WINNER: 5,
-    LARGE_WINNER: 6,
-    LARGE_NON_WINNER: 7,
-  } as const;
-  type GroupToken = keyof typeof groupSlots;
-  const groupIndex = (token: GroupToken): number => groupSlots[token];
+  const sheet = workbook.getWorksheet("Workforce Benchmark Comparisons");
+  if (!sheet) throw new Error("Benchmark template has no worksheet");
+  const headerCount = input.headers.length;
+  const lastColumn = headerCount + 1;
+  // Repeat the final template pair for every configured cohort. Copy tokens
+  // before filling them so each column resolves its own values by position.
+  for (let column = 10; column <= lastColumn; column += 1) {
+    const sourceColumn = 8 + ((column - 2) % 2);
+    const width = sheet.getColumn(sourceColumn).width;
+    if (width !== undefined) sheet.getColumn(column).width = width;
+    for (let row = 1; row <= sheet.rowCount; row += 1) {
+      const source = sheet.getCell(row, sourceColumn);
+      const target = sheet.getCell(row, column);
+      target.style = structuredClone(source.style);
+      target.value = source.value;
+    }
+  }
+  if (lastColumn > 9) {
+    for (const merge of [...sheet.model.merges]) {
+      const match = /^([AB])(\d+):I(\d+)$/u.exec(merge);
+      if (!match || match[2] !== match[3]) continue;
+      sheet.unMergeCells(merge);
+      sheet.mergeCells(
+        `${match[1]}${match[2]}:${columnName(lastColumn)}${match[2]}`,
+      );
+    }
+    for (let column = 10; column < lastColumn; column += 2) {
+      for (const row of [3, 4, 5]) {
+        sheet.mergeCells(row, column, row, column + 1);
+      }
+    }
+  }
   const groupValue = (
     values: Array<number | string> | undefined,
-    token: GroupToken,
+    column: number,
   ): number | string => {
-    const index = groupIndex(token);
-    return index >= 0 ? (values?.[index] ?? "x") : "x";
+    return values?.[column - 2] ?? "x";
   };
-  fillTokens(workbook, (name) => {
+  fillTokens(workbook, (name, cell) => {
     if (name === "PROGRAM_NAME") return input.metadata.programName;
     const surveyAverageMatch =
       /^SURVEY_AVERAGE_(ALL_WINNER|ALL_NON_WINNER|SMALL_WINNER|SMALL_NON_WINNER|MEDIUM_WINNER|MEDIUM_NON_WINNER|LARGE_WINNER|LARGE_NON_WINNER)$/u.exec(
         name,
       );
     if (surveyAverageMatch?.[1]) {
-      return groupValue(
-        input.surveyAverage,
-        surveyAverageMatch[1] as GroupToken,
-      );
+      return groupValue(input.surveyAverage, cell.fullAddress.col);
     }
     const categoryMatch = /^CATEGORY_(\d+)_TITLE$/u.exec(name);
     if (categoryMatch) {
@@ -1012,7 +1028,7 @@ export async function createBenchmarkWorkbook(input: {
       );
     if (averageValueMatch) {
       const category = input.categories[Number(averageValueMatch[1]) - 1];
-      return groupValue(category?.values, averageValueMatch[2] as GroupToken);
+      return groupValue(category?.values, cell.fullAddress.col);
     }
     const questionMatch =
       /^CATEGORY_(\d+)_QUESTION_(\d+)_(TEXT|ALL_WINNER|ALL_NON_WINNER|SMALL_WINNER|SMALL_NON_WINNER|MEDIUM_WINNER|MEDIUM_NON_WINNER|LARGE_WINNER|LARGE_NON_WINNER)$/u.exec(
@@ -1024,14 +1040,10 @@ export async function createBenchmarkWorkbook(input: {
           Number(questionMatch[2]) - 1
         ];
       if (questionMatch[3] === "TEXT") return question?.text;
-      return groupValue(question?.values, questionMatch[3] as GroupToken);
+      return groupValue(question?.values, cell.fullAddress.col);
     }
     return null;
   });
-  const sheet = workbook.getWorksheet("Workforce Benchmark Comparisons");
-  if (!sheet) throw new Error("Benchmark template has no worksheet");
-  const headerCount = Math.min(input.headers.length, 8);
-  const lastColumn = headerCount + 1;
   for (let pair = 0; pair < Math.ceil(headerCount / 2); pair += 1) {
     const winner = input.headers[pair * 2];
     const nonWinner = input.headers[pair * 2 + 1];

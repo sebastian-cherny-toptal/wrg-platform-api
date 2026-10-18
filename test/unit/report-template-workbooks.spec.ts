@@ -1002,10 +1002,7 @@ describe("employee verbatim workbook generation", () => {
       assert.deepEqual(conditionalFormattingRanges(supplementary), [
         demographicTitle ? "A5:B154" : "A5:A154",
       ]);
-      assert.deepEqual(
-        conditionalFormattingRanges(emptySupplementary),
-        [],
-      );
+      assert.deepEqual(conditionalFormattingRanges(emptySupplementary), []);
       if (demographicTitle) {
         assert.equal(supplementary.getCell("B4").value, "Department");
         assert.equal(supplementary.getCell("B154").value, "Sales");
@@ -1116,6 +1113,79 @@ describe("employee verbatim workbook generation", () => {
 });
 
 describe("benchmark workbook generation", () => {
+  it("includes Major and Super values beyond the four template cohort pairs", async () => {
+    const sizes = ["All", "Small", "Medium", "Large", "Major", "Super"];
+    const questionValues = [90, "x", 91, 81, 92, 82, 93, 83, 94, 84, 95, "x"];
+    const averages = questionValues.map((value) =>
+      typeof value === "number" ? value - 1 : value,
+    );
+    const surveyAverage = questionValues.map((value) =>
+      typeof value === "number" ? value - 2 : value,
+    );
+    const buffer = await createBenchmarkWorkbook({
+      metadata: {
+        organizationName: "Test",
+        programName: "Money Management",
+        surveyDates: "2026",
+      },
+      headers: sizes.flatMap((size) =>
+        ["Yes", "No"].map((kind) => ({
+          title: size === "All" ? "All Size Categories" : `${size} Employers`,
+          type: `${size}_${kind}`,
+          ...(size === "Super" ? { employeeSize: "1,000 or more US" } : {}),
+        })),
+      ),
+      categories: [
+        {
+          title: "Core Employee Experience",
+          values: averages,
+          questions: [
+            { text: "I can do my best work", values: questionValues },
+          ],
+        },
+      ],
+      surveyAverage,
+    });
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer as never);
+    const sheet = workbook.getWorksheet("Workforce Benchmark Comparisons");
+    assert.ok(sheet);
+    assert.equal(sheet.columnCount, 13);
+    assert.deepEqual(
+      [2, 4, 6, 8, 10, 12].map((column) => sheet.getCell(4, column).value),
+      [
+        "All Size Categories",
+        "Small Employers",
+        "Medium Employers",
+        "Large Employers",
+        "Major Employers",
+        "Super Employers",
+      ],
+    );
+    assert.equal(sheet.getCell("L5").value, "(1,000 or more US Employees)");
+    assert.equal(sheet.getCell("L6").value, "Super Winners");
+    assert.equal(sheet.getCell("M6").value, "Super Non-Winners");
+    for (const [row, expected] of [
+      [9, questionValues],
+      [18, averages],
+      [104, surveyAverage],
+    ] as const) {
+      assert.deepEqual(
+        Array.from(
+          { length: 12 },
+          (_, index) => sheet.getCell(row, index + 2).value,
+        ),
+        expected,
+      );
+    }
+    assert.ok(sheet.model.merges.includes("B1:M1"));
+    assert.ok(sheet.model.merges.includes("A8:M8"));
+    assert.ok(sheet.model.merges.includes("L4:M4"));
+    assert.equal(sheet.pageSetup.printArea, "A1:M106");
+    assert.deepEqual(sheet.getCell("L9").style, sheet.getCell("H9").style);
+    assert.equal(sheet.getColumn("L").width, sheet.getColumn("H").width);
+  });
+
   it("removes unused benchmark-category columns", async () => {
     const buffer = await createBenchmarkWorkbook({
       metadata: {
