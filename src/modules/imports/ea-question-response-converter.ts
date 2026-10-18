@@ -5,6 +5,7 @@ import type {
 } from "./survey-definition.js";
 import { cellScalar } from "./xlsx-survey-importer.js";
 import { canonicalEaQuestionKey, eaEligibility } from "./ea-question-keys.js";
+import { benefitsQuestionBindingForKey } from "../reports/benefits-question-bindings.js";
 
 export interface EaQuestionResponseIssue {
   code:
@@ -108,7 +109,9 @@ export function convertEaQuestionResponseWorkbook(
   );
   for (const source of sources) {
     const canonical = canonicalEaQuestionKey(source.key);
+    const binding = benefitsQuestionBindingForKey(canonical);
     const numeric =
+      binding?.kind === "numeric" ||
       /NumberPaidHolidays|PctCostPaidByEmployerBenf|PctEmployeesWorkingRemote/u.test(
         canonical,
       );
@@ -127,13 +130,19 @@ export function convertEaQuestionResponseWorkbook(
       source.options.length === 2 &&
       source.options.some((o) => /^yes$/iu.test(o.label)) &&
       source.options.some((o) => /^no$/iu.test(o.label));
+    const single =
+      source.matrixItem !== undefined ||
+      /only ONE response/iu.test(source.instructions);
     const calculation = numeric
       ? "mean"
       : multiple
         ? "multi"
         : yesNo
           ? "yesNo"
-          : "choice";
+          : single
+            ? "choice"
+            : ((binding?.kind === "numeric" ? "mean" : binding?.kind) ??
+              "choice");
     if (!numeric && !source.options.length) {
       issues.push({
         code: "missing-question-key",
@@ -158,7 +167,9 @@ export function convertEaQuestionResponseWorkbook(
     const sourceColumn = source.matrixItem
       ? `${source.key}.${source.matrixItem}`
       : source.key;
-    const eligible = source.matrixItem ? undefined : eaEligibility(canonical);
+    const eligible = source.matrixItem
+      ? undefined
+      : (binding?.eligibleWhenYes ?? eaEligibility(canonical));
     const eligibleSource = eligible ? sourceKeys.get(eligible) : undefined;
     const configured: SurveyDefinitionQuestion = {
       dataLabel,

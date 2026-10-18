@@ -47,9 +47,19 @@ npm run convert:ea-question-response -- source.xlsx custom-definition.xlsx valid
 It retains custom quantitative questions and raw codes, splits matrix items,
 and excludes narrative/contact and supplementary non-report questions.
 Unknown or duplicate mappings are blocking conversion errors. The previously
-supplied Campaign and Ad Age QA sheets can also be uploaded: known regional
-question contracts are upgraded during parsing. Use a newly converted definition
-to include questions that the earlier converter omitted.
+supplied Campaign, Ad Age, and Automotive Dealership (AD) QA sheets can also be
+uploaded. Question keys and types are declared in the existing report bindings
+in `src/modules/reports/benefits-question-bindings.ts`, including additional PTO
+policies, bonuses, four-day weeks, and training and career
+development. These contracts apply across programs, captions, and workbook names.
+Report generation, Q&A normalization, and Question Response conversion reuse
+these same bindings. Numeric questions use the `mean` calculation. Explicit
+selection instructions and matrix structure take precedence during
+Question Response conversion. Unknown questions still require explicit mappings,
+and generated source mappings must match the program's EA export. The default
+report template continues to control which questions appear in a standard report.
+Use a newly converted definition to include questions that the earlier converter
+omitted.
 
 ## Validation and calculations
 

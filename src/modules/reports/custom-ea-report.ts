@@ -11,6 +11,7 @@ import {
   canonicalEaQuestionKey,
   eaEligibility,
 } from "../imports/ea-question-keys.js";
+import { benefitsQuestionBindingForKey } from "./benefits-question-bindings.js";
 
 export interface CustomEaReportDefinition {
   version: 2;
@@ -98,13 +99,15 @@ export function normalizeEmployerAssessmentDefinition(
   return definition.flatMap((question): SurveyDefinition => {
     const key = canonicalEaQuestionKey(question.dataLabel);
     const expected = standard.get(key);
+    const binding = benefitsQuestionBindingForKey(key);
     const numeric =
+      binding?.kind === "numeric" ||
       /NumberPaidHolidays|PctCostPaidByEmployerBenf|PctEmployeesWorkingRemote/u.test(
         key,
       );
     const extraMulti =
       /_(?:DEIInitiatives|Policies|Family|Wellness|WorkplacePerks)$/u.test(key);
-    if (!expected && !numeric && !extraMulti)
+    if (!expected && !numeric && !extraMulti && !binding)
       throw new Error(
         `EA question ${question.dataLabel}: add calculation and source_column in Questions for this custom question`,
       );
@@ -135,14 +138,10 @@ export function normalizeEmployerAssessmentDefinition(
       /_(?:PtoVacationSickPersonal|EligibilityHealthcareBene|NewHireEnrollHelthcreBenf|Conduct|FreqPer)$/u.test(
         key,
       );
-    const calculation = numeric
-      ? "mean"
-      : yesNo
-        ? "yesNo"
-        : choice
-          ? "choice"
-          : "multi";
-    const eligibility = eaEligibility(key);
+    const calculation =
+      (binding?.kind === "numeric" ? "mean" : binding?.kind) ??
+      (numeric ? "mean" : yesNo ? "yesNo" : choice ? "choice" : "multi");
+    const eligibility = binding?.eligibleWhenYes ?? eaEligibility(key);
     const eligibleSource = definition.find(
       (q) => canonicalEaQuestionKey(q.dataLabel) === eligibility,
     )?.dataLabel;
