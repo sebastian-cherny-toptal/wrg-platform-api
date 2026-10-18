@@ -14,6 +14,8 @@ export interface SurveyDefinitionQuestion {
     calculation: "yesNo" | "choice" | "multi" | "mean";
     sourceColumn: string;
     format: "number" | "percent";
+    /** Reusable catalogs may omit questions/answer columns absent from a program. */
+    missingSource?: "skip";
     groupKey?: string;
     groupLabel?: string;
     eligibleQuestion?: string;
@@ -147,6 +149,15 @@ export async function parseSurveyDefinition(
         `Questions row ${row.row}: source_column is required`,
       );
     const format = row.text("output_format");
+    const missingSource = row.text("missing_source");
+    if (missingSource && !["error", "skip"].includes(missingSource))
+      throw new BadRequestException(
+        `Questions row ${row.row}: missing_source must be error or skip`,
+      );
+    if (missingSource && !calculation)
+      throw new BadRequestException(
+        `Questions row ${row.row}: missing_source requires calculation`,
+      );
     if (calculation && !["number", "percent"].includes(format))
       throw new BadRequestException(
         `Questions row ${row.row}: output_format must be number or percent`,
@@ -177,6 +188,9 @@ export async function parseSurveyDefinition(
               >["calculation"],
               sourceColumn: row.text("source_column"),
               format: format as "number" | "percent",
+              ...(missingSource === "skip"
+                ? { missingSource: "skip" as const }
+                : {}),
               ...(row.text("group_key")
                 ? { groupKey: row.text("group_key") }
                 : {}),

@@ -1,5 +1,6 @@
 import { resolveCanonicalOrganization } from "./organization-identity.js";
 import { CompatibilityZohoService } from "../crm-sync/compatibility-zoho.module.js";
+import { loadDefaultEaTemplateDefinition } from "./ea-template-definition.js";
 import {
   customEaDefinitionFromMetadata,
   eaDefinitionMetadata,
@@ -1388,7 +1389,8 @@ export class HistoricalImportService {
   ): Promise<Buffer> {
     this.assertAccess(principal);
     return surveyDefinitionWorkbook(
-      await loadDefaultBenefitsBestPracticesDefinition(),
+      await loadDefaultEaTemplateDefinition(),
+      "EA",
     );
   }
 

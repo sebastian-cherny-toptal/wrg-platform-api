@@ -184,7 +184,7 @@ export function normalizeEmployerAssessmentDefinition(
 }
 
 function normalizedSource(value: string): string {
-  return normalized(value).replace(/"/gu, "'");
+  return normalized(value).replace(/"/gu, "'").replace(/\.$/u, "");
 }
 
 /** Only long answer headers under the same question key can be shortened. */
@@ -220,16 +220,34 @@ export function resolveEaSource(
   columns: readonly string[],
   definitionSources: readonly string[] = [],
 ): string | undefined {
-  const candidates = eaSourceCandidates(source, columns);
-  const candidate = candidates[0];
-  if (candidates.length !== 1 || candidate === undefined) return undefined;
-  // Never let distinct answer mappings silently consume one shortened column.
-  const competing = definitionSources.some(
-    (other) =>
-      normalizedSource(other) !== normalizedSource(source) &&
-      eaSourceCandidates(other, columns).includes(candidate),
-  );
-  return competing ? undefined : candidate;
+  return eaSourceResolver([source, ...definitionSources], columns)(source);
+}
+
+/** Resolve the whole catalog once, including collisions, rather than scanning it for every answer. */
+function eaSourceResolver(
+  sources: readonly string[],
+  columns: readonly string[],
+) {
+  const candidates = new Map<string, string[]>();
+  const owners = new Map<string, Set<string>>();
+  for (const source of new Set(sources)) {
+    const matches = eaSourceCandidates(source, columns);
+    candidates.set(source, matches);
+    for (const column of matches) {
+      const claims = owners.get(column) ?? new Set<string>();
+      claims.add(normalizedSource(source));
+      owners.set(column, claims);
+    }
+  }
+  return (source: string): string | undefined => {
+    const matches = candidates.get(source) ?? [];
+    const candidate = matches[0];
+    return matches.length === 1 &&
+      candidate !== undefined &&
+      owners.get(candidate)?.size === 1
+      ? candidate
+      : undefined;
+  };
 }
 
 function eaQuestionSources(question: SurveyDefinition[number]): string[] {
@@ -244,6 +262,36 @@ function eaQuestionSources(question: SurveyDefinition[number]): string[] {
       : [config.sourceColumn];
   if (config.eligibleQuestion) sources.push(config.eligibleQuestion);
   return [...new Set(sources)];
+}
+
+/** Skip only explicitly optional missing sources; keep ambiguous sources for validation. */
+export function applicableEaDefinition(
+  definition: SurveyDefinition,
+  columns: readonly string[],
+): SurveyDefinition {
+  const exists = (source: string) =>
+    eaSourceCandidates(source, columns).length > 0;
+  return definition.flatMap((question): SurveyDefinition => {
+    const config = question.ea;
+    if (config?.missingSource !== "skip") return [question];
+    // A reusable catalog's parent gate may not be asked in this program at all.
+    // Retain the gate whenever its column exists, even when all its answers are blank.
+    const ea = { ...config };
+    if (ea.eligibleQuestion && !exists(ea.eligibleQuestion)) {
+      delete ea.eligibleQuestion;
+      delete ea.eligibleValue;
+    }
+    if (
+      config.calculation === "multi" ||
+      (config.calculation === "mean" && question.options?.length)
+    ) {
+      const options = (question.options ?? []).filter((option) =>
+        exists(option.SourceColumn ?? config.sourceColumn),
+      );
+      return options.length ? [{ ...question, ea, options }] : [];
+    }
+    return exists(config.sourceColumn) ? [{ ...question, ea }] : [];
+  });
 }
 
 export function validateCustomEaDefinition(definition: SurveyDefinition): void {
@@ -277,9 +325,10 @@ export function validateCustomEaSources(
 ): string[] {
   const issues: string[] = [];
   const definitionSources = definition.flatMap(eaQuestionSources);
-  for (const question of definition) {
+  const resolve = eaSourceResolver(definitionSources, columns);
+  for (const question of applicableEaDefinition(definition, columns)) {
     for (const source of eaQuestionSources(question)) {
-      if (resolveEaSource(source, columns, definitionSources)) continue;
+      if (resolve(source)) continue;
       const ambiguous = eaSourceCandidates(source, columns).length > 0;
       issues.push(
         `EA question ${question.dataLabel}: source column ${source} ${ambiguous ? "is ambiguous" : "was not found"}. Correct source_column in the Questions or Answers sheet to match the EA export.`,
@@ -327,12 +376,9 @@ export function generateCustomEaReport(input: {
   ];
   const sourceMap = new Map<string, string | undefined>();
   const definitionSources = input.definition.flatMap(eaQuestionSources);
+  const resolve = eaSourceResolver(definitionSources, columns);
   const read = (values: Record<string, unknown>, source: string): unknown => {
-    if (!sourceMap.has(source))
-      sourceMap.set(
-        source,
-        resolveEaSource(source, columns, definitionSources),
-      );
+    if (!sourceMap.has(source)) sourceMap.set(source, resolve(source));
     const resolved = sourceMap.get(source);
     return resolved ? values[resolved] : undefined;
   };
@@ -345,9 +391,10 @@ export function generateCustomEaReport(input: {
   );
   const sections: BenefitsBestPracticesSnapshot["sections"] = [];
   const groups = new Map<string, BenefitsBestPracticesQuestionSnapshot>();
-  for (const question of input.definition.toSorted(
-    (a, b) => (a.position ?? 0) - (b.position ?? 0),
-  )) {
+  for (const question of applicableEaDefinition(
+    input.definition,
+    columns,
+  ).toSorted((a, b) => (a.position ?? 0) - (b.position ?? 0))) {
     const config = question.ea;
     if (!config)
       throw new Error(`Missing calculation for ${question.dataLabel}`);

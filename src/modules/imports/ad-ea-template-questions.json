@@ -1,0 +1,717 @@
+[
+  {
+    "dataLabel": "q_OrganizationalBenefits_NumberPaidHolidays",
+    "caption": "How many employer-paid holidays do you offer each year?",
+    "position": 1,
+    "categoryLabel": "Dealership Benefits",
+    "options": [
+      {
+        "Id": "How many employer-paid holidays do you offer each year?",
+        "Caption": "How many employer-paid holidays do you offer each year?",
+        "Position": 1
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_OrganizationalBenefits_PtoVacationSickPersonal",
+    "caption": "Does your dealership provide time off as PTO (one bank of time) or as vacation/sick/personal days (separate banks)?",
+    "position": 2,
+    "categoryLabel": "Dealership Benefits",
+    "options": [
+      {
+        "Id": "PTO (one bank of time)",
+        "Caption": "PTO (one bank of time)",
+        "Position": 1
+      },
+      {
+        "Id": "Vacation/sick/personal days (separate banks)",
+        "Caption": "Vacation/sick/personal days (separate banks)",
+        "Position": 2
+      },
+      {
+        "Id": "Our dealership does not offer a formal time off policy",
+        "Caption": "Our dealership does not offer a formal time off policy",
+        "Position": 3
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_OrganizationalBenefits_AdditionalPtoPolicies",
+    "caption": "Please select any of the following additional PTO policies or programs that apply to your dealership:",
+    "position": 3,
+    "categoryLabel": "Dealership Benefits",
+    "options": [
+      {
+        "Id": "Employees can use their sick days to care for their dependents",
+        "Caption": "Employees can use their sick days to care for their dependents",
+        "Position": 1
+      },
+      {
+        "Id": "Employees can exchange their unused time off for pay",
+        "Caption": "Employees can exchange their unused time off for pay",
+        "Position": 2
+      },
+      {
+        "Id": "Employees can donate their unused time off/personal/sick days to fellow employees",
+        "Caption": "Employees can donate their unused time off/personal/sick days to fellow employees",
+        "Position": 3
+      },
+      {
+        "Id": "My dealership does not provide any additional absence policies",
+        "Caption": "My dealership does not provide any additional absence policies",
+        "Position": 4
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_OrganizationalBenefits_AdoptionBirthBenefits",
+    "caption": "Other than what is required by the Family and Medical Leave Act (FMLA) or other laws, which benefits do you offer for the adoption/birth of a child? (Select all that apply)",
+    "position": 4,
+    "categoryLabel": "Dealership Benefits",
+    "options": [
+      {
+        "Id": "Fully or partially paid maternity leave",
+        "Caption": "Fully or partially paid maternity leave",
+        "Position": 1
+      },
+      {
+        "Id": "Unpaid maternity leave",
+        "Caption": "Unpaid maternity leave",
+        "Position": 2
+      },
+      {
+        "Id": "Fully or partially paid paternity leave",
+        "Caption": "Fully or partially paid paternity leave",
+        "Position": 3
+      },
+      {
+        "Id": "Unpaid paternity leave",
+        "Caption": "Unpaid paternity leave",
+        "Position": 4
+      },
+      {
+        "Id": "Other",
+        "Caption": "Other",
+        "Position": 5
+      },
+      {
+        "Id": "Our dealership does not offer other benefits for the adoption/birth of a child",
+        "Caption": "Our dealership does not offer other benefits for the adoption/birth of a child",
+        "Position": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_OrganizationalBenefits_EligibilityHealthcareBene",
+    "caption": "Does your dealership offer part-time employees (working less than 32 hours a week) healthcare benefits?",
+    "position": 5,
+    "categoryLabel": "Dealership Benefits",
+    "options": [
+      {
+        "Id": "Yes",
+        "Caption": "Yes",
+        "Position": 1
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_OrganizationalBenefits_Benefits",
+    "caption": "Please put a checkmark next to each benefit provided by your dealership.",
+    "position": 6,
+    "categoryLabel": "Dealership Benefits",
+    "options": [
+      {
+        "Id": "Medical coverage (employee)",
+        "Caption": "Medical coverage (employee)",
+        "Position": 1
+      },
+      {
+        "Id": "Medical coverage (dependents)",
+        "Caption": "Medical coverage (dependents)",
+        "Position": 2
+      },
+      {
+        "Id": "Dental coverage (employee)",
+        "Caption": "Dental coverage (employee)",
+        "Position": 3
+      },
+      {
+        "Id": "Dental coverage (dependents)",
+        "Caption": "Dental coverage (dependents)",
+        "Position": 4
+      },
+      {
+        "Id": "Vision coverage (employee)",
+        "Caption": "Vision coverage (employee)",
+        "Position": 5
+      },
+      {
+        "Id": "Vision coverage (dependents)",
+        "Caption": "Vision coverage (dependents)",
+        "Position": 6
+      },
+      {
+        "Id": "Long-term care insurance (employee)",
+        "Caption": "Long-term care insurance (employee)",
+        "Position": 7
+      },
+      {
+        "Id": "Long-term care insurance (dependents)",
+        "Caption": "Long-term care insurance (dependents)",
+        "Position": 8
+      },
+      {
+        "Id": "Life insurance (employee)",
+        "Caption": "Life insurance (employee)",
+        "Position": 9
+      },
+      {
+        "Id": "Life insurance (dependents)",
+        "Caption": "Life insurance (dependents)",
+        "Position": 10
+      },
+      {
+        "Id": "Long-term disability benefits",
+        "Caption": "Long-term disability benefits",
+        "Position": 11
+      },
+      {
+        "Id": "Short-term disability benefits",
+        "Caption": "Short-term disability benefits",
+        "Position": 12
+      },
+      {
+        "Id": "Flexible Spending Accounts",
+        "Caption": "Flexible Spending Accounts",
+        "Position": 13
+      },
+      {
+        "Id": "Health Savings Accounts",
+        "Caption": "Health Savings Accounts",
+        "Position": 14
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_OrganizationalBenefits_BonusIncentive",
+    "caption": "Are there any bonus or incentive programs at your dealership currently offered to employees?",
+    "position": 7,
+    "categoryLabel": "Dealership Benefits",
+    "options": [
+      {
+        "Id": "Yes",
+        "Caption": "Yes",
+        "Position": 1
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_OrganizationalBenefits_BonusNewHire",
+    "caption": "Can employees receive bonuses if they provide referrals for new hires?",
+    "position": 8,
+    "categoryLabel": "Dealership Benefits",
+    "options": [
+      {
+        "Id": "Yes",
+        "Caption": "Yes",
+        "Position": 1
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_OrganizationalBenefits_ThirdPartyResources",
+    "caption": "Does your dealership provide employees with third-party resources to receive help with personal issues (e.g., EAP)?",
+    "position": 9,
+    "categoryLabel": "Dealership Benefits",
+    "options": [
+      {
+        "Id": "Yes",
+        "Caption": "Yes",
+        "Position": 1
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_OrganizationalBenefits_RetirementPlan",
+    "caption": "Does your dealership offer an employee retirement plan? (Select all that apply.)",
+    "position": 10,
+    "categoryLabel": "Dealership Benefits",
+    "options": [
+      {
+        "Id": "401(k), 403(b) or 457 Pension Plan (SIMPLE, SEP and/or SARSEP)",
+        "Caption": "401(k), 403(b) or 457 Pension Plan (SIMPLE, SEP and/or SARSEP)",
+        "Position": 1
+      },
+      {
+        "Id": "Defined benefit plan",
+        "Caption": "Defined benefit plan",
+        "Position": 2
+      },
+      {
+        "Id": "Formal profit-sharing plan",
+        "Caption": "Formal profit-sharing plan",
+        "Position": 3
+      },
+      {
+        "Id": "Employee Stock Ownership Plan (ESOP)",
+        "Caption": "Employee Stock Ownership Plan (ESOP)",
+        "Position": 4
+      },
+      {
+        "Id": "Employer match or other formal contribution to the retirement plan",
+        "Caption": "Employer match or other formal contribution to the retirement plan",
+        "Position": 5
+      },
+      {
+        "Id": "Other, please describe:",
+        "Caption": "Other, please describe:",
+        "Position": 6
+      },
+      {
+        "Id": "My dealership does not offer a retirement plan",
+        "Caption": "My dealership does not offer a retirement plan",
+        "Position": 7
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_OrganizationalBenefits_PctEmployeesWorkingRemote",
+    "caption": "What percentage of your employee population is currently remote (on a full-time and part-time basis)?",
+    "position": 11,
+    "categoryLabel": "Dealership Benefits",
+    "options": [
+      {
+        "Id": "What percentage of your employee population is currently remote (on a full-time and part-time basis)?",
+        "Caption": "What percentage of your employee population is currently remote (on a full-time and part-time basis)?",
+        "Position": 1
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_GivingBackandWorkplaceWellness_GivingBack",
+    "caption": "In what ways does your dealership give back to the community? (Select all that apply)",
+    "position": 12,
+    "categoryLabel": "Giving Back And Workplace Wellness",
+    "options": [
+      {
+        "Id": "We've implemented an employee volunteer program",
+        "Caption": "We've implemented an employee volunteer program",
+        "Position": 1
+      },
+      {
+        "Id": "We allow employees to participate in community service during normal business hours without losing pay or using vacation time",
+        "Caption": "We allow employees to participate in community service during normal business hours without losing pay or using vacation time",
+        "Position": 2
+      },
+      {
+        "Id": "We host drives (food, clothing, toys)",
+        "Caption": "We host drives (food, clothing, toys)",
+        "Position": 3
+      },
+      {
+        "Id": "We match employees' charitable donations",
+        "Caption": "We match employees' charitable donations",
+        "Position": 4
+      },
+      {
+        "Id": "We make financial donations to local charities or nonprofits",
+        "Caption": "We make financial donations to local charities or nonprofits",
+        "Position": 5
+      },
+      {
+        "Id": "We sponsor local sports teams or youth organizations",
+        "Caption": "We sponsor local sports teams or youth organizations",
+        "Position": 6
+      },
+      {
+        "Id": "We sponsor community events or festivals",
+        "Caption": "We sponsor community events or festivals",
+        "Position": 7
+      },
+      {
+        "Id": "We provide vehicle donations or loaner vehicles for community organizations",
+        "Caption": "We provide vehicle donations or loaner vehicles for community organizations",
+        "Position": 8
+      },
+      {
+        "Id": "We partner with local schools or educational programs",
+        "Caption": "We partner with local schools or educational programs",
+        "Position": 9
+      },
+      {
+        "Id": "We offer scholarships for local students",
+        "Caption": "We offer scholarships for local students",
+        "Position": 10
+      },
+      {
+        "Id": "We support programs for veterans or military families",
+        "Caption": "We support programs for veterans or military families",
+        "Position": 11
+      },
+      {
+        "Id": "We host fundraising events at our dealership",
+        "Caption": "We host fundraising events at our dealership",
+        "Position": 12
+      },
+      {
+        "Id": "We participate in environmental or sustainability initiatives",
+        "Caption": "We participate in environmental or sustainability initiatives",
+        "Position": 13
+      },
+      {
+        "Id": "Other, please describe:",
+        "Caption": "Other, please describe:",
+        "Position": 14
+      },
+      {
+        "Id": "Our dealership does not formally support community initiatives",
+        "Caption": "Our dealership does not formally support community initiatives",
+        "Position": 15
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_GivingBackandWorkplaceWellness_SupportHealthandW",
+    "caption": "Does your dealership support health and wellness via any of the following? (Select all that apply)",
+    "position": 13,
+    "categoryLabel": "Giving Back And Workplace Wellness",
+    "options": [
+      {
+        "Id": "Fitness and/or wellness programs within the workplace",
+        "Caption": "Fitness and/or wellness programs within the workplace",
+        "Position": 1
+      },
+      {
+        "Id": "Flexible work hours",
+        "Caption": "Flexible work hours",
+        "Position": 2
+      },
+      {
+        "Id": "Furniture that is ergonomically correct and/or encourages movement",
+        "Caption": "Furniture that is ergonomically correct and/or encourages movement",
+        "Position": 3
+      },
+      {
+        "Id": "Health club membership or fitness/wellness program reimbursement",
+        "Caption": "Health club membership or fitness/wellness program reimbursement",
+        "Position": 4
+      },
+      {
+        "Id": "Snacks, meals, meal stipends, and/or beverages",
+        "Caption": "Snacks, meals, meal stipends, and/or beverages",
+        "Position": 5
+      },
+      {
+        "Id": "Telecommuting",
+        "Caption": "Telecommuting",
+        "Position": 6
+      },
+      {
+        "Id": "Workplace facilities to promote exercise and fitness",
+        "Caption": "Workplace facilities to promote exercise and fitness",
+        "Position": 7
+      },
+      {
+        "Id": "Other, please describe:",
+        "Caption": "Other, please describe:",
+        "Position": 8
+      },
+      {
+        "Id": "Our dealership does not promote formal health and wellness initiatives",
+        "Caption": "Our dealership does not promote formal health and wellness initiatives",
+        "Position": 9
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_GivingBackandWorkplaceWellness_FamilyFriendlyBen",
+    "caption": "Does your dealership provide family-friendly support through any of the following? (Select all that apply)",
+    "position": 14,
+    "categoryLabel": "Giving Back And Workplace Wellness",
+    "options": [
+      {
+        "Id": "Adoption benefits, including information and referral services, paid time off, legal, counseling and agency fees, court costs, travel, and lodging, etc.",
+        "Caption": "Adoption benefits, including information and referral services, paid time off, legal, counseling and agency fees, court costs, travel, and lodging, etc.",
+        "Position": 1
+      },
+      {
+        "Id": "Time off (paid or sick time) for taking family members to medical appointments",
+        "Caption": "Time off (paid or sick time) for taking family members to medical appointments",
+        "Position": 2
+      },
+      {
+        "Id": "Marriage and family counseling",
+        "Caption": "Marriage and family counseling",
+        "Position": 3
+      },
+      {
+        "Id": "Special paid time off granted for employees' wedding anniversaries",
+        "Caption": "Special paid time off granted for employees' wedding anniversaries",
+        "Position": 4
+      },
+      {
+        "Id": "Lactation facilities, lactation support programs, and/or breastmilk shipping during business travel for breastfeeding mothers",
+        "Caption": "Lactation facilities, lactation support programs, and/or breastmilk shipping during business travel for breastfeeding mothers",
+        "Position": 5
+      },
+      {
+        "Id": "All or part of employees' full- or part-time childcare paid, either on a regular basis or at pre- arranged times.",
+        "Caption": "All or part of employees' full- or part-time childcare paid, either on a regular basis or at pre- arranged times.",
+        "Position": 6
+      },
+      {
+        "Id": "Schedule flexibility to attend children’s school events (sports, music, other activities).",
+        "Caption": "Schedule flexibility to attend children’s school events (sports, music, other activities).",
+        "Position": 7
+      },
+      {
+        "Id": "Employees’ family members are invited to workplace celebrations or holiday events",
+        "Caption": "Employees’ family members are invited to workplace celebrations or holiday events",
+        "Position": 8
+      },
+      {
+        "Id": "Tickets to sporting events or other entertainment events, museums, or amusement parks",
+        "Caption": "Tickets to sporting events or other entertainment events, museums, or amusement parks",
+        "Position": 9
+      },
+      {
+        "Id": "Other, please describe:",
+        "Caption": "Other, please describe:",
+        "Position": 10
+      },
+      {
+        "Id": "My dealership does not provide any family-friendly support",
+        "Caption": "My dealership does not provide any family-friendly support",
+        "Position": 11
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_GivingBackandWorkplaceWellness_WLBBenefits",
+    "caption": "Does your dealership promote a healthy work/life balance through any of the following? (Select all that apply)",
+    "position": 15,
+    "categoryLabel": "Giving Back And Workplace Wellness",
+    "options": [
+      {
+        "Id": "Employee concierge services (e.g., car washes; chair massages; laundry service; etc.)",
+        "Caption": "Employee concierge services (e.g., car washes; chair massages; laundry service; etc.)",
+        "Position": 1
+      },
+      {
+        "Id": "Employees are encouraged to limit checking email and voicemail outside of work hours",
+        "Caption": "Employees are encouraged to limit checking email and voicemail outside of work hours",
+        "Position": 2
+      },
+      {
+        "Id": "Employees are not permitted to work while on vacation.",
+        "Caption": "Employees are not permitted to work while on vacation.",
+        "Position": 3
+      },
+      {
+        "Id": "Employees are required to take time off",
+        "Caption": "Employees are required to take time off",
+        "Position": 4
+      },
+      {
+        "Id": "Financial planning workshops, seminars, or classes",
+        "Caption": "Financial planning workshops, seminars, or classes",
+        "Position": 5
+      },
+      {
+        "Id": "Meetings and staff-only events are not scheduled after hours",
+        "Caption": "Meetings and staff-only events are not scheduled after hours",
+        "Position": 6
+      },
+      {
+        "Id": "No mandatory overtime (or kept to a strict pre-approved minimum).",
+        "Caption": "No mandatory overtime (or kept to a strict pre-approved minimum).",
+        "Position": 7
+      },
+      {
+        "Id": "Personal development and/or stress management workshops, seminars, or classes",
+        "Caption": "Personal development and/or stress management workshops, seminars, or classes",
+        "Position": 8
+      },
+      {
+        "Id": "Sabbatical leave",
+        "Caption": "Sabbatical leave",
+        "Position": 9
+      },
+      {
+        "Id": "Time management workshops, seminars, or classes",
+        "Caption": "Time management workshops, seminars, or classes",
+        "Position": 10
+      },
+      {
+        "Id": "Other, please describe:",
+        "Caption": "Other, please describe:",
+        "Position": 11
+      },
+      {
+        "Id": "My dealership does not promote a work/life balance",
+        "Caption": "My dealership does not promote a work/life balance",
+        "Position": 12
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_GivingBackandWorkplaceWellness_FourDayWeek",
+    "caption": "Does your dealership currently offer three- or four-day work weeks?",
+    "position": 16,
+    "categoryLabel": "Giving Back And Workplace Wellness",
+    "options": [
+      {
+        "Id": "Yes",
+        "Caption": "Yes",
+        "Position": 1
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_TrainingandCareerDevelopment_EmplyProfDevCarerAd",
+    "caption": "Does your dealership offer formal employee professional development and/or career advancement programs?",
+    "position": 17,
+    "categoryLabel": "Training And Career Development",
+    "options": [
+      {
+        "Id": "Yes",
+        "Caption": "Yes",
+        "Position": 1
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_TrainingandCareerDevelopment_Leaders",
+    "caption": "Does your dealership have formal programs in the following areas? (Select all that apply)",
+    "position": 18,
+    "categoryLabel": "Training And Career Development",
+    "options": [
+      {
+        "Id": "Structured mentorship program",
+        "Caption": "Structured mentorship program",
+        "Position": 1
+      },
+      {
+        "Id": "Leadership training for managers",
+        "Caption": "Leadership training for managers",
+        "Position": 2
+      },
+      {
+        "Id": "Leadership workshops or other formal leadership education",
+        "Caption": "Leadership workshops or other formal leadership education",
+        "Position": 3
+      },
+      {
+        "Id": "Career development planning for employees",
+        "Caption": "Career development planning for employees",
+        "Position": 4
+      },
+      {
+        "Id": "Succession planning",
+        "Caption": "Succession planning",
+        "Position": 5
+      },
+      {
+        "Id": "Internal promotion track/pathway",
+        "Caption": "Internal promotion track/pathway",
+        "Position": 6
+      },
+      {
+        "Id": "Job shadowing and/or cross-training opportunities",
+        "Caption": "Job shadowing and/or cross-training opportunities",
+        "Position": 7
+      },
+      {
+        "Id": "Tuition reimbursement for leadership courses or professional development",
+        "Caption": "Tuition reimbursement for leadership courses or professional development",
+        "Position": 8
+      },
+      {
+        "Id": "Regular performance reviews with growth discussions",
+        "Caption": "Regular performance reviews with growth discussions",
+        "Position": 9
+      },
+      {
+        "Id": "Management trainee or leadership development program",
+        "Caption": "Management trainee or leadership development program",
+        "Position": 10
+      },
+      {
+        "Id": "External leadership courses or conferences (paid by dealership)",
+        "Caption": "External leadership courses or conferences (paid by dealership)",
+        "Position": 11
+      },
+      {
+        "Id": "Internal \"lunch and learn\" or professional development sessions",
+        "Caption": "Internal \"lunch and learn\" or professional development sessions",
+        "Position": 12
+      },
+      {
+        "Id": "Support of leadership roles within volunteer organizations outside of your dealership",
+        "Caption": "Support of leadership roles within volunteer organizations outside of your dealership",
+        "Position": 13
+      },
+      {
+        "Id": "Other, please describe:",
+        "Caption": "Other, please describe:",
+        "Position": 14
+      },
+      {
+        "Id": "My dealership does not offer formal programs in these areas",
+        "Caption": "My dealership does not offer formal programs in these areas",
+        "Position": 15
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_TrainingandCareerDevelopment_Tuition",
+    "caption": "What types of tuition reimbursement and/or assistance does your dealership offer? (Select all that apply.)",
+    "position": 19,
+    "categoryLabel": "Training And Career Development",
+    "options": [
+      {
+        "Id": "Advanced or post-graduate degree",
+        "Caption": "Advanced or post-graduate degree",
+        "Position": 1
+      },
+      {
+        "Id": "Business education workshops and/or conferences",
+        "Caption": "Business education workshops and/or conferences",
+        "Position": 2
+      },
+      {
+        "Id": "Professional certifications",
+        "Caption": "Professional certifications",
+        "Position": 3
+      },
+      {
+        "Id": "Work-related courses",
+        "Caption": "Work-related courses",
+        "Position": 4
+      },
+      {
+        "Id": "Other, please describe:",
+        "Caption": "Other, please describe:",
+        "Position": 5
+      },
+      {
+        "Id": "My dealership does not offer tuition reimbursement and/or assistance",
+        "Caption": "My dealership does not offer tuition reimbursement and/or assistance",
+        "Position": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_TrainingandCareerDevelopment_RecognizingAchievem",
+    "caption": "Does your dealership have a structured system for recognizing achievements, attendance, or safety?",
+    "position": 20,
+    "categoryLabel": "Training And Career Development",
+    "options": [
+      {
+        "Id": "Yes",
+        "Caption": "Yes",
+        "Position": 1
+      }
+    ]
+  }
+]

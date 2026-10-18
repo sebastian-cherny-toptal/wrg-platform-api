@@ -14,18 +14,19 @@ Existing standard label templates need no extra columns.
 
 For custom reports, every Questions row includes:
 
-| Column                             | Meaning                                                             |
-| ---------------------------------- | ------------------------------------------------------------------- |
-| question_key                       | Unique report question key; matrix item keys must be unique.        |
-| question_label                     | Display wording.                                                    |
-| category                           | Report section.                                                     |
-| display_order                      | Presentation order, independent of raw codes.                       |
-| calculation                        | `yesNo`, `choice`, `multi`, or `mean`.                              |
-| source_column                      | EA export column used by scalar questions.                          |
-| output_format                      | `number` or `percent`; percentages use 0–100 values.                |
-| group_key                          | Optional shared parent question key for matrix items.               |
-| group_label                        | Optional item heading within that parent.                           |
-| eligible_question / eligible_value | Optional EA column and raw code restricting eligible organizations. |
+| Column                             | Meaning                                                                       |
+| ---------------------------------- | ----------------------------------------------------------------------------- |
+| question_key                       | Unique report question key; matrix item keys must be unique.                  |
+| question_label                     | Display wording.                                                              |
+| category                           | Report section.                                                               |
+| display_order                      | Presentation order, independent of raw codes.                                 |
+| calculation                        | `yesNo`, `choice`, `multi`, or `mean`.                                        |
+| source_column                      | EA export column used by scalar questions.                                    |
+| output_format                      | `number` or `percent`; percentages use 0–100 values.                          |
+| group_key                          | Optional shared parent question key for matrix items.                         |
+| group_label                        | Optional item heading within that parent.                                     |
+| eligible_question / eligible_value | Optional EA column and raw code restricting eligible organizations.           |
+| missing_source                     | `skip` for a reusable catalog; blank or `error` requires every mapped source. |
 
 Answers uses the existing `question_key`, `raw_answer`, `answer_label`, and
 `display_order` columns, with an additional `source_column` for multi-select or
@@ -79,6 +80,24 @@ percentages use the full eligible cohort, preserving current behavior. Numeric
 means include finite values, including zero; holiday means are not limited to
 1–25. A nonblank free-text Other answer counts as selected. Missing calculations
 display `x`, as do cohorts with fewer than five available employer assessments.
+
+The default downloadable EA template combines the 38 legacy report questions
+with the nine additional AD questions and the AD answer variants. It includes
+all calculation and source mapping columns. It does not change the default
+report layout for programs that have not uploaded a custom definition.
+EA downloads omit `question_type` and `score`; EA report behavior is controlled
+by `calculation`. Older uploads containing these columns remain accepted.
+EFS templates retain both columns because EFS processing uses them.
+
+Default template rows use `missing_source = skip`. Questions whose source columns
+are absent from a program are ignored, and absent multi-select/numeric answer
+columns are omitted rather than displayed as zero. Sections are created only
+for applicable questions, so extra catalog questions do not create empty
+sections. An eligibility condition on these optional rows applies only when its
+parent question column exists in the program; blank individual answers never
+disable the condition. Ambiguous sources still block uploads. Remove `skip` or
+use `error` to require a particular question and all its mapped answer columns.
+Custom templates without this column retain their existing strict validation.
 
 Custom uploads replace the saved definition atomically. Removed questions are
 removed from the report. Download returns only that saved custom definition,

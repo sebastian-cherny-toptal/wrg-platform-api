@@ -1,5 +1,6 @@
 import {
   ArrayMaxSize,
+  ArrayNotEmpty,
   ArrayUnique,
   IsArray,
   IsEmail,
@@ -69,6 +70,16 @@ class ClientLoginDto {
   @IsOptional()
   @IsEmail()
   userEmail?: string;
+}
+
+class HardRemoveDisabledUsersDto {
+  @ApiProperty({ type: [String] })
+  @IsArray()
+  @ArrayNotEmpty()
+  @ArrayUnique()
+  @IsString({ each: true })
+  @MinLength(1, { each: true })
+  userIds!: string[];
 }
 
 class CreateUserDto {
@@ -1716,6 +1727,35 @@ export class UsersService {
     };
   }
 
+  async hardRemoveDisabledUsers(
+    references: string[],
+    principal: Principal,
+  ): Promise<{ success: true; removedCount: number }> {
+    const userIds = [...new Set(references)];
+    if (!userIds.length) {
+      throw new BadRequestException("Select at least one disabled user");
+    }
+    return this.prisma.$transaction(async (transaction) => {
+      const result = await transaction.user.deleteMany({
+        where: {
+          OR: [
+            { id: { in: userIds.filter(isUuid) } },
+            { legacyId: { in: userIds } },
+          ],
+          status: "DISABLED",
+          id: { not: principal.sub },
+          roles: { none: { role: { key: "super_admin" } } },
+        },
+      });
+      if (result.count !== userIds.length) {
+        throw new ConflictException(
+          "No users were removed. Refresh the list: all selected users must still be disabled and cannot include your own account or a Super Admin.",
+        );
+      }
+      return { success: true, removedCount: result.count };
+    });
+  }
+
   async restore(reference: string): Promise<RestoreUserResponse> {
     const target = await this.prisma.user.findFirst({
       where: isUuid(reference) ? { id: reference } : { legacyId: reference },
@@ -1842,6 +1882,19 @@ export class UsersController {
   @ApiOkResponse({ description: "The disabled user was restored." })
   restore(@Param("userId") userId: string): Promise<RestoreUserResponse> {
     return this.users.restore(userId);
+  }
+
+  @Post("hard-remove-disabled")
+  @HttpCode(200)
+  @UseGuards(JwtAuthGuard, AdminRoleGuard)
+  @ApiOkResponse({
+    description: "The selected disabled users were permanently removed.",
+  })
+  hardRemoveDisabledUsers(
+    @BodyDto(HardRemoveDisabledUsersDto) body: HardRemoveDisabledUsersDto,
+    @CurrentUser() principal: Principal,
+  ) {
+    return this.users.hardRemoveDisabledUsers(body.userIds, principal);
   }
 
   @Delete("delete/:userId")

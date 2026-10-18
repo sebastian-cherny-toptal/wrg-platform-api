@@ -1,9 +1,4 @@
-import {
-  Injectable,
-  Module,
-  RequestMethod,
-  VersioningType,
-} from "@nestjs/common";
+import { Injectable, Module, VersioningType } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { JwtModule, JwtService } from "@nestjs/jwt";
 import { PassportModule, PassportStrategy } from "@nestjs/passport";
@@ -14,6 +9,7 @@ import {
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { ExtractJwt, Strategy } from "passport-jwt";
+import { nativeCompatibilityRoutes } from "../../src/config/native-routes.js";
 import { PrismaService } from "../../src/database/prisma.service.js";
 import {
   JwtAuthGuard,
@@ -29,7 +25,12 @@ import {
 const testJwtSecret = "test-secret-that-is-at-least-32-characters";
 let deleteCalls = 0;
 const restoredReferences: string[] = [];
+const hardRemovedReferences: string[][] = [];
 const usersServiceStub = {
+  hardRemoveDisabledUsers: (references: string[]) => {
+    hardRemovedReferences.push(references);
+    return Promise.resolve({ success: true, removedCount: references.length });
+  },
   restore: (reference: string) => {
     restoredReferences.push(reference);
     return Promise.resolve({
@@ -80,7 +81,7 @@ describe("delete user endpoint", () => {
       { logger: false },
     );
     app.setGlobalPrefix("api", {
-      exclude: [{ path: "user/:one/:two", method: RequestMethod.ALL }],
+      exclude: nativeCompatibilityRoutes,
     });
     app.enableVersioning({
       type: VersioningType.URI,
@@ -120,6 +121,46 @@ describe("delete user endpoint", () => {
       });
       assert.equal(forbidden.statusCode, 403);
       assert.equal(deleteCalls, 1);
+
+      hardRemovedReferences.length = 0;
+      for (const roles of [["admin"], ["super_admin"], ["manager"]]) {
+        const token = jwt.sign({
+          sub: "admin-id",
+          organizationId: null,
+          roles,
+          permissions: [],
+        } satisfies Principal);
+        const result = await app.inject({
+          method: "POST",
+          url: "/user/hard-remove-disabled",
+          headers: { authorization: `Bearer ${token}` },
+          payload: { userIds: ["legacy-user-id"] },
+        });
+        assert.equal(
+          result.statusCode,
+          roles[0] === "manager" ? 403 : 200,
+          result.body,
+        );
+      }
+      for (const userIds of [[], ["duplicate", "duplicate"], [42]]) {
+        const result = await app.inject({
+          method: "POST",
+          url: "/user/hard-remove-disabled",
+          headers: { authorization: `Bearer ${adminToken}` },
+          payload: { userIds },
+        });
+        assert.equal(result.statusCode, 400, result.body);
+      }
+      const unauthenticatedRemoval = await app.inject({
+        method: "POST",
+        url: "/user/hard-remove-disabled",
+        payload: { userIds: ["legacy-user-id"] },
+      });
+      assert.equal(unauthenticatedRemoval.statusCode, 401);
+      assert.deepEqual(hardRemovedReferences, [
+        ["legacy-user-id"],
+        ["legacy-user-id"],
+      ]);
 
       restoredReferences.length = 0;
       for (const roles of [["admin"], ["super_admin"]]) {
@@ -205,4 +246,60 @@ describe("delete user endpoint", () => {
       /Super Admin user cannot be deleted/u,
     );
   });
+});
+
+it("permanently deletes only disabled, non-protected accounts and rolls back incomplete batches", async () => {
+  const id = "9df11436-1475-4a6d-b95f-f62476340547";
+  let count = 2;
+  let rolledBack = false;
+  let deleteArgs: unknown;
+  const transaction = {
+    user: {
+      deleteMany: (args: unknown) => {
+        deleteArgs = args;
+        return Promise.resolve({ count });
+      },
+    },
+  };
+  const prisma = {
+    $transaction: async (
+      operation: (client: typeof transaction) => Promise<unknown>,
+    ) => {
+      try {
+        return await operation(transaction);
+      } catch (error) {
+        rolledBack = true;
+        throw error;
+      }
+    },
+  } as unknown as PrismaService;
+  const service = new UsersService(prisma, {} as UserInvitationMailer);
+  const principal: Principal = {
+    sub: "admin-id",
+    organizationId: null,
+    roles: ["admin"],
+    permissions: [],
+  };
+  assert.deepEqual(
+    await service.hardRemoveDisabledUsers([id, "legacy-user"], principal),
+    { success: true, removedCount: 2 },
+  );
+  assert.deepEqual(deleteArgs, {
+    where: {
+      OR: [{ id: { in: [id] } }, { legacyId: { in: [id, "legacy-user"] } }],
+      status: "DISABLED",
+      id: { not: "admin-id" },
+      roles: { none: { role: { key: "super_admin" } } },
+    },
+  });
+  count = 1;
+  await assert.rejects(
+    service.hardRemoveDisabledUsers([id, "legacy-user"], principal),
+    /No users were removed/u,
+  );
+  assert.equal(rolledBack, true);
+  await assert.rejects(
+    service.hardRemoveDisabledUsers([], principal),
+    /Select at least one/u,
+  );
 });

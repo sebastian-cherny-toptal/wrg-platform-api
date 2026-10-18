@@ -123,6 +123,15 @@ test("default survey definition workbook contains both sheets and effective answ
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(bytes as unknown as ExcelJS.Buffer);
 
+  assert.equal(
+    workbook.getWorksheet("Questions")?.getCell("C1").value,
+    "question_type",
+  );
+  assert.equal(
+    workbook.getWorksheet("Questions")?.getCell("C2").value,
+    "likert",
+  );
+
   assert.deepEqual(
     workbook.worksheets.map(({ name }) => name),
     ["Questions", "Answers"],
@@ -139,6 +148,62 @@ test("default survey definition workbook contains both sheets and effective answ
     assert.equal(keys.includes("124. Company Size"), false);
     assert.equal(keys.includes("125. Sample size"), false);
   }
+});
+
+test("EA exports omit question_type and score while EFS retains both and old templates remain accepted", async () => {
+  const definition = [
+    {
+      dataLabel: "q_Test",
+      caption: "Test",
+      type: "choice",
+      categoryLabel: "Benefits",
+      position: 1,
+      options: [{ Id: "Yes", Caption: "Yes", Position: 1, Score: 5 }],
+    },
+  ];
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(
+    (await surveyDefinitionWorkbook(
+      definition,
+      "EA",
+    )) as unknown as ExcelJS.Buffer,
+  );
+  assert.equal(
+    workbook.getWorksheet("Questions")?.getCell("C1").value,
+    "category",
+  );
+  const parsed = await parseSurveyDefinition(
+    Buffer.from(await workbook.xlsx.writeBuffer()),
+  );
+  const question = parsed[0];
+  assert.ok(question);
+  assert.equal(question.type, undefined);
+  assert.equal(question.categoryLabel, "Benefits");
+  assert.equal(question.position, 1);
+  assert.equal(question.options?.[0]?.Score, undefined);
+  const eaAnswers = workbook.getWorksheet("Answers");
+  assert.ok(eaAnswers);
+  assert.equal(
+    (eaAnswers.getRow(1).values as ExcelJS.CellValue[]).includes("score"),
+    false,
+  );
+  const efsWorkbook = new ExcelJS.Workbook();
+  await efsWorkbook.xlsx.load(
+    (await surveyDefinitionWorkbook(
+      definition,
+      "EFS",
+    )) as unknown as ExcelJS.Buffer,
+  );
+  assert.equal(
+    efsWorkbook.getWorksheet("Answers")?.getCell("E1").value,
+    "score",
+  );
+  assert.equal(efsWorkbook.getWorksheet("Answers")?.getCell("E2").value, 5);
+  const legacy = await parseSurveyDefinition(
+    await surveyDefinitionWorkbook(definition, "EFS"),
+  );
+  assert.equal(legacy[0]?.type, "choice");
+  assert.equal(legacy[0].options?.[0]?.Score, 5);
 });
 
 test("default survey definition workbook uses the standard gender codes", async () => {

@@ -38,6 +38,7 @@ import {
   type SurveyDefinitionQuestion,
 } from "./survey-definition.js";
 import { isExcludedSurveyQuestion } from "./xlsx-survey-importer.js";
+import { loadDefaultEaTemplateDefinition } from "./ea-template-definition.js";
 import {
   loadDefaultBenefitsBestPracticesDefinition,
   validateBenefitsBestPracticesDefinition,
@@ -247,13 +248,14 @@ export function effectiveSurveyDefinition(
 
 export async function surveyDefinitionWorkbook(
   definition: SurveyDefinition,
+  kind: "EA" | "EFS" = definition.some((q) => q.ea) ? "EA" : "EFS",
 ): Promise<Buffer> {
   const workbook = new ExcelJS.Workbook();
   const questions = workbook.addWorksheet("Questions");
   questions.addRow([
     "question_key",
     "question_label",
-    "question_type",
+    ...(kind === "EFS" ? ["question_type"] : []),
     "category",
     "display_order",
     ...(definition.some((q) => q.ea)
@@ -265,6 +267,7 @@ export async function surveyDefinitionWorkbook(
           "group_label",
           "eligible_question",
           "eligible_value",
+          "missing_source",
         ]
       : []),
   ]);
@@ -274,7 +277,7 @@ export async function surveyDefinitionWorkbook(
     "raw_answer",
     "answer_label",
     "display_order",
-    "score",
+    ...(kind === "EFS" ? ["score"] : []),
     ...(definition.some((q) => q.ea) ? ["source_column"] : []),
   ]);
   for (const question of definition) {
@@ -282,7 +285,7 @@ export async function surveyDefinitionWorkbook(
     questions.addRow([
       question.dataLabel,
       question.caption,
-      question.type,
+      ...(kind === "EFS" ? [question.type] : []),
       question.categoryLabel,
       question.position,
       ...(definition.some((q) => q.ea)
@@ -294,6 +297,7 @@ export async function surveyDefinitionWorkbook(
             question.ea?.groupLabel,
             question.ea?.eligibleQuestion,
             question.ea?.eligibleValue,
+            question.ea?.missingSource,
           ]
         : []),
     ]);
@@ -303,7 +307,7 @@ export async function surveyDefinitionWorkbook(
         option.Id,
         option.Caption,
         option.Position,
-        option.Score,
+        ...(kind === "EFS" ? [option.Score] : []),
         ...(definition.some((q) => q.ea) ? [option.SourceColumn] : []),
       ]);
   }
@@ -333,6 +337,34 @@ export async function surveyDefinitionWorkbook(
       wrapText: true,
       vertical: "middle",
     };
+    if (definition.some((q) => q.ea)) {
+      // Mapping columns contain export headers, not short answer codes.
+      const widths: Record<string, number> = {
+        category: 35,
+        display_order: 18,
+        raw_answer: 80,
+        source_column: 100,
+        group_key: 65,
+        group_label: 50,
+        eligible_question: 70,
+      };
+      sheet.columns.forEach((column, index) => {
+        const header = String(sheet.getRow(1).getCell(index + 1).value ?? "");
+        column.width = widths[header] ?? column.width ?? 18;
+        column.alignment = { wrapText: true, vertical: "middle" };
+      });
+      sheet.eachRow((row) => {
+        let lines = 1;
+        row.eachCell((cell, column) => {
+          const width = sheet.getColumn(column).width ?? 18;
+          lines = Math.max(
+            lines,
+            Math.ceil(String(cell.value ?? "").length / Math.max(1, width - 3)),
+          );
+        });
+        row.height = Math.max(22, lines * 15);
+      });
+    }
   }
   return Buffer.from(await workbook.xlsx.writeBuffer());
 }
@@ -526,17 +558,16 @@ export class ProgramSurveyDefinitionService {
   ): Promise<Buffer> {
     this.assertAccess(principal);
     const program = await this.program(this.prisma, reference);
-    const defaults = await loadDefaultBenefitsBestPracticesDefinition();
     const custom = customEaDefinitionFromMetadata(object(program.metadata));
-    if (custom) return surveyDefinitionWorkbook(custom);
+    if (custom) return surveyDefinitionWorkbook(custom, "EA");
     const configured = object(program.metadata).employerAssessmentDefinition;
     return surveyDefinitionWorkbook(
-      mergeSurveyDefinitions(
-        defaults,
+      await loadDefaultEaTemplateDefinition(
         Array.isArray(configured)
           ? (configured as unknown as SurveyDefinition)
           : [],
       ),
+      "EA",
     );
   }
 
