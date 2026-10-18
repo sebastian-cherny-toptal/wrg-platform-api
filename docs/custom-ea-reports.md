@@ -65,8 +65,14 @@ omitted.
 
 Preview and save validate the same definition. Source columns must exist in the
 EA export or the saved program's EA survey. Known question aliases, smart quotes,
-whitespace, and Medallia's semicolon-to-space header conversion are resolved;
-ambiguous matches fail. Changing a display caption never changes a source column.
+whitespace, single/double quote differences, and Medallia's semicolon-to-space
+header conversion are resolved. Exact matches take priority. A shortened export
+header can match the beginning of a longer source name only under the same
+question key and with at least 60 characters of matching answer text. This
+fallback must identify one export column and must not map distinct source names
+to the same column; ambiguous matches fail and require explicit source mappings.
+The same resolution is used for validation and report calculations. Changing a
+display caption never changes a source column.
 
 Scalar/matrix percentages use answered eligible organizations. Multi-select
 percentages use the full eligible cohort, preserving current behavior. Numeric

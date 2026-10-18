@@ -16,6 +16,7 @@ import {
   mergeEaDefinitions,
   normalizeEmployerAssessmentDefinition,
   eaDefinitionMetadata,
+  resolveEaSource,
 } from "../../src/modules/reports/custom-ea-report.js";
 import { loadDefaultBenefitsBestPracticesDefinition } from "../../src/modules/reports/benefits-best-practices-from-ea.js";
 import { ProgramSurveyDefinitionService } from "../../src/modules/imports/program-survey-definition.service.js";
@@ -147,6 +148,110 @@ test("custom source validation accepts punctuation variants but rejects missing 
     /ambiguous/u,
   );
 });
+test("EA source matching accepts shortened AD headers and quote differences through validation and calculation", () => {
+  const community = "q_GivingBackandWorkplaceWellness_GivingBack";
+  const training = "q_TrainingandCareerDevelopment_Leaders";
+  const shortened = `${community}. We allow employees to participate in community service during normal`;
+  const quoted = `${training}. Internal 'lunch and learn' or professional development sessions`;
+  const d: SurveyDefinition = [
+    {
+      dataLabel: community,
+      caption: "Community",
+      ea: { calculation: "multi", sourceColumn: community, format: "percent" },
+      options: [
+        {
+          Id: "community",
+          Caption: "Paid volunteering",
+          Position: 1,
+          SourceColumn: `${shortened} business hours without losing pay or using vacation time`,
+        },
+      ],
+    },
+    {
+      dataLabel: training,
+      caption: "Training",
+      ea: { calculation: "multi", sourceColumn: training, format: "percent" },
+      options: [
+        {
+          Id: "training",
+          Caption: "Lunch and learn",
+          Position: 1,
+          SourceColumn: `${training}. Internal "lunch and learn" or professional development sessions`,
+        },
+      ],
+    },
+  ];
+  assert.deepEqual(validateCustomEaSources(d, [shortened, quoted]), []);
+  const result = generateCustomEaReport({
+    definition: d,
+    minimumOrganizations: 1,
+    cohorts: [{ title: "All", type: "All_All", organizationIds: ["a", "b"] }],
+    answers: [
+      { organizationId: "a", values: { [shortened]: 1, [quoted]: 1 } },
+      { organizationId: "b", values: { [shortened]: 0, [quoted]: 0 } },
+    ],
+  });
+  assert.deepEqual(
+    result.sections.flatMap((s) =>
+      s.questions.flatMap((q) => q.responses.map((r) => r.dataValues[0])),
+    ),
+    [50, 50],
+  );
+});
+
+test("EA shortened header matching rejects ambiguous mappings and unrelated or short prefixes", () => {
+  const prefix =
+    "q_GivingBackandWorkplaceWellness_GivingBack. We allow employees to participate in community service during normal";
+  const full = `${prefix} business hours without losing pay or using vacation time`;
+  assert.equal(resolveEaSource(full, [prefix]), prefix);
+  assert.equal(
+    resolveEaSource(full, [prefix, `${prefix} business hours`]),
+    undefined,
+  );
+  assert.equal(
+    resolveEaSource(full, [prefix.replace("GivingBack.", "Other.")]),
+    undefined,
+  );
+  assert.equal(
+    resolveEaSource(full, [
+      "q_GivingBackandWorkplaceWellness_GivingBack. We allow employees",
+    ]),
+    undefined,
+  );
+  assert.equal(resolveEaSource(full, [full, prefix]), full);
+  const d: SurveyDefinition = [
+    {
+      dataLabel: "community",
+      caption: "Community",
+      ea: {
+        calculation: "multi",
+        sourceColumn: "community",
+        format: "percent",
+      },
+      options: [full, `${prefix} business hours using vacation time`].map(
+        (source, i) => ({
+          Id: String(i),
+          Caption: source,
+          Position: i + 1,
+          SourceColumn: source,
+        }),
+      ),
+    },
+  ];
+  const issues = validateCustomEaSources(d, [prefix]);
+  assert.equal(issues.length, 2);
+  assert.ok(issues.every((issue) => issue.includes("ambiguous")));
+  const quoteSource =
+    'q_TrainingandCareerDevelopment_Leaders. Internal "lunch and learn"';
+  assert.equal(
+    resolveEaSource(quoteSource, [
+      quoteSource.replaceAll('"', "'"),
+      quoteSource.replaceAll('"', "‘"),
+    ]),
+    undefined,
+  );
+});
+
 test("custom reports retain the existing five-assessment confidentiality minimum and explicit eligibility", () => {
   const d: SurveyDefinition = [
     {
@@ -369,20 +474,18 @@ function required<T>(value: T | undefined): T {
 }
 
 test("multi-column numeric definitions require an explicit source for every answer", () => {
-  assert.throws(
-    () =>
-      { validateCustomEaDefinition([
-        {
-          dataLabel: "premium",
-          caption: "Premium",
-          ea: {
-            calculation: "mean",
-            sourceColumn: "premium",
-            format: "percent",
-          },
-          options: [{ Id: "medical", Caption: "Medical", Position: 1 }],
+  assert.throws(() => {
+    validateCustomEaDefinition([
+      {
+        dataLabel: "premium",
+        caption: "Premium",
+        ea: {
+          calculation: "mean",
+          sourceColumn: "premium",
+          format: "percent",
         },
-      ]); },
-    /Answers source_column is required/u,
-  );
+        options: [{ Id: "medical", Caption: "Medical", Position: 1 }],
+      },
+    ]);
+  }, /Answers source_column is required/u);
 });
