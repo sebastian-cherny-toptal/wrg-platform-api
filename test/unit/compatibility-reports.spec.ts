@@ -2210,7 +2210,7 @@ describe("compatibility report categories", () => {
     assert.equal(sheet.columnCount, 3);
     assert.equal(sheet.getCell("B9").value, 50);
     assert.equal(sheet.getCell("B10").value, 50);
-    assert.equal(sheet.getCell("B18").value, 50);
+    assert.equal(sheet.getCell("B11").value, 50);
 
     configured.metadata = {
       categoryLabel: "Core Employee Experience",
@@ -2361,8 +2361,8 @@ describe("compatibility report categories", () => {
     assert.ok(sheet);
     assert.equal(sheet.getCell("B9").value, 100);
     assert.equal(sheet.getCell("D9").value, "x");
-    assert.equal(sheet.getCell("D18").value, "x");
-    assert.equal(sheet.getCell("D104").value, "x");
+    assert.equal(sheet.getCell("D10").value, "x");
+    assert.equal(sheet.getCell("D11").value, "x");
 
     const selected = await service.questionComparisonWithMe(
       principal,

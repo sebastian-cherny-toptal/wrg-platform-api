@@ -1113,6 +1113,66 @@ describe("employee verbatim workbook generation", () => {
 });
 
 describe("benchmark workbook generation", () => {
+  it("builds contiguous sections from survey questions without template row limits", async () => {
+    const categories = Array.from({ length: 11 }, (_, index) => ({
+      title: index === 10 ? "Work-Life Balance" : `Section ${index + 1}`,
+      values: [80 + index, "x"],
+      questions: Array.from(
+        { length: index === 10 ? 8 : index === 0 ? 100 : 1 },
+        (_, question) => ({
+          text: `Section ${index + 1} question ${question + 1}`,
+          values: [question, "x"],
+        }),
+      ),
+    }));
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(
+      (await createBenchmarkWorkbook({
+        metadata: {
+          organizationName: "Test",
+          programName: "Dynamic survey",
+          surveyDates: "2026",
+        },
+        headers: [
+          { title: "All", type: "All_Yes" },
+          { title: "All", type: "All_No" },
+        ],
+        categories,
+        surveyAverage: [90, "x"],
+      })) as never,
+    );
+    const sheet = workbook.getWorksheet("Workforce Benchmark Comparisons");
+    assert.ok(sheet);
+    let row = 8;
+    for (const category of categories) {
+      assert.equal(sheet.getCell(row, 1).value, category.title.toUpperCase());
+      assert.ok(sheet.model.merges.includes(`A${row}:C${row}`));
+      row += 1;
+      for (const question of category.questions) {
+        assert.equal(sheet.getCell(row, 1).value, question.text);
+        assert.equal(sheet.getCell(row, 2).value, question.values[0]);
+        assert.equal(sheet.getCell(row, 3).value, "x");
+        row += 1;
+      }
+      assert.equal(
+        sheet.getCell(row, 1).value,
+        `${category.title.toUpperCase()} - AVERAGE`,
+      );
+      assert.equal(sheet.getCell(row, 2).value, category.values[0]);
+      row += 1;
+    }
+    assert.equal(sheet.getCell(row, 1).value, "SURVEY AVERAGE");
+    assert.equal(sheet.getCell(row, 2).value, 90);
+    assert.match(String(sheet.getCell(row + 1, 1).value), /Insufficient data/u);
+    assert.match(
+      String(sheet.getCell(row + 2, 1).value),
+      /percentage of agreement/u,
+    );
+    assert.equal(sheet.rowCount, row + 2);
+    assert.equal(sheet.pageSetup.printArea, `A1:C${row + 2}`);
+    assert.equal(sheet.getImages().length, 1);
+  });
+
   it("includes Major and Super values beyond the four template cohort pairs", async () => {
     const sizes = ["All", "Small", "Medium", "Large", "Major", "Super"];
     const questionValues = [90, "x", 91, 81, 92, 82, 93, 83, 94, 84, 95, "x"];
@@ -1167,8 +1227,8 @@ describe("benchmark workbook generation", () => {
     assert.equal(sheet.getCell("M6").value, "Super Non-Winners");
     for (const [row, expected] of [
       [9, questionValues],
-      [18, averages],
-      [104, surveyAverage],
+      [10, averages],
+      [11, surveyAverage],
     ] as const) {
       assert.deepEqual(
         Array.from(
@@ -1181,7 +1241,7 @@ describe("benchmark workbook generation", () => {
     assert.ok(sheet.model.merges.includes("B1:M1"));
     assert.ok(sheet.model.merges.includes("A8:M8"));
     assert.ok(sheet.model.merges.includes("L4:M4"));
-    assert.equal(sheet.pageSetup.printArea, "A1:M106");
+    assert.equal(sheet.pageSetup.printArea, "A1:M13");
     assert.deepEqual(sheet.getCell("L9").style, sheet.getCell("H9").style);
     assert.equal(sheet.getColumn("L").width, sheet.getColumn("H").width);
   });
@@ -1214,7 +1274,7 @@ describe("benchmark workbook generation", () => {
     assert.equal(sheet.columnCount, 3);
     assert.equal(sheet.getCell("B5").value, null);
     assert.equal(sheet.getCell("C5").value, null);
-    assert.equal(sheet.pageSetup.printArea, "A1:C106");
+    assert.equal(sheet.pageSetup.printArea, "A1:C13");
     assert.equal(sheet.getCell("B9").value, 90);
     assert.equal(sheet.getCell("C9").value, "x");
     assert.ok(sheet.model.merges.includes("B1:C1"));
@@ -1294,14 +1354,14 @@ describe("benchmark workbook generation", () => {
       [90, 80, 91, 81, 92, 82, 93, 83],
     );
     assert.deepEqual(
-      ["B104", "C104", "D104", "E104", "F104", "G104", "H104", "I104"].map(
+      ["B11", "C11", "D11", "E11", "F11", "G11", "H11", "I11"].map(
         (address) => sheet.getCell(address).value,
       ),
       [89, 79, 88, 78, 87, 77, 86, 76],
     );
     const titleFill = sheet.getCell("A1").fill;
     const sectionFill = sheet.getCell("A8").fill;
-    const averageFill = sheet.getCell("A18").fill;
+    const averageFill = sheet.getCell("A10").fill;
     assert.equal(titleFill.type, "pattern");
     assert.equal(sectionFill.type, "pattern");
     assert.equal(averageFill.type, "pattern");

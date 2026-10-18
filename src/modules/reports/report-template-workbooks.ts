@@ -1002,48 +1002,63 @@ export async function createBenchmarkWorkbook(input: {
   ): number | string => {
     return values?.[column - 2] ?? "x";
   };
-  fillTokens(workbook, (name, cell) => {
-    if (name === "PROGRAM_NAME") return input.metadata.programName;
-    const surveyAverageMatch =
-      /^SURVEY_AVERAGE_(ALL_WINNER|ALL_NON_WINNER|SMALL_WINNER|SMALL_NON_WINNER|MEDIUM_WINNER|MEDIUM_NON_WINNER|LARGE_WINNER|LARGE_NON_WINNER)$/u.exec(
-        name,
-      );
-    if (surveyAverageMatch?.[1]) {
-      return groupValue(input.surveyAverage, cell.fullAddress.col);
+  // Keep the template as a style source, but discard its fixed question slots.
+  const prototypes = {
+    category: workforceFeedbackRowBlueprint(sheet, 8),
+    question: workforceFeedbackRowBlueprint(sheet, 9),
+    average: workforceFeedbackRowBlueprint(sheet, 18),
+    surveyAverage: workforceFeedbackRowBlueprint(sheet, 104),
+    note: workforceFeedbackRowBlueprint(sheet, 105),
+    description: workforceFeedbackRowBlueprint(sheet, 106),
+  };
+  const notes = [sheet.getCell("A105").value, sheet.getCell("A106").value];
+  for (const merge of [...sheet.model.merges]) {
+    const startRow = Number(/\d+/u.exec(merge)?.[0] ?? 0);
+    if (startRow >= 8) sheet.unMergeCells(merge);
+  }
+  // Remove from the end: a single trailing splice can leave ExcelJS rows behind.
+  for (let row = sheet.rowCount; row >= 8; row -= 1) {
+    sheet.spliceRows(row, 1);
+  }
+  fillTokens(workbook, (name) =>
+    name === "PROGRAM_NAME" ? input.metadata.programName : null,
+  );
+  const writeValues = (row: number, values: Array<number | string>) => {
+    for (let column = 2; column <= lastColumn; column += 1) {
+      sheet.getCell(row, column).value = safeValue(groupValue(values, column));
     }
-    const categoryMatch = /^CATEGORY_(\d+)_TITLE$/u.exec(name);
-    if (categoryMatch) {
-      return input.categories[
-        Number(categoryMatch[1]) - 1
-      ]?.title.toUpperCase();
+  };
+  let row = 8;
+  for (const category of input.categories) {
+    applyWorkforceFeedbackRowBlueprint(sheet, row, prototypes.category);
+    sheet.getCell(row, 1).value = safeValue(category.title.toUpperCase());
+    if (lastColumn > 1) sheet.mergeCells(row, 1, row, lastColumn);
+    row += 1;
+    for (const question of category.questions) {
+      applyWorkforceFeedbackRowBlueprint(sheet, row, prototypes.question);
+      sheet.getCell(row, 1).value = safeValue(question.text);
+      writeValues(row, question.values);
+      row += 1;
     }
-    const averageTitleMatch = /^CATEGORY_(\d+)_AVERAGE_TITLE$/u.exec(name);
-    if (averageTitleMatch) {
-      const title = input.categories[Number(averageTitleMatch[1]) - 1]?.title;
-      return title ? `${title.toUpperCase()} - AVERAGE` : null;
-    }
-    const averageValueMatch =
-      /^CATEGORY_(\d+)_AVERAGE_(ALL_WINNER|ALL_NON_WINNER|SMALL_WINNER|SMALL_NON_WINNER|MEDIUM_WINNER|MEDIUM_NON_WINNER|LARGE_WINNER|LARGE_NON_WINNER)$/u.exec(
-        name,
-      );
-    if (averageValueMatch) {
-      const category = input.categories[Number(averageValueMatch[1]) - 1];
-      return groupValue(category?.values, cell.fullAddress.col);
-    }
-    const questionMatch =
-      /^CATEGORY_(\d+)_QUESTION_(\d+)_(TEXT|ALL_WINNER|ALL_NON_WINNER|SMALL_WINNER|SMALL_NON_WINNER|MEDIUM_WINNER|MEDIUM_NON_WINNER|LARGE_WINNER|LARGE_NON_WINNER)$/u.exec(
-        name,
-      );
-    if (questionMatch) {
-      const question =
-        input.categories[Number(questionMatch[1]) - 1]?.questions[
-          Number(questionMatch[2]) - 1
-        ];
-      if (questionMatch[3] === "TEXT") return question?.text;
-      return groupValue(question?.values, cell.fullAddress.col);
-    }
-    return null;
-  });
+    applyWorkforceFeedbackRowBlueprint(sheet, row, prototypes.average);
+    sheet.getCell(row, 1).value = safeValue(
+      `${category.title.toUpperCase()} - AVERAGE`,
+    );
+    writeValues(row, category.values);
+    row += 1;
+  }
+  applyWorkforceFeedbackRowBlueprint(sheet, row, prototypes.surveyAverage);
+  sheet.getCell(row, 1).value = "SURVEY AVERAGE";
+  writeValues(row, input.surveyAverage);
+  for (const [index, blueprint] of [
+    prototypes.note,
+    prototypes.description,
+  ].entries()) {
+    row += 1;
+    applyWorkforceFeedbackRowBlueprint(sheet, row, blueprint);
+    sheet.getCell(row, 1).value = notes[index] ?? null;
+    if (lastColumn > 1) sheet.mergeCells(row, 1, row, lastColumn);
+  }
   for (let pair = 0; pair < Math.ceil(headerCount / 2); pair += 1) {
     const winner = input.headers[pair * 2];
     const nonWinner = input.headers[pair * 2 + 1];
@@ -1082,7 +1097,7 @@ export async function createBenchmarkWorkbook(input: {
       sheet.mergeCells(merge.row, merge.startColumn, merge.row, lastColumn);
     }
   }
-  sheet.pageSetup.printArea = `A1:${columnName(lastColumn)}${sheet.rowCount}`;
+  sheet.pageSetup.printArea = `A1:${columnName(lastColumn)}${row}`;
   return repairTopLeftPictureTransforms(await workbookBuffer(workbook));
 }
 
