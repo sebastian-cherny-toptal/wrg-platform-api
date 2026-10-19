@@ -32,6 +32,12 @@ Point `REACT_APP_API_ENDPOINT` at this service the same way you pointed it at `w
   differs, allowing credential rotation through a variable change and redeploy.
 - Stripe payment webhooks use Stripe raw-body verification. Zoho and CheckMarket webhook receivers and legacy `/webhook/*` synchronization controls are not part of this service.
 
+## Memory diagnostics
+
+Heap usage and GC summaries are logged every 30 seconds by default. See
+[Heap diagnostics in Railway](docs/heap-diagnostics.md) for log filters, request
+memory readings, and optional allocation-location profiling.
+
 ## Commands
 
 `npm run lint`, `npm run typecheck`, `npm test`, `npm run openapi:generate`, and `npm run client:generate` are suitable for CI. `scripts/start-local.sh` starts dependencies and the API; `scripts/reset-local.sh` destructively resets only the configured local PostgreSQL database.

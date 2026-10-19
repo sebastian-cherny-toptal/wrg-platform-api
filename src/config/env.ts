@@ -49,6 +49,22 @@ const schema = z
       .default("false")
       .transform((value) => value === "true"),
     LOG_LEVEL: z.string().default("info"),
+    HEAP_MONITOR_ENABLED: z
+      .enum(["true", "false"])
+      .default("true")
+      .transform((value) => value === "true"),
+    HEAP_MONITOR_INTERVAL_MS: z.coerce
+      .number()
+      .int()
+      .min(1000)
+      .max(3600000)
+      .default(30000),
+    HEAP_MONITOR_WARN_PERCENT: z.coerce.number().min(1).max(99).default(80),
+    HEAP_MONITOR_REQUEST_GROWTH_MB: z.coerce.number().positive().default(50),
+    HEAP_ALLOCATION_SAMPLING: z
+      .enum(["true", "false"])
+      .default("false")
+      .transform((value) => value === "true"),
   })
   .superRefine((env, context) => {
     if (Boolean(env.ADMIN_USERNAME) !== Boolean(env.ADMIN_PASSWORD)) {

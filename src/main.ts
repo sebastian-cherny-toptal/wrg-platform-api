@@ -19,6 +19,7 @@ import { corsAllowedOrigins, isCorsOriginAllowed } from "./config/cors.js";
 import { nativeCompatibilityRoutes } from "./config/native-routes.js";
 import { AppModule } from "./app.module.js";
 import { ServerErrorLoggingFilter } from "./common/http/server-error-exception.filter.js";
+import { HeapMonitor } from "./common/logging/heap-monitor.js";
 import { requestLogPropsForRequest } from "./common/logging/request-logging.js";
 
 export async function createApp(): Promise<NestFastifyApplication> {
@@ -48,7 +49,9 @@ export async function createApp(): Promise<NestFastifyApplication> {
     },
   });
   const fastify = adapter.getInstance();
+  let heapMonitor: HeapMonitor | undefined;
   fastify.addHook("onRequest", (request, reply, done) => {
+    heapMonitor?.beginRequest(request, reply);
     reply.header("x-correlation-id", request.id);
     done();
   });
@@ -56,6 +59,7 @@ export async function createApp(): Promise<NestFastifyApplication> {
     const log = requestLogPropsForRequest(request, reply.raw);
     const record = {
       ...log,
+      memory: heapMonitor?.endRequest(request),
       statusCode: reply.statusCode,
       durationMs: reply.elapsedTime,
       outcome:
@@ -87,6 +91,25 @@ export async function createApp(): Promise<NestFastifyApplication> {
   );
   app.useLogger(app.get(Logger));
   const config = app.get<ConfigService<Env, true>>(ConfigService);
+  if (config.get("HEAP_MONITOR_ENABLED", { infer: true })) {
+    heapMonitor = new HeapMonitor(fastify.log, {
+      intervalMs: config.get("HEAP_MONITOR_INTERVAL_MS", { infer: true }),
+      warnPercent: config.get("HEAP_MONITOR_WARN_PERCENT", { infer: true }),
+      requestGrowthMb: config.get("HEAP_MONITOR_REQUEST_GROWTH_MB", {
+        infer: true,
+      }),
+      allocationSampling: config.get("HEAP_ALLOCATION_SAMPLING", {
+        infer: true,
+      }),
+    });
+    fastify.addHook("onReady", async () => {
+      await heapMonitor?.start();
+    });
+    fastify.addHook("onClose", (_instance, done) => {
+      heapMonitor?.stop();
+      done();
+    });
+  }
   const allowedOrigins = corsAllowedOrigins({
     NODE_ENV: config.get("NODE_ENV", { infer: true }),
     CORS_ALLOWED_ORIGINS: config.get("CORS_ALLOWED_ORIGINS", { infer: true }),
