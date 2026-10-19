@@ -78,7 +78,6 @@ import {
 import {
   usesDefaultBenchmarkCategory,
   normalizeZohoCategory,
-  programZohoCategoryTiers,
 } from "../programs/program-zoho-category.js";
 import {
   definitionAnswer,
@@ -310,7 +309,20 @@ const categoryOrder = [
   "Culture and Belonging",
   "Survey Questions",
 ];
-const sizeOrder = ["All", ...programZohoCategoryTiers, "Super"];
+// Alternate labels keep their own cohorts while following the same size sequence.
+const sizeOrder = [
+  "All",
+  "Boutique",
+  "Tiny",
+  "Small",
+  "Medium",
+  "Middle",
+  "Large",
+  "Giant",
+  "Mega",
+  "Major",
+  "Super",
+].map((name) => name.toLocaleLowerCase("en"));
 
 class CategoryDto {
   @ApiProperty({ type: String })
@@ -4587,8 +4599,8 @@ export class CompatibilityReportsService {
           (rightConfigured === -1 ? Number.MAX_SAFE_INTEGER : rightConfigured)
         );
       }
-      const leftIndex = sizeOrder.indexOf(left);
-      const rightIndex = sizeOrder.indexOf(right);
+      const leftIndex = sizeOrder.indexOf(left.toLocaleLowerCase("en"));
+      const rightIndex = sizeOrder.indexOf(right.toLocaleLowerCase("en"));
       return (
         (leftIndex === -1 ? Number.MAX_SAFE_INTEGER : leftIndex) -
           (rightIndex === -1 ? Number.MAX_SAFE_INTEGER : rightIndex) ||

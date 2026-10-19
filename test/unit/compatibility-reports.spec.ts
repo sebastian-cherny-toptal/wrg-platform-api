@@ -1970,6 +1970,62 @@ describe("compatibility report categories", () => {
     });
   }
 
+  it("places alternate size names alongside standard names and respects configured order", async () => {
+    const observed = ["Giant", "Large", "Middle", "Medium", "Small", "tiny"];
+    for (const configured of [["Unobserved"], ["Giant", "tiny", "Middle"]]) {
+      const question = benchmarkQuestion(
+        "q-core",
+        "Core Employee Experience",
+        1,
+      );
+      const prisma = {
+        program: {
+          findFirst: () => ({
+            id: "program-1",
+            projectId: "project-1",
+            name: "Test program",
+            year: 2026,
+            metadata: { benchmarkCategories: configured },
+            project: { id: "project-1", name: "Test project" },
+          }),
+        },
+        organizationProgram: {
+          findFirst: () => ({ reportAccess: {}, metrics: {}, metadata: {} }),
+          findMany: () =>
+            observed.map((category) => ({
+              organizationId: category,
+              isWinner: "Y",
+              currentZohoCategory: category,
+              metrics: {},
+              organization: { metadata: {} },
+            })),
+        },
+        survey: { findFirst: () => ({ id: "survey-1", title: "Test survey" }) },
+        question: { findMany: () => [question] },
+        response: { findMany: () => [] },
+      } as unknown as PrismaService;
+      const result = await new CompatibilityReportsService(
+        prisma,
+      ).workforceComparison(
+        {
+          sub: "user-1",
+          organizationId: "tiny",
+          roles: ["admin"],
+          permissions: [],
+        },
+        { selectedProgramId: "program-1", isDummy: false },
+      );
+      const expected =
+        configured.length === 1
+          ? ["tiny", "Small", "Medium", "Middle", "Large", "Giant"]
+          : ["Giant", "tiny", "Middle", "Small", "Medium", "Large"];
+      assert.deepEqual(
+        result.data.tableHeaders.slice(2).map(({ title }) => title),
+        expected.flatMap((name) => [`${name} Employers`, `${name} Employers`]),
+      );
+    }
+  });
+
   it("orders benchmark cohorts by configured tier, shows employee sizes, and divides by respondents who answered", async () => {
     const question = benchmarkQuestion("q-core", "Core Employee Experience", 1);
     const organizationIds = Array.from(
