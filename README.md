@@ -36,7 +36,9 @@ Point `REACT_APP_API_ENDPOINT` at this service the same way you pointed it at `w
 
 Heap usage and GC summaries are logged every 30 seconds by default. See
 [Heap diagnostics in Railway](docs/heap-diagnostics.md) for log filters, request
-memory readings, and optional allocation-location profiling.
+memory readings, optional allocation-location profiling, and the authenticated
+`/admin/serverStats` endpoint. Numeric history is sampled every 30 seconds and
+retained for 30 days.
 
 ## Commands
 

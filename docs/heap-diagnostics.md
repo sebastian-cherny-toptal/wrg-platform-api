@@ -89,3 +89,87 @@ For a first investigation, keep the defaults and enable allocation sampling.
 Collect logs covering normal operation, report requests, and the quiet period
 afterward. Check whether the post-GC baseline grows over repeated operations,
 and whether allocation locations explain that growth before changing heap limits.
+
+## PostgreSQL history and graphs
+
+The API now saves a compact numeric sample at startup and every **30 seconds**,
+independently of the configurable heap log interval. `HEAP_MONITOR_ENABLED=false`
+also disables history collection. Sampling is automatic when monitoring is on;
+`HEAP_ALLOCATION_SAMPLING` is not required for history.
+
+The `ServerStat` table requires migration `20261019210000_server_stats`. Railway's
+existing pre-deploy migration command applies it before the new API starts. For
+other deployment methods, run `npm run db:deploy:production` first. Existing logs
+are not backfilled; history begins with this deployment.
+
+Only numeric memory/GC/request-count readings are stored. Allocation stacks and
+request data remain in logs. Each process gets a unique `processStartId`, recorded
+in the `server_stats_started` log alongside its hostname and start timestamp.
+This distinguishes restarts even when the hostname and PID are reused.
+
+### Querying history
+
+Use an administrator or super-administrator bearer access token:
+
+```bash
+curl --get "$API_BASE_URL/admin/serverStats" \
+  --header "Authorization: Bearer $ADMIN_ACCESS_TOKEN" \
+  --data-urlencode 'timeStart=2026-10-19T14:00:00Z' \
+  --data-urlencode 'timeEnd=2026-10-19T19:00:00Z' \
+  --data-urlencode 'interval=1m'
+```
+
+- `timeStart` is inclusive; `timeEnd` is exclusive. Both accept ISO 8601 dates with
+  a timezone (`Z` or an explicit offset). Use URL encoding for `+` offsets.
+- The default range is the last hour. The maximum requested range is 30 days;
+  samples older than the current retention cutoff are excluded even if cleanup
+  has not deleted them yet.
+- `interval` accepts `30s` (default), `1m`, `5m`, `15m`, or `1h`.
+- Optional `instanceId` and `processStartId` filters isolate a replica or process.
+- Results are capped at 10,000 points. Queries exceeding that return HTTP 400
+  asking for a coarser interval, narrower range, or instance/process filter.
+  Results are never silently truncated. Unknown or invalid parameters return 400.
+- No token returns 401; an authenticated client account returns 403.
+
+The JSON response contains query metadata, units, and a `points` array. Each point
+is a UTC time bucket **for one process run**, with `capturedAt` (bucket start),
+`instanceId`, `processStartId`, `processStartedAt`, and:
+
+| Fields                                     | Meaning                                                |
+| ------------------------------------------ | ------------------------------------------------------ |
+| `sampleCount`                              | Number of persisted readings represented by this point |
+| `uptimeSeconds`                            | Highest sampled process uptime in the bucket           |
+| `heapUsedMbAvg`, `heapUsedMbMax`           | Average and highest sampled heap usage                 |
+| `heapTotalMbMax`, `heapLimitMb`            | Highest allocated heap capacity and heap limit         |
+| `heapUsedPercentAvg`, `heapUsedPercentMax` | Average and highest heap percentage                    |
+| `rssMbAvg`, `rssMbMax`                     | Average and highest resident process memory            |
+| `externalMbMax`, `arrayBuffersMbMax`       | Highest external and array/buffer readings             |
+| `activeRequestsMax`                        | Highest sampled active request count                   |
+| `gcCount`, `gcDurationMs`                  | Total GC events and elapsed GC time across readings    |
+| `gcLongestPauseMs`                         | Longest observed GC event                              |
+
+These peaks are maxima of 30-second **samples**, not continuous measurements.
+A bucket's start can precede timeStart if the first included sample falls partway
+through a bucket. GC measurements cover the interval before each sample; the first
+sample covers only the time since monitoring began. Observer delivery is
+asynchronous. GC elapsed time should not be interpreted as exact CPU time.
+
+For graphs, plot capturedAt against heapUsedMbAvg and heapUsedMbMax with heapLimitMb
+as the ceiling. Draw each processStartId as its own series so a restart does not
+look like garbage collection. Missing samples remain gaps; they are not zeros.
+For a 30-day graph, request `interval=15m` or `1h`.
+
+### Retention and failure behavior
+
+Successful writes delete up to 1,000 expired records per sample, with a **30-day**
+cutoff. This bounds cleanup work and drains older backlogs gradually. Physical
+cleanup pauses while the API is down or PostgreSQL is unavailable; the history
+endpoint still excludes records outside retention when it is available again.
+
+There is at most one sample transaction in flight per process and no retry queue.
+Writes are best effort: slow or unavailable PostgreSQL produces
+`server_stats_skipped` / `server_stats_write_failed` logs, and heap logs continue.
+SQL statements have a five-second timeout; transactions also have acquisition and
+execution timeouts. Queries have the same time bounds. The last sample before a
+fatal crash may be missing. This history is diagnostic telemetry, not an uptime
+monitor independent of the application.

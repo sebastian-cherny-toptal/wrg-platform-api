@@ -87,6 +87,7 @@ export class HeapMonitor {
   private samplingBusy = false;
   private gc = { count: 0, durationMs: 0, longestPauseMs: 0 };
   private previousHeapMb: number | undefined;
+  private historyGc = { count: 0, durationMs: 0, longestPauseMs: 0 };
 
   constructor(
     log: FastifyBaseLogger,
@@ -102,6 +103,12 @@ export class HeapMonitor {
   async start(): Promise<void> {
     this.observer = new PerformanceObserver((list) => {
       for (const entry of list.getEntries()) {
+        this.historyGc.count++;
+        this.historyGc.durationMs += entry.duration;
+        this.historyGc.longestPauseMs = Math.max(
+          this.historyGc.longestPauseMs,
+          entry.duration,
+        );
         this.gc.count++;
         this.gc.durationMs += entry.duration;
         this.gc.longestPauseMs = Math.max(
@@ -197,6 +204,19 @@ export class HeapMonitor {
       );
     }
     return result;
+  }
+
+  historySample() {
+    const sample = {
+      ...readHeapMemory(),
+      uptimeSeconds: Math.round(process.uptime()),
+      activeRequests: this.activeCount,
+      gcCount: this.historyGc.count,
+      gcDurationMs: Math.round(this.historyGc.durationMs),
+      gcLongestPauseMs: Math.round(this.historyGc.longestPauseMs),
+    };
+    this.historyGc = { count: 0, durationMs: 0, longestPauseMs: 0 };
+    return sample;
   }
 
   report(): void {

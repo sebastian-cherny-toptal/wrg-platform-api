@@ -500,3 +500,28 @@ model SyncJob {
 
   @@index([provider, kind, status])
 }
+
+// Compact process metrics only; payloads and allocation stacks remain in logs.
+model ServerStat {
+  id               String   @id @default(uuid()) @db.Uuid
+  capturedAt       DateTime @db.Timestamptz(3)
+  instanceId       String   @db.VarChar(255)
+  processStartId   String   @db.Uuid
+  processStartedAt DateTime @db.Timestamptz(3)
+  uptimeSeconds    Int
+  heapUsedMb       Float
+  heapTotalMb      Float
+  heapLimitMb      Float
+  heapUsedPercent  Float
+  rssMb            Float
+  externalMb       Float
+  arrayBuffersMb   Float
+  activeRequests   Int
+  gcCount          Int
+  gcDurationMs     Float
+  gcLongestPauseMs Float
+
+  @@index([capturedAt])
+  @@index([instanceId, capturedAt])
+  @@index([processStartId, capturedAt])
+}

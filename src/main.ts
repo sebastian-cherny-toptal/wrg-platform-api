@@ -19,6 +19,7 @@ import { corsAllowedOrigins, isCorsOriginAllowed } from "./config/cors.js";
 import { nativeCompatibilityRoutes } from "./config/native-routes.js";
 import { AppModule } from "./app.module.js";
 import { ServerErrorLoggingFilter } from "./common/http/server-error-exception.filter.js";
+import { ServerStatsService } from "./modules/server-stats/server-stats.service.js";
 import { HeapMonitor } from "./common/logging/heap-monitor.js";
 import { requestLogPropsForRequest } from "./common/logging/request-logging.js";
 
@@ -102,11 +103,15 @@ export async function createApp(): Promise<NestFastifyApplication> {
         infer: true,
       }),
     });
+    const stats = app.get(ServerStatsService);
+    const monitor = heapMonitor;
     fastify.addHook("onReady", async () => {
-      await heapMonitor?.start();
+      await monitor.start();
+      stats.start(() => monitor.historySample());
     });
     fastify.addHook("onClose", (_instance, done) => {
-      heapMonitor?.stop();
+      stats.stop();
+      monitor.stop();
       done();
     });
   }
