@@ -81,7 +81,9 @@ test("UK Campaign endpoint exports EA columns and enforces admin access", async 
     principal,
     reply as unknown as FastifyReply,
   );
-  assert.deepEqual(sent, bytes);
+  assert.ok(Buffer.isBuffer(sent));
+  // Separate XLSX exports can have different ZIP timestamps.
+  assert.deepEqual(await parseSurveyDefinition(sent), definition);
   assert.equal(
     headers.get("content-disposition"),
     'attachment; filename="UK_EA_Questions_and_Answers.xlsx"',
