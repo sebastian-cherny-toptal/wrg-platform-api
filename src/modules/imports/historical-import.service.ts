@@ -1,6 +1,7 @@
 import { resolveCanonicalOrganization } from "./organization-identity.js";
 import { CompatibilityZohoService } from "../crm-sync/compatibility-zoho.module.js";
 import { loadDefaultEaTemplateDefinition } from "./ea-template-definition.js";
+import { readFile } from "node:fs/promises";
 import {
   customEaDefinitionFromMetadata,
   eaDefinitionMetadata,
@@ -1391,6 +1392,18 @@ export class HistoricalImportService {
     return surveyDefinitionWorkbook(
       await loadDefaultEaTemplateDefinition(),
       "EA",
+    );
+  }
+
+  async downloadUkCampaignEmployerAssessmentDefinition(
+    principal: Principal,
+  ): Promise<Buffer> {
+    this.assertAccess(principal);
+    return readFile(
+      new URL(
+        "./templates/uk-campaign-ea-questions-and-answers.xlsx",
+        import.meta.url,
+      ),
     );
   }
 

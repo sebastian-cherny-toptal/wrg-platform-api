@@ -6,6 +6,8 @@ import headers from "../fixtures/ea-template-program-headers.json" with { type: 
 import type { PrismaService } from "../../src/database/prisma.service.js";
 import { loadDefaultEaTemplateDefinition } from "../../src/modules/imports/ea-template-definition.js";
 import { HistoricalImportService } from "../../src/modules/imports/historical-import.service.js";
+import { HistoricalImportController } from "../../src/modules/imports/historical-import.controller.js";
+import type { FastifyReply } from "fastify";
 import { ProgramSurveyDefinitionService } from "../../src/modules/imports/program-survey-definition.service.js";
 import {
   parseSurveyDefinition,
@@ -25,6 +27,62 @@ const principal = {
   permissions: [],
   organizationId: null,
 };
+
+test("UK Campaign endpoint downloads the bundled questions and answers and enforces admin access", async () => {
+  const service = new HistoricalImportService({} as PrismaService);
+  const bytes =
+    await service.downloadUkCampaignEmployerAssessmentDefinition(principal);
+  const source = await readFile(
+    new URL(
+      "../../src/modules/imports/templates/uk-campaign-ea-questions-and-answers.xlsx",
+      import.meta.url,
+    ),
+  );
+  assert.deepEqual(bytes, source);
+  const definition = await parseSurveyDefinition(bytes);
+  assert.equal(definition.length, 25);
+  assert.equal(
+    definition.reduce(
+      (count, question) => count + (question.options?.length ?? 0),
+      0,
+    ),
+    160,
+  );
+  assert.ok(definition[0]);
+  assert.match(definition[0].caption, /organisation/u);
+  const headers = new Map<string, string>();
+  let sent: unknown;
+  const reply = {
+    header(name: string, value: string) {
+      headers.set(name, value);
+      return this;
+    },
+    send(value: unknown) {
+      sent = value;
+      return this;
+    },
+  };
+  await new HistoricalImportController(
+    service,
+  ).downloadUkCampaignEmployerAssessmentDefinition(
+    principal,
+    reply as unknown as FastifyReply,
+  );
+  assert.deepEqual(sent, bytes);
+  assert.equal(
+    headers.get("content-disposition"),
+    'attachment; filename="UK_EA_Questions_and_Answers.xlsx"',
+  );
+  assert.equal(headers.get("cache-control"), "no-store");
+  await assert.rejects(
+    () =>
+      service.downloadUkCampaignEmployerAssessmentDefinition({
+        ...principal,
+        roles: [],
+      }),
+    /access|admin|permission|Forbidden/iu,
+  );
+});
 
 test("the default EA download combines all legacy and AD questions with every mapping column", async () => {
   const service = new HistoricalImportService({} as PrismaService);

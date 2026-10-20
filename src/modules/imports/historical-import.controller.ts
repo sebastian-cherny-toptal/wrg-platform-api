@@ -119,6 +119,30 @@ export class HistoricalImportController {
       .send(bytes);
   }
 
+  @Post("uk-employer-assessment-definition.xlsx")
+  @HttpCode(200)
+  async downloadUkCampaignEmployerAssessmentDefinition(
+    @CurrentUser() principal: Principal,
+    @Res() reply: FastifyReply,
+  ) {
+    const bytes =
+      await this.imports.downloadUkCampaignEmployerAssessmentDefinition(
+        principal,
+      );
+    reply
+      .header(
+        "content-type",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      )
+      .header(
+        "content-disposition",
+        'attachment; filename="UK_EA_Questions_and_Answers.xlsx"',
+      )
+      .header("access-control-expose-headers", "*")
+      .header("cache-control", "no-store")
+      .send(bytes);
+  }
+
   @Post("prepare")
   @HttpCode(200)
   @ApiConsumes("multipart/form-data")
