@@ -47,9 +47,10 @@ export function mergeSurveyDefinitions(
   return [...definitions.values()];
 }
 
-/** A definition is an optional EFS override, owned by one program. */
+/** Parse a program-owned definition, enforcing explicit EA presentation fields. */
 export async function parseSurveyDefinition(
   buffer: Buffer,
+  kind: "EFS" | "EA" = "EFS",
 ): Promise<SurveyDefinition> {
   const workbook = new ExcelJS.Workbook();
   try {
@@ -117,7 +118,11 @@ export async function parseSurveyDefinition(
     ).filter(({ text }) => required.some((field) => text(field)));
   };
   const questions = new Map<string, SurveyDefinitionQuestion>();
-  for (const row of rows("Questions", ["question_key", "question_label"])) {
+  for (const row of rows("Questions", [
+    "question_key",
+    "question_label",
+    ...(kind === "EA" ? ["category", "display_order"] : []),
+  ])) {
     const dataLabel = row.text("question_key");
     const caption = row.text("question_label");
     if (!dataLabel || !caption)
@@ -134,6 +139,13 @@ export async function parseSurveyDefinition(
       throw new BadRequestException(
         `Questions row ${row.row}: invalid question_type`,
       );
+    }
+    if (kind === "EA") {
+      for (const field of ["category", "display_order"])
+        if (!row.text(field))
+          throw new BadRequestException(
+            `Questions row ${row.row}: ${field} is required`,
+          );
     }
     const position = row.number("display_order");
     const calculation = row.text("calculation");
@@ -216,6 +228,7 @@ export async function parseSurveyDefinition(
     "question_key",
     "raw_answer",
     "answer_label",
+    ...(kind === "EA" ? ["display_order"] : []),
   ])) {
     const question = questions.get(row.text("question_key"));
     if (!question)
@@ -233,6 +246,10 @@ export async function parseSurveyDefinition(
     if (question.options.some((option) => option.Id === id))
       throw new BadRequestException(
         `Duplicate answer ${id} for ${question.dataLabel}`,
+      );
+    if (kind === "EA" && !row.text("display_order"))
+      throw new BadRequestException(
+        `Answers row ${row.row}: display_order is required`,
       );
     const position = row.number("display_order") ?? question.options.length + 1;
     if (!Number.isInteger(position) || position < 1)

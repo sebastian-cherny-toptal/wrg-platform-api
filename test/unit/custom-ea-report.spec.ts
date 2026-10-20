@@ -25,6 +25,7 @@ import { createBenefitsWorkbook } from "../../src/modules/reports/report-templat
 const definition: SurveyDefinition = [
   {
     dataLabel: "holidays",
+    position: 1,
     caption: "Bank holidays",
     categoryLabel: "Benefits",
     ea: { calculation: "multi", sourceColumn: "holidays", format: "percent" },
@@ -45,6 +46,7 @@ const definition: SurveyDefinition = [
   },
   {
     dataLabel: "benefits.1",
+    position: 2,
     caption: "Supplementary benefits",
     categoryLabel: "Benefits",
     ea: {
@@ -61,6 +63,7 @@ const definition: SurveyDefinition = [
   },
   {
     dataLabel: "count",
+    position: 3,
     caption: "Holiday count",
     categoryLabel: "Benefits",
     ea: { calculation: "mean", sourceColumn: "count", format: "number" },

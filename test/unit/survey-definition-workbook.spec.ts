@@ -251,3 +251,66 @@ test("default survey definition workbook uses the standard gender codes", async 
     ],
   );
 });
+
+for (const [sheetName, field] of [
+  ["Questions", "category"],
+  ["Questions", "display_order"],
+  ["Answers", "display_order"],
+] as const) {
+  for (const invalid of ["missing column", "empty cell", "whitespace cell"]) {
+    test(`EA rejects ${sheetName} ${field}: ${invalid}`, async () => {
+      const workbook = new ExcelJS.Workbook();
+      const questions = workbook.addWorksheet("Questions");
+      questions.addRow([
+        "question_key",
+        "question_label",
+        "category",
+        "display_order",
+      ]);
+      questions.addRow(["q_Test", "Test", "Benefits", 2]);
+      const answers = workbook.addWorksheet("Answers");
+      answers.addRow([
+        "question_key",
+        "raw_answer",
+        "answer_label",
+        "display_order",
+      ]);
+      answers.addRow(["q_Test", "Yes", "Yes", 3]);
+      const sheet = workbook.getWorksheet(sheetName);
+      assert.ok(sheet);
+      const column = (sheet.getRow(1).values as ExcelJS.CellValue[]).indexOf(
+        field,
+      );
+      sheet.getRow(invalid === "missing column" ? 1 : 2).getCell(column).value =
+        invalid === "whitespace cell" ? "   " : null;
+      const buffer = Buffer.from(await workbook.xlsx.writeBuffer());
+      await assert.rejects(
+        () => parseSurveyDefinition(buffer, "EA"),
+        invalid === "missing column"
+          ? new RegExp(`${sheetName} requires ${field}`, "u")
+          : new RegExp(`${sheetName} row 2: ${field} is required`, "u"),
+      );
+      // EFS still permits omitted presentation fields.
+      await parseSurveyDefinition(buffer, "EFS");
+    });
+  }
+}
+
+test("EA preserves explicit category and presentation orders", async () => {
+  const definition = [
+    {
+      dataLabel: "q_Test",
+      caption: "Test",
+      categoryLabel: "Benefits",
+      position: 7,
+      options: [{ Id: "Yes", Caption: "Yes", Position: 4 }],
+    },
+  ];
+  assert.deepEqual(
+    await parseSurveyDefinition(
+      await surveyDefinitionWorkbook(definition, "EA"),
+      "EA",
+    ),
+    definition,
+  );
+});

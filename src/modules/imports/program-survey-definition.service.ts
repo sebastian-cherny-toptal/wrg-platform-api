@@ -587,7 +587,7 @@ export class ProgramSurveyDefinitionService {
     let uploaded: SurveyDefinition;
     try {
       uploaded = normalizeEmployerAssessmentDefinition(
-        await parseSurveyDefinition(buffer),
+        await parseSurveyDefinition(buffer, "EA"),
         await loadDefaultBenefitsBestPracticesDefinition(),
       );
       validateBenefitsBestPracticesDefinition(

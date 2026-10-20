@@ -28,7 +28,7 @@ const principal = {
   organizationId: null,
 };
 
-test("UK Campaign endpoint downloads the bundled questions and answers and enforces admin access", async () => {
+test("UK Campaign endpoint exports EA columns and enforces admin access", async () => {
   const service = new HistoricalImportService({} as PrismaService);
   const bytes =
     await service.downloadUkCampaignEmployerAssessmentDefinition(principal);
@@ -38,8 +38,21 @@ test("UK Campaign endpoint downloads the bundled questions and answers and enfor
       import.meta.url,
     ),
   );
-  assert.deepEqual(bytes, source);
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(bytes as unknown as ExcelJS.Buffer);
+  const answers = workbook.getWorksheet("Answers");
+  assert.ok(answers);
+  assert.equal(
+    (answers.getRow(1).values as ExcelJS.CellValue[]).includes("score"),
+    false,
+  );
   const definition = await parseSurveyDefinition(bytes);
+  const original = await parseSurveyDefinition(source);
+  for (const question of original) {
+    delete question.type;
+    for (const option of question.options ?? []) delete option.Score;
+  }
+  assert.deepEqual(definition, original);
   assert.equal(definition.length, 25);
   assert.equal(
     definition.reduce(

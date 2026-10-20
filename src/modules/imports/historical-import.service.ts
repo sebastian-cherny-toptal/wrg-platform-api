@@ -1399,12 +1399,15 @@ export class HistoricalImportService {
     principal: Principal,
   ): Promise<Buffer> {
     this.assertAccess(principal);
-    return readFile(
-      new URL(
-        "./templates/uk-campaign-ea-questions-and-answers.xlsx",
-        import.meta.url,
+    const definition = await parseSurveyDefinition(
+      await readFile(
+        new URL(
+          "./templates/uk-campaign-ea-questions-and-answers.xlsx",
+          import.meta.url,
+        ),
       ),
     );
+    return surveyDefinitionWorkbook(definition, "EA");
   }
 
   private async parseEmployerAssessmentDefinition(
@@ -1415,7 +1418,7 @@ export class HistoricalImportService {
     let definition: SurveyDefinition;
     try {
       definition = normalizeEmployerAssessmentDefinition(
-        await parseSurveyDefinition(file.buffer),
+        await parseSurveyDefinition(file.buffer, "EA"),
         defaults,
       );
       validateBenefitsBestPracticesDefinition(

@@ -10,7 +10,10 @@ No database migration or automatic program conversion is required.
 
 Use the existing EA definition upload endpoints and multipart field
 `employerAssessmentDefinitionFile`. The workbook retains Questions and Answers.
-Existing standard label templates need no extra columns.
+EA uploads require `category` and `display_order` on every Questions row and
+`display_order` on every Answers row, including standard label templates. Missing
+columns and blank or whitespace-only cells are rejected; no category or order is
+inferred. Orders must be positive whole numbers. EFS requirements are unchanged.
 
 For custom reports, every Questions row includes:
 
