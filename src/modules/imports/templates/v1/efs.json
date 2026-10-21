@@ -1,0 +1,4665 @@
+[
+  {
+    "dataLabel": "q_CoreEmployeeExperience_1",
+    "caption": "This organization's culture allows me to do my best work",
+    "type": "likert",
+    "position": 1,
+    "categoryLabel": "Core Employee Experience",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_CoreEmployeeExperience_2",
+    "caption": "I typically go above and beyond for this organization",
+    "type": "likert",
+    "position": 2,
+    "categoryLabel": "Core Employee Experience",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_CoreEmployeeExperience_3",
+    "caption": "I would endorse this organization's products/services",
+    "type": "likert",
+    "position": 3,
+    "categoryLabel": "Core Employee Experience",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_CoreEmployeeExperience_4",
+    "caption": "I am typically enthusiastic about my work",
+    "type": "likert",
+    "position": 4,
+    "categoryLabel": "Core Employee Experience",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_CoreEmployeeExperience_5",
+    "caption": "I feel satisfied with this organization",
+    "type": "likert",
+    "position": 5,
+    "categoryLabel": "Core Employee Experience",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_CoreEmployeeExperience_6",
+    "caption": "I intend to remain at this organization for the foreseeable future",
+    "type": "likert",
+    "position": 6,
+    "categoryLabel": "Core Employee Experience",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_CoreEmployeeExperience_7",
+    "caption": "I feel pride in saying I work for this organization",
+    "type": "likert",
+    "position": 7,
+    "categoryLabel": "Core Employee Experience",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_CoreEmployeeExperience_8",
+    "caption": "I would endorse this organization as an employer",
+    "type": "likert",
+    "position": 8,
+    "categoryLabel": "Core Employee Experience",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_CoreEmployeeExperience_9",
+    "caption": "I find purpose in my work",
+    "type": "likert",
+    "position": 9,
+    "categoryLabel": "Core Employee Experience",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_YourJob_1",
+    "caption": "I understand what is expected of me",
+    "type": "likert",
+    "position": 10,
+    "categoryLabel": "Your Job",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_YourJob_2",
+    "caption": "I don’t worry about the security of my position",
+    "type": "likert",
+    "position": 11,
+    "categoryLabel": "Your Job",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_YourJob_3_25",
+    "caption": "I am paid fairly for the work I perform",
+    "type": "likert",
+    "position": 12,
+    "categoryLabel": "Your Job",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_YourJob_4",
+    "caption": "My job is well-aligned with my abilities",
+    "type": "likert",
+    "position": 13,
+    "categoryLabel": "Your Job",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_YourJob_5",
+    "caption": "I have sufficient autonomy to make decisions",
+    "type": "likert",
+    "position": 14,
+    "categoryLabel": "Your Job",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_YourJob_6",
+    "caption": "I have sufficient privacy to do my work",
+    "type": "likert",
+    "position": 15,
+    "categoryLabel": "Your Job",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_YourJob_7",
+    "caption": "I typically feel I make daily progress at work",
+    "type": "likert",
+    "position": 16,
+    "categoryLabel": "Your Job",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_YourJob_8",
+    "caption": "At this organization, work deadlines are reasonable",
+    "type": "likert",
+    "position": 17,
+    "categoryLabel": "Your Job",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_YourJob_9",
+    "caption": "I believe this organization values me",
+    "type": "likert",
+    "position": 18,
+    "categoryLabel": "Your Job",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_YourJob_10",
+    "caption": "I am part of a team with a common purpose",
+    "type": "likert",
+    "position": 19,
+    "categoryLabel": "Your Job",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_YourJob_11",
+    "caption": "I like what I do for this organization",
+    "type": "likert",
+    "position": 20,
+    "categoryLabel": "Your Job",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_YourJob_12",
+    "caption": "I understand how my work impacts organizational success",
+    "type": "likert",
+    "position": 21,
+    "categoryLabel": "Your Job",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_CommunicationWorkplaceCulture_1",
+    "caption": "This organization treats me with dignity, not as just a number",
+    "type": "likert",
+    "position": 22,
+    "categoryLabel": "Communication And Workplace Culture",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_CommunicationWorkplaceCulture_2",
+    "caption": "We have a cooperative culture in this organization",
+    "type": "likert",
+    "position": 23,
+    "categoryLabel": "Communication And Workplace Culture",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_CommunicationWorkplaceCulture_3",
+    "caption": "I have fun at work",
+    "type": "likert",
+    "position": 24,
+    "categoryLabel": "Communication And Workplace Culture",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_CommunicationWorkplaceCulture_4",
+    "caption": "I am not afraid to communicate my honest opinions",
+    "type": "likert",
+    "position": 25,
+    "categoryLabel": "Communication And Workplace Culture",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_CommunicationWorkplaceCulture_5",
+    "caption": "Communication from this organization is trustworthy",
+    "type": "likert",
+    "position": 26,
+    "categoryLabel": "Communication And Workplace Culture",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_CommunicationWorkplaceCulture_6",
+    "caption": "Communication from this organization is frequent enough",
+    "type": "likert",
+    "position": 27,
+    "categoryLabel": "Communication And Workplace Culture",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_CommunicationWorkplaceCulture_7",
+    "caption": "Communication from this organization is informative",
+    "type": "likert",
+    "position": 28,
+    "categoryLabel": "Communication And Workplace Culture",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_CommunicationWorkplaceCulture_8",
+    "caption": "I am informed prior to changes that will impact me",
+    "type": "likert",
+    "position": 29,
+    "categoryLabel": "Communication And Workplace Culture",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_CommunicationWorkplaceCulture_9",
+    "caption": "I enjoy my coworkers",
+    "type": "likert",
+    "position": 30,
+    "categoryLabel": "Communication And Workplace Culture",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_CommunicationWorkplaceCulture_10",
+    "caption": "This organization is committed to producing high-quality products/services",
+    "type": "likert",
+    "position": 31,
+    "categoryLabel": "Communication And Workplace Culture",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_CommunicationWorkplaceCulture_11",
+    "caption": "I am kept aware of this organization's financial status",
+    "type": "likert",
+    "position": 32,
+    "categoryLabel": "Communication And Workplace Culture",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_RelationshipManager_1",
+    "caption": "My manager lets me know when I need to improve my work",
+    "type": "likert",
+    "position": 33,
+    "categoryLabel": "Relationship With Your Manager",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_RelationshipManager_2",
+    "caption": "My manager recognizes when I do a good job",
+    "type": "likert",
+    "position": 34,
+    "categoryLabel": "Relationship With Your Manager",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_RelationshipManager_3",
+    "caption": "My manager is mindful in dealing with my job-related needs",
+    "type": "likert",
+    "position": 35,
+    "categoryLabel": "Relationship With Your Manager",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_RelationshipManager_4",
+    "caption": "I trust what my manager communicates to me",
+    "type": "likert",
+    "position": 36,
+    "categoryLabel": "Relationship With Your Manager",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_RelationshipManager_5",
+    "caption": "I am treated fairly by my manager",
+    "type": "likert",
+    "position": 37,
+    "categoryLabel": "Relationship With Your Manager",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_RelationshipManager_6",
+    "caption": "I am treated respectfully by my manager",
+    "type": "likert",
+    "position": 38,
+    "categoryLabel": "Relationship With Your Manager",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_RelationshipManager_7",
+    "caption": "My manager willingly listens to my suggestions",
+    "type": "likert",
+    "position": 39,
+    "categoryLabel": "Relationship With Your Manager",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_RelationshipManager_8",
+    "caption": "My manager is mindful in dealing with my personal needs",
+    "type": "likert",
+    "position": 40,
+    "categoryLabel": "Relationship With Your Manager",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_RelationshipManager_9",
+    "caption": "My manager wants me to reach my full potential",
+    "type": "likert",
+    "position": 41,
+    "categoryLabel": "Relationship With Your Manager",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_TrainingTechnologyProfessionalDevelopment_1",
+    "caption": "This organization assists me in following a well-aligned career path",
+    "type": "likert",
+    "position": 42,
+    "categoryLabel": "Training, Technology And Professional Development",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_TrainingTechnologyProfessionalDevelopment_2",
+    "caption": "I receive sufficient ongoing training",
+    "type": "likert",
+    "position": 43,
+    "categoryLabel": "Training, Technology And Professional Development",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_TrainingTechnologyProfessionalDevelopment_3",
+    "caption": "I am rewarded for doing a good job",
+    "type": "likert",
+    "position": 44,
+    "categoryLabel": "Training, Technology And Professional Development",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_TrainingTechnologyProfessionalDevelopment_4",
+    "caption": "I have access to dependable computer equipment",
+    "type": "likert",
+    "position": 45,
+    "categoryLabel": "Training, Technology And Professional Development",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_TrainingTechnologyProfessionalDevelopment_5",
+    "caption": "The organization's technology help desk resolves issues quickly",
+    "type": "likert",
+    "position": 46,
+    "categoryLabel": "Training, Technology And Professional Development",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_TrainingTechnologyProfessionalDevelopment_6",
+    "caption": "This organization enables my professional development",
+    "type": "likert",
+    "position": 47,
+    "categoryLabel": "Training, Technology And Professional Development",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_TrainingTechnologyProfessionalDevelopment_7",
+    "caption": "I have the software necessary to do my job efficiently",
+    "type": "likert",
+    "position": 48,
+    "categoryLabel": "Training, Technology And Professional Development",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_DiversityInclusion_1",
+    "caption": "This organization does not differentiate based on backgrounds, beliefs, or identities",
+    "type": "likert",
+    "position": 49,
+    "categoryLabel": "Diversity And Inclusion",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_DiversityInclusion_2_23",
+    "caption": "This organization has taken real action to create an inclusive culture",
+    "type": "likert",
+    "position": 50,
+    "categoryLabel": "Diversity And Inclusion",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_DiversityInclusion_3_23",
+    "caption": "This organization strives to employ a diverse workforce",
+    "type": "likert",
+    "position": 51,
+    "categoryLabel": "Diversity And Inclusion",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_DiversityInclusion_4",
+    "caption": "This organization actively promotes diversity and inclusion",
+    "type": "likert",
+    "position": 52,
+    "categoryLabel": "Diversity And Inclusion",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_DiversityInclusion_5",
+    "caption": "Generally, employees feel comfortable representing themselves regardless of backgrounds, beliefs, or identities",
+    "type": "likert",
+    "position": 53,
+    "categoryLabel": "Diversity And Inclusion",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_DiversityInclusion_6",
+    "caption": "Discrimination is not tolerated in this organization",
+    "type": "likert",
+    "position": 54,
+    "categoryLabel": "Diversity And Inclusion",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_Leadership_1",
+    "caption": "I believe in this organization's leadership",
+    "type": "likert",
+    "position": 55,
+    "categoryLabel": "Leadership Of This Organization",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_Leadership_2",
+    "caption": "Senior leaders are committed to this organization's core values",
+    "type": "likert",
+    "position": 56,
+    "categoryLabel": "Leadership Of This Organization",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_Leadership_3",
+    "caption": "Organizational leaders act on employee suggestions",
+    "type": "likert",
+    "position": 57,
+    "categoryLabel": "Leadership Of This Organization",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_Leadership_4",
+    "caption": "Organizational leadership is committed to employee wellbeing",
+    "type": "likert",
+    "position": 58,
+    "categoryLabel": "Leadership Of This Organization",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_Leadership_5",
+    "caption": "This organization's long-term plans seem sensible",
+    "type": "likert",
+    "position": 59,
+    "categoryLabel": "Leadership Of This Organization",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_EmployeeBenefits_1",
+    "caption": "This organization's benefits package is satisfactory",
+    "type": "likert",
+    "position": 60,
+    "categoryLabel": "Employee Benefits",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_EmployeeBenefits_2",
+    "caption": "I believe the amount of paid time off (or vacation) is adequate",
+    "type": "likert",
+    "position": 61,
+    "categoryLabel": "Employee Benefits",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_EmployeeBenefits_3",
+    "caption": "I believe the amount of sick leave is adequate (if no paid time off)",
+    "type": "likert",
+    "position": 62,
+    "categoryLabel": "Employee Benefits",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_EmployeeBenefits_4",
+    "caption": "This organization's healthcare plan is acceptable",
+    "type": "likert",
+    "position": 63,
+    "categoryLabel": "Employee Benefits",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_EmployeeBenefits_5",
+    "caption": "My share of healthcare costs is reasonable",
+    "type": "likert",
+    "position": 64,
+    "categoryLabel": "Employee Benefits",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_EmployeeBenefits_6",
+    "caption": "This organization's dental plan is acceptable",
+    "type": "likert",
+    "position": 65,
+    "categoryLabel": "Employee Benefits",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_EmployeeBenefits_7",
+    "caption": "My share of dental costs is reasonable",
+    "type": "likert",
+    "position": 66,
+    "categoryLabel": "Employee Benefits",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_EmployeeBenefits_8",
+    "caption": "This organization's vision plan is acceptable",
+    "type": "likert",
+    "position": 67,
+    "categoryLabel": "Employee Benefits",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_EmployeeBenefits_9",
+    "caption": "My share of vision costs is reasonable",
+    "type": "likert",
+    "position": 68,
+    "categoryLabel": "Employee Benefits",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_EmployeeBenefits_10",
+    "caption": "I like this organization's retirement plan",
+    "type": "likert",
+    "position": 69,
+    "categoryLabel": "Employee Benefits",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_EmployeeBenefits_11",
+    "caption": "I like this organization's life insurance plan",
+    "type": "likert",
+    "position": 70,
+    "categoryLabel": "Employee Benefits",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_EmployeeBenefits_12",
+    "caption": "I like this organization's disability plan",
+    "type": "likert",
+    "position": 71,
+    "categoryLabel": "Employee Benefits",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_WorkLifeBalance_1",
+    "caption": "I am satisfied with the number of hours I work each week",
+    "type": "likert",
+    "position": 72,
+    "categoryLabel": "Work-Life Balance",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_WorkLifeBalance_2",
+    "caption": "I rarely miss personal events because of work",
+    "type": "likert",
+    "position": 73,
+    "categoryLabel": "Work-Life Balance",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_WorkLifeBalance_3",
+    "caption": "I am satisfied with my work-life balance",
+    "type": "likert",
+    "position": 74,
+    "categoryLabel": "Work-Life Balance",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_WorkLifeBalance_4_23",
+    "caption": "My current workload enables me to have a healthy work-life balance",
+    "type": "likert",
+    "position": 75,
+    "categoryLabel": "Work-Life Balance",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_WorkLifeBalance_6",
+    "caption": "I have the flexibility needed to manage personal obligations",
+    "type": "likert",
+    "position": 76,
+    "categoryLabel": "Work-Life Balance",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_WorkLifeBalance_7",
+    "caption": "My organization encourages me to take time off",
+    "type": "likert",
+    "position": 77,
+    "categoryLabel": "Work-Life Balance",
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Strongly Disagree",
+        "Position": 1,
+        "Score": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Disagree",
+        "Position": 2,
+        "Score": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Neutral",
+        "Position": 3,
+        "Score": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Agree",
+        "Position": 4,
+        "Score": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Strongly Agree",
+        "Position": 5,
+        "Score": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      },
+      {
+        "Id": "99",
+        "Caption": "N/A",
+        "Position": 6,
+        "Score": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "q_OpenEnded_1",
+    "caption": "What are the top two or three reasons people like working for this organization?",
+    "type": "open-text",
+    "position": 78
+  },
+  {
+    "dataLabel": "q_OpenEnded_2",
+    "caption": "What two or three things can this organization add or change to improve employee engagement and success?",
+    "type": "open-text",
+    "position": 79
+  },
+  {
+    "dataLabel": "f_PersonalDemographics_gender",
+    "caption": "Gender",
+    "type": "demographic",
+    "position": 80,
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Female",
+        "Position": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Male",
+        "Position": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Non-Binary",
+        "Position": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Prefer not to answer",
+        "Position": 4
+      }
+    ]
+  },
+  {
+    "dataLabel": "f_PersonalDemographics_ageGeneration",
+    "caption": "Age Generation",
+    "type": "demographic",
+    "position": 81,
+    "options": [
+      {
+        "Id": "68",
+        "Caption": "The Silent Generation (Born 1928 to 1945)",
+        "Position": 1
+      },
+      {
+        "Id": "69",
+        "Caption": "The Silent Generation (Born 1928 to 1945)",
+        "Position": 1
+      },
+      {
+        "Id": "70",
+        "Caption": "The Silent Generation (Born 1928 to 1945)",
+        "Position": 1
+      },
+      {
+        "Id": "71",
+        "Caption": "The Silent Generation (Born 1928 to 1945)",
+        "Position": 1
+      },
+      {
+        "Id": "72",
+        "Caption": "The Silent Generation (Born 1928 to 1945)",
+        "Position": 1
+      },
+      {
+        "Id": "73",
+        "Caption": "The Silent Generation (Born 1928 to 1945)",
+        "Position": 1
+      },
+      {
+        "Id": "74",
+        "Caption": "The Silent Generation (Born 1928 to 1945)",
+        "Position": 1
+      },
+      {
+        "Id": "75",
+        "Caption": "The Silent Generation (Born 1928 to 1945)",
+        "Position": 1
+      },
+      {
+        "Id": "76",
+        "Caption": "The Silent Generation (Born 1928 to 1945)",
+        "Position": 1
+      },
+      {
+        "Id": "77",
+        "Caption": "The Silent Generation (Born 1928 to 1945)",
+        "Position": 1
+      },
+      {
+        "Id": "78",
+        "Caption": "The Silent Generation (Born 1928 to 1945)",
+        "Position": 1
+      },
+      {
+        "Id": "79",
+        "Caption": "The Silent Generation (Born 1928 to 1945)",
+        "Position": 1
+      },
+      {
+        "Id": "80",
+        "Caption": "The Silent Generation (Born 1928 to 1945)",
+        "Position": 1
+      },
+      {
+        "Id": "81",
+        "Caption": "The Silent Generation (Born 1928 to 1945)",
+        "Position": 1
+      },
+      {
+        "Id": "82",
+        "Caption": "The Silent Generation (Born 1928 to 1945)",
+        "Position": 1
+      },
+      {
+        "Id": "83",
+        "Caption": "The Silent Generation (Born 1928 to 1945)",
+        "Position": 1
+      },
+      {
+        "Id": "84",
+        "Caption": "The Silent Generation (Born 1928 to 1945)",
+        "Position": 1
+      },
+      {
+        "Id": "85",
+        "Caption": "The Silent Generation (Born 1928 to 1945)",
+        "Position": 1
+      },
+      {
+        "Id": "49",
+        "Caption": "Baby Boomers (Born 1946 to 1964)",
+        "Position": 2
+      },
+      {
+        "Id": "50",
+        "Caption": "Baby Boomers (Born 1946 to 1964)",
+        "Position": 2
+      },
+      {
+        "Id": "51",
+        "Caption": "Baby Boomers (Born 1946 to 1964)",
+        "Position": 2
+      },
+      {
+        "Id": "52",
+        "Caption": "Baby Boomers (Born 1946 to 1964)",
+        "Position": 2
+      },
+      {
+        "Id": "53",
+        "Caption": "Baby Boomers (Born 1946 to 1964)",
+        "Position": 2
+      },
+      {
+        "Id": "54",
+        "Caption": "Baby Boomers (Born 1946 to 1964)",
+        "Position": 2
+      },
+      {
+        "Id": "55",
+        "Caption": "Baby Boomers (Born 1946 to 1964)",
+        "Position": 2
+      },
+      {
+        "Id": "56",
+        "Caption": "Baby Boomers (Born 1946 to 1964)",
+        "Position": 2
+      },
+      {
+        "Id": "57",
+        "Caption": "Baby Boomers (Born 1946 to 1964)",
+        "Position": 2
+      },
+      {
+        "Id": "58",
+        "Caption": "Baby Boomers (Born 1946 to 1964)",
+        "Position": 2
+      },
+      {
+        "Id": "59",
+        "Caption": "Baby Boomers (Born 1946 to 1964)",
+        "Position": 2
+      },
+      {
+        "Id": "60",
+        "Caption": "Baby Boomers (Born 1946 to 1964)",
+        "Position": 2
+      },
+      {
+        "Id": "61",
+        "Caption": "Baby Boomers (Born 1946 to 1964)",
+        "Position": 2
+      },
+      {
+        "Id": "62",
+        "Caption": "Baby Boomers (Born 1946 to 1964)",
+        "Position": 2
+      },
+      {
+        "Id": "63",
+        "Caption": "Baby Boomers (Born 1946 to 1964)",
+        "Position": 2
+      },
+      {
+        "Id": "64",
+        "Caption": "Baby Boomers (Born 1946 to 1964)",
+        "Position": 2
+      },
+      {
+        "Id": "65",
+        "Caption": "Baby Boomers (Born 1946 to 1964)",
+        "Position": 2
+      },
+      {
+        "Id": "66",
+        "Caption": "Baby Boomers (Born 1946 to 1964)",
+        "Position": 2
+      },
+      {
+        "Id": "67",
+        "Caption": "Baby Boomers (Born 1946 to 1964)",
+        "Position": 2
+      },
+      {
+        "Id": "33",
+        "Caption": "Generation X (Born 1965 to 1980)",
+        "Position": 3
+      },
+      {
+        "Id": "34",
+        "Caption": "Generation X (Born 1965 to 1980)",
+        "Position": 3
+      },
+      {
+        "Id": "35",
+        "Caption": "Generation X (Born 1965 to 1980)",
+        "Position": 3
+      },
+      {
+        "Id": "36",
+        "Caption": "Generation X (Born 1965 to 1980)",
+        "Position": 3
+      },
+      {
+        "Id": "37",
+        "Caption": "Generation X (Born 1965 to 1980)",
+        "Position": 3
+      },
+      {
+        "Id": "38",
+        "Caption": "Generation X (Born 1965 to 1980)",
+        "Position": 3
+      },
+      {
+        "Id": "39",
+        "Caption": "Generation X (Born 1965 to 1980)",
+        "Position": 3
+      },
+      {
+        "Id": "40",
+        "Caption": "Generation X (Born 1965 to 1980)",
+        "Position": 3
+      },
+      {
+        "Id": "41",
+        "Caption": "Generation X (Born 1965 to 1980)",
+        "Position": 3
+      },
+      {
+        "Id": "42",
+        "Caption": "Generation X (Born 1965 to 1980)",
+        "Position": 3
+      },
+      {
+        "Id": "43",
+        "Caption": "Generation X (Born 1965 to 1980)",
+        "Position": 3
+      },
+      {
+        "Id": "44",
+        "Caption": "Generation X (Born 1965 to 1980)",
+        "Position": 3
+      },
+      {
+        "Id": "45",
+        "Caption": "Generation X (Born 1965 to 1980)",
+        "Position": 3
+      },
+      {
+        "Id": "46",
+        "Caption": "Generation X (Born 1965 to 1980)",
+        "Position": 3
+      },
+      {
+        "Id": "47",
+        "Caption": "Generation X (Born 1965 to 1980)",
+        "Position": 3
+      },
+      {
+        "Id": "48",
+        "Caption": "Generation X (Born 1965 to 1980)",
+        "Position": 3
+      },
+      {
+        "Id": "17",
+        "Caption": "Millennials (Born 1981 to 1996)",
+        "Position": 4
+      },
+      {
+        "Id": "18",
+        "Caption": "Millennials (Born 1981 to 1996)",
+        "Position": 4
+      },
+      {
+        "Id": "19",
+        "Caption": "Millennials (Born 1981 to 1996)",
+        "Position": 4
+      },
+      {
+        "Id": "20",
+        "Caption": "Millennials (Born 1981 to 1996)",
+        "Position": 4
+      },
+      {
+        "Id": "21",
+        "Caption": "Millennials (Born 1981 to 1996)",
+        "Position": 4
+      },
+      {
+        "Id": "22",
+        "Caption": "Millennials (Born 1981 to 1996)",
+        "Position": 4
+      },
+      {
+        "Id": "23",
+        "Caption": "Millennials (Born 1981 to 1996)",
+        "Position": 4
+      },
+      {
+        "Id": "24",
+        "Caption": "Millennials (Born 1981 to 1996)",
+        "Position": 4
+      },
+      {
+        "Id": "25",
+        "Caption": "Millennials (Born 1981 to 1996)",
+        "Position": 4
+      },
+      {
+        "Id": "26",
+        "Caption": "Millennials (Born 1981 to 1996)",
+        "Position": 4
+      },
+      {
+        "Id": "27",
+        "Caption": "Millennials (Born 1981 to 1996)",
+        "Position": 4
+      },
+      {
+        "Id": "28",
+        "Caption": "Millennials (Born 1981 to 1996)",
+        "Position": 4
+      },
+      {
+        "Id": "29",
+        "Caption": "Millennials (Born 1981 to 1996)",
+        "Position": 4
+      },
+      {
+        "Id": "30",
+        "Caption": "Millennials (Born 1981 to 1996)",
+        "Position": 4
+      },
+      {
+        "Id": "31",
+        "Caption": "Millennials (Born 1981 to 1996)",
+        "Position": 4
+      },
+      {
+        "Id": "32",
+        "Caption": "Millennials (Born 1981 to 1996)",
+        "Position": 4
+      },
+      {
+        "Id": "1",
+        "Caption": "Generation Z (Born 1997 or later)",
+        "Position": 5
+      },
+      {
+        "Id": "2",
+        "Caption": "Generation Z (Born 1997 or later)",
+        "Position": 5
+      },
+      {
+        "Id": "3",
+        "Caption": "Generation Z (Born 1997 or later)",
+        "Position": 5
+      },
+      {
+        "Id": "4",
+        "Caption": "Generation Z (Born 1997 or later)",
+        "Position": 5
+      },
+      {
+        "Id": "5",
+        "Caption": "Generation Z (Born 1997 or later)",
+        "Position": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "Generation Z (Born 1997 or later)",
+        "Position": 5
+      },
+      {
+        "Id": "7",
+        "Caption": "Generation Z (Born 1997 or later)",
+        "Position": 5
+      },
+      {
+        "Id": "8",
+        "Caption": "Generation Z (Born 1997 or later)",
+        "Position": 5
+      },
+      {
+        "Id": "9",
+        "Caption": "Generation Z (Born 1997 or later)",
+        "Position": 5
+      },
+      {
+        "Id": "10",
+        "Caption": "Generation Z (Born 1997 or later)",
+        "Position": 5
+      },
+      {
+        "Id": "11",
+        "Caption": "Generation Z (Born 1997 or later)",
+        "Position": 5
+      },
+      {
+        "Id": "12",
+        "Caption": "Generation Z (Born 1997 or later)",
+        "Position": 5
+      },
+      {
+        "Id": "13",
+        "Caption": "Generation Z (Born 1997 or later)",
+        "Position": 5
+      },
+      {
+        "Id": "14",
+        "Caption": "Generation Z (Born 1997 or later)",
+        "Position": 5
+      },
+      {
+        "Id": "15",
+        "Caption": "Generation Z (Born 1997 or later)",
+        "Position": 5
+      },
+      {
+        "Id": "16",
+        "Caption": "Generation Z (Born 1997 or later)",
+        "Position": 5
+      },
+      {
+        "Id": "86",
+        "Caption": "Prefer not to answer",
+        "Position": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "f_PersonalDemographics_ethnicOrigin",
+    "caption": "Race/Ethnicity",
+    "type": "demographic",
+    "position": 82,
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "American Indian or Alaska Native",
+        "Position": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Asian",
+        "Position": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Black or African American",
+        "Position": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Hispanic or Latino",
+        "Position": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Middle Eastern or North African",
+        "Position": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "Multiracial and/or Multiethnic",
+        "Position": 6
+      },
+      {
+        "Id": "7",
+        "Caption": "Native Hawaiian or Pacific Islander",
+        "Position": 7
+      },
+      {
+        "Id": "8",
+        "Caption": "White",
+        "Position": 8
+      },
+      {
+        "Id": "9",
+        "Caption": "Other",
+        "Position": 9
+      },
+      {
+        "Id": "10",
+        "Caption": "Prefer not to answer",
+        "Position": 10
+      }
+    ]
+  },
+  {
+    "dataLabel": "f_WorkplaceDemographics_employmentLength",
+    "caption": "Employment Length",
+    "type": "demographic",
+    "position": 83,
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Less than one year",
+        "Position": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "One year to less than two years",
+        "Position": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Two years to less than five years",
+        "Position": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Five years to less than ten years",
+        "Position": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Ten years or more",
+        "Position": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "Prefer not to answer",
+        "Position": 6
+      }
+    ]
+  },
+  {
+    "dataLabel": "f_WorkplaceDemographics_jobStatus",
+    "caption": "Job Status",
+    "type": "demographic",
+    "position": 84,
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Full-Time",
+        "Position": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Part-Time",
+        "Position": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Prefer not to answer",
+        "Position": 3
+      }
+    ]
+  },
+  {
+    "dataLabel": "f_WorkplaceDemographics_workplaceSetting",
+    "caption": "Workplace Setting",
+    "type": "demographic",
+    "position": 85,
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Fully on-site",
+        "Position": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Hybrid (a blend of on-site and remote)",
+        "Position": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Fully remote",
+        "Position": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Prefer not to answer",
+        "Position": 4
+      }
+    ]
+  },
+  {
+    "dataLabel": "f_WorkplaceDemographics_jobLevel",
+    "caption": "Job Level",
+    "type": "demographic",
+    "position": 86,
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "CEO/President/Owner",
+        "Position": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Sr. Executive (COO, CFO, CHRO, VP, Dir., etc.)",
+        "Position": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Department Manager/Supervisor",
+        "Position": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Production/Service",
+        "Position": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Professional/Salesperson/Analyst/Technician",
+        "Position": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "Administrative/Clerical",
+        "Position": 6
+      },
+      {
+        "Id": "7",
+        "Caption": "Other",
+        "Position": 7
+      },
+      {
+        "Id": "8",
+        "Caption": "Prefer not to answer",
+        "Position": 8
+      }
+    ]
+  },
+  {
+    "dataLabel": "f_WorkplaceDemographics_department",
+    "caption": "Department",
+    "type": "demographic",
+    "position": 87,
+    "options": [
+      {
+        "Id": "1",
+        "Caption": "Administration/Management",
+        "Position": 1
+      },
+      {
+        "Id": "2",
+        "Caption": "Business Development/Sales",
+        "Position": 2
+      },
+      {
+        "Id": "3",
+        "Caption": "Customer Service/Care/Support",
+        "Position": 3
+      },
+      {
+        "Id": "4",
+        "Caption": "Finance/Accounting",
+        "Position": 4
+      },
+      {
+        "Id": "5",
+        "Caption": "Human Resources",
+        "Position": 5
+      },
+      {
+        "Id": "6",
+        "Caption": "Information Technology",
+        "Position": 6
+      },
+      {
+        "Id": "7",
+        "Caption": "Public Relations/Marketing",
+        "Position": 7
+      },
+      {
+        "Id": "8",
+        "Caption": "Maintenance/Operations",
+        "Position": 8
+      },
+      {
+        "Id": "9",
+        "Caption": "Production",
+        "Position": 9
+      },
+      {
+        "Id": "10",
+        "Caption": "Other",
+        "Position": 10
+      },
+      {
+        "Id": "11",
+        "Caption": "Prefer not to answer",
+        "Position": 11
+      }
+    ]
+  }
+]

@@ -1,11 +1,16 @@
 import { resolveCanonicalOrganization } from "./organization-identity.js";
 import { CompatibilityZohoService } from "../crm-sync/compatibility-zoho.module.js";
-import { loadDefaultEaTemplateDefinition } from "./ea-template-definition.js";
+import {
+  CURRENT_DEFINITION_VERSION,
+  defaultDefinition,
+  programDefinition,
+  definitionFile,
+  type DefinitionFile,
+} from "./definition-templates.js";
 import { readFile } from "node:fs/promises";
 import {
   customEaDefinitionFromMetadata,
   eaDefinitionMetadata,
-  mergeEaDefinitions,
   normalizeEmployerAssessmentDefinition,
   validateCustomEaSources,
   isCustomEaDefinition,
@@ -55,6 +60,7 @@ import { zohoPurchaseEntitlementData } from "../reports/kia-zoho-entitlement.js"
 import {
   effectiveSurveyDefinition,
   loadDefaultSurveyDefinition,
+  pinProgramDefinitions,
   surveyDefinitionWorkbook,
 } from "./program-survey-definition.service.js";
 import {
@@ -73,7 +79,6 @@ import {
 import {
   applySurveyDefinition,
   definitionAnswer,
-  mergeSurveyDefinitions,
   parseSurveyDefinition,
   rawSurveyAnswer,
   type SurveyDefinition,
@@ -123,10 +128,14 @@ function categoryPricingMetadata(
 }
 
 export interface HistoricalImportMetadata {
+  useDefaultSurveyDefinition?: boolean;
+  useDefaultEmployerAssessmentDefinition?: boolean;
   surveyDefinition?: SurveyDefinition;
-  surveyDefinitionFile?: { fileName: string; sha256: string };
+  surveyDefinitionFile?: DefinitionFile;
+  surveyDefinitionVersion?: string | null;
   employerAssessmentDefinition?: SurveyDefinition;
-  employerAssessmentDefinitionFile?: { fileName: string; sha256: string };
+  employerAssessmentDefinitionFile?: DefinitionFile;
+  employerAssessmentDefinitionVersion?: string | null;
   projectId?: string;
   zohoProjectId?: string;
   projectName?: string;
@@ -814,6 +823,9 @@ function validateMetadata(body: unknown): HistoricalImportMetadata {
     );
   }
   return {
+    useDefaultSurveyDefinition: value.useDefaultSurveyDefinition === true,
+    useDefaultEmployerAssessmentDefinition:
+      value.useDefaultEmployerAssessmentDefinition === true,
     ...(projectId ? { projectId } : {}),
     ...(zohoProjectId ? { zohoProjectId } : {}),
     ...(projectName ? { projectName } : {}),
@@ -966,8 +978,8 @@ export function mergeHistoricalQuestionTemplate(
   return {
     ...question,
     caption:
-      standardOpenQuestionCaptions[question.dataLabel] ??
       template?.caption ??
+      standardOpenQuestionCaptions[question.dataLabel] ??
       question.caption,
     type: template?.type ?? question.type,
   };
@@ -1052,7 +1064,9 @@ export class HistoricalImportService {
       where: { id: programId },
     });
     if (!program) throw new BadRequestException("Program does not exist");
-    const metadata = objectBody(program.metadata);
+    const metadata = await pinProgramDefinitions(
+      objectBody(program.metadata) as Prisma.JsonObject,
+    );
     const importId = options.importId ?? randomUUID();
     const stagingDir = createRequestWorkspace(importId);
     const draft: HistoricalImportDraft = {
@@ -1071,9 +1085,11 @@ export class HistoricalImportService {
       efsDeadline:
         program.endsAt?.toISOString().slice(0, 10) ??
         String(metadata.efsDeadline ?? ""),
-      ...(Array.isArray(metadata.surveyDefinition)
-        ? { surveyDefinition: metadata.surveyDefinition as SurveyDefinition }
-        : {}),
+      surveyDefinition: programDefinition(metadata, "EFS"),
+      surveyDefinitionVersion:
+        typeof metadata.surveyDefinitionVersion === "string"
+          ? metadata.surveyDefinitionVersion
+          : null,
       createdByUserId: principal.sub,
       status: "committing",
     };
@@ -1288,6 +1304,17 @@ export class HistoricalImportService {
     }
   }
 
+  async downloadSurveyDefinitionTemplate(
+    principal: Principal,
+  ): Promise<Buffer> {
+    this.assertAccess(principal);
+    return surveyDefinitionWorkbook(
+      defaultDefinition("EFS"),
+      "EFS",
+      CURRENT_DEFINITION_VERSION,
+    );
+  }
+
   async downloadDefaultSurveyDefinition(
     principal: Principal,
     input: unknown,
@@ -1318,12 +1345,7 @@ export class HistoricalImportService {
       });
       if (!definition.questions.length)
         throw new BadRequestException("EFS has no importable question columns");
-      const templates = await this.questionTemplates(
-        this.prisma,
-        draft,
-        metadata.programId,
-        definition.questions,
-      );
+      const templates = this.questionTemplates(draft, definition.questions);
       const questions: BenchmarkQuestion[] = definition.questions.map(
         (source, index) => {
           const template = templates.get(source.dataLabel);
@@ -1376,9 +1398,11 @@ export class HistoricalImportService {
       return await surveyDefinitionWorkbook(
         effective.map((question) =>
           unresolved.has(question.dataLabel)
-            ? { ...question, caption: "" }
+            ? { ...question, caption: "", type: "" }
             : question,
         ),
+        "EFS",
+        draft.surveyDefinitionVersion ?? undefined,
       );
     } finally {
       rmSync(stagingDir, { recursive: true, force: true });
@@ -1390,8 +1414,9 @@ export class HistoricalImportService {
   ): Promise<Buffer> {
     this.assertAccess(principal);
     return surveyDefinitionWorkbook(
-      await loadDefaultEaTemplateDefinition(),
+      defaultDefinition("EA"),
       "EA",
+      CURRENT_DEFINITION_VERSION,
     );
   }
 
@@ -1402,12 +1427,13 @@ export class HistoricalImportService {
     const definition = await parseSurveyDefinition(
       await readFile(
         new URL(
-          "./templates/uk-campaign-ea-questions-and-answers.xlsx",
+          "./templates/v1/uk-campaign-ea-questions-and-answers.xlsx",
           import.meta.url,
         ),
       ),
+      "EA",
     );
-    return surveyDefinitionWorkbook(definition, "EA");
+    return surveyDefinitionWorkbook(definition, "EA", "v1");
   }
 
   private async parseEmployerAssessmentDefinition(
@@ -1526,33 +1552,16 @@ export class HistoricalImportService {
         });
     }
     if (workbook.kind === "EFS") {
-      for (const configured of draft.surveyDefinition ?? []) {
-        const question = definition.questions.find(
-          ({ dataLabel }) => dataLabel === configured.dataLabel,
-        );
-        if (!question) {
+      for (const question of definition.questions) {
+        if (
+          !draft.surveyDefinition?.some(
+            ({ dataLabel }) => dataLabel === question.dataLabel,
+          )
+        )
           appendValidationIssue(issues, issueCounters, {
             level: "error",
-            message: `Survey definition question not found in EFS: ${configured.dataLabel}`,
+            message: `EFS definition is missing ${question.dataLabel}. Upload a complete definition with an explicit question_type.`,
           });
-        } else {
-          applySurveyDefinition(question, draft.surveyDefinition);
-        }
-      }
-      const templates = await this.questionTemplates(
-        this.prisma,
-        draft,
-        draft.programId,
-        definition.questions,
-      );
-      for (const dataLabel of missingQuestionTemplateLabels(
-        definition.questions,
-        new Set(templates.keys()),
-      )) {
-        appendValidationIssue(issues, issueCounters, {
-          level: "error",
-          message: `${workbook.fileName}: question text is unavailable for ${dataLabel}. Add this key and its approved wording to the program survey definition.`,
-        });
       }
     }
     if (definition.questions.length === 0) {
@@ -1694,6 +1703,7 @@ export class HistoricalImportService {
     const stagingDir = createRequestWorkspace(importId);
     let draft: HistoricalImportDraft = {
       ...metadata,
+      surveyDefinitionChanged: metadata.useDefaultSurveyDefinition === true,
       importId,
       stagingDir,
       createdByUserId: principal.sub,
@@ -1703,31 +1713,26 @@ export class HistoricalImportService {
     try {
       if (files.surveyDefinitionFile) {
         assertXlsxFile(files.surveyDefinitionFile);
-        draft.surveyDefinition = mergeSurveyDefinitions(
-          draft.surveyDefinition,
-          await parseSurveyDefinition(files.surveyDefinitionFile.buffer),
+        draft.surveyDefinition = await parseSurveyDefinition(
+          files.surveyDefinitionFile.buffer,
+        );
+        draft.surveyDefinitionVersion = null;
+        draft.surveyDefinitionFile = definitionFile(
+          files.surveyDefinitionFile.filename,
+          files.surveyDefinitionFile.buffer,
         );
         draft.surveyDefinitionChanged = true;
-        draft.surveyDefinitionFile = {
-          fileName: basename(files.surveyDefinitionFile.filename),
-          sha256: createHash("sha256")
-            .update(files.surveyDefinitionFile.buffer)
-            .digest("hex"),
-        };
       }
       if (files.employerAssessmentDefinitionFile) {
-        draft.employerAssessmentDefinition = mergeEaDefinitions(
-          draft.employerAssessmentDefinition,
+        draft.employerAssessmentDefinition =
           await this.parseEmployerAssessmentDefinition(
             files.employerAssessmentDefinitionFile,
-          ),
+          );
+        draft.employerAssessmentDefinitionVersion = null;
+        draft.employerAssessmentDefinitionFile = definitionFile(
+          files.employerAssessmentDefinitionFile.filename,
+          files.employerAssessmentDefinitionFile.buffer,
         );
-        draft.employerAssessmentDefinitionFile = {
-          fileName: basename(files.employerAssessmentDefinitionFile.filename),
-          sha256: createHash("sha256")
-            .update(files.employerAssessmentDefinitionFile.buffer)
-            .digest("hex"),
-        };
       }
       if (files.eaFile) {
         draft = {
@@ -1800,7 +1805,12 @@ export class HistoricalImportService {
       validateMetadata(input),
     );
     const definitionOnly = Boolean(
-      (files.surveyDefinitionFile ?? files.employerAssessmentDefinitionFile) &&
+      (files.surveyDefinitionFile ??
+        files.employerAssessmentDefinitionFile ??
+        [
+          metadata.useDefaultSurveyDefinition,
+          metadata.useDefaultEmployerAssessmentDefinition,
+        ].includes(true)) &&
       metadata.programId &&
       !files.eaFile &&
       !files.efsFile,
@@ -1815,6 +1825,7 @@ export class HistoricalImportService {
     const stagingDir = createRequestWorkspace(importId);
     let draft: HistoricalImportDraft = {
       ...metadata,
+      surveyDefinitionChanged: metadata.useDefaultSurveyDefinition === true,
       importId,
       stagingDir,
       createdByUserId: principal.sub,
@@ -1823,18 +1834,25 @@ export class HistoricalImportService {
     try {
       if (files.surveyDefinitionFile) {
         assertXlsxFile(files.surveyDefinitionFile);
-        draft.surveyDefinition = mergeSurveyDefinitions(
-          draft.surveyDefinition,
-          await parseSurveyDefinition(files.surveyDefinitionFile.buffer),
+        draft.surveyDefinition = await parseSurveyDefinition(
+          files.surveyDefinitionFile.buffer,
+        );
+        draft.surveyDefinitionVersion = null;
+        draft.surveyDefinitionFile = definitionFile(
+          files.surveyDefinitionFile.filename,
+          files.surveyDefinitionFile.buffer,
         );
         draft.surveyDefinitionChanged = true;
       }
       if (files.employerAssessmentDefinitionFile) {
-        draft.employerAssessmentDefinition = mergeEaDefinitions(
-          draft.employerAssessmentDefinition,
+        draft.employerAssessmentDefinition =
           await this.parseEmployerAssessmentDefinition(
             files.employerAssessmentDefinitionFile,
-          ),
+          );
+        draft.employerAssessmentDefinitionVersion = null;
+        draft.employerAssessmentDefinitionFile = definitionFile(
+          files.employerAssessmentDefinitionFile.filename,
+          files.employerAssessmentDefinitionFile.buffer,
         );
       }
       if (files.eaFile) {
@@ -1986,10 +2004,32 @@ export class HistoricalImportService {
           "Program does not belong to the selected project",
         );
       }
+      const pinned = await pinProgramDefinitions(
+        objectBody(program.metadata) as Prisma.JsonObject,
+      );
+      if (JSON.stringify(pinned) !== JSON.stringify(program.metadata))
+        await this.prisma.program.update({
+          where: { id: program.id },
+          data: { metadata: pinned },
+        });
+      program.metadata = pinned;
       metadata = {
         ...metadata,
         programId: program.id,
         projectId: program.projectId,
+        surveyDefinitionVersion:
+          typeof objectBody(program.metadata).surveyDefinitionVersion ===
+          "string"
+            ? String(objectBody(program.metadata).surveyDefinitionVersion)
+            : null,
+        employerAssessmentDefinitionVersion:
+          typeof objectBody(program.metadata)
+            .employerAssessmentDefinitionVersion === "string"
+            ? String(
+                objectBody(program.metadata)
+                  .employerAssessmentDefinitionVersion,
+              )
+            : null,
         ...(Array.isArray(objectBody(program.metadata).surveyDefinition)
           ? {
               surveyDefinition: objectBody(program.metadata)
@@ -2027,6 +2067,33 @@ export class HistoricalImportService {
             }
           : {}),
       };
+    }
+    if (metadata.useDefaultSurveyDefinition) {
+      delete metadata.surveyDefinition;
+      delete metadata.surveyDefinitionFile;
+      metadata.surveyDefinitionVersion = CURRENT_DEFINITION_VERSION;
+    }
+    if (metadata.useDefaultEmployerAssessmentDefinition) {
+      delete metadata.employerAssessmentDefinition;
+      delete metadata.employerAssessmentDefinitionFile;
+      metadata.employerAssessmentDefinitionVersion = CURRENT_DEFINITION_VERSION;
+    }
+    if (!metadata.surveyDefinition) {
+      metadata.surveyDefinitionVersion =
+        metadata.surveyDefinitionVersion ?? CURRENT_DEFINITION_VERSION;
+      metadata.surveyDefinition = defaultDefinition(
+        "EFS",
+        metadata.surveyDefinitionVersion,
+      );
+    }
+    if (!metadata.employerAssessmentDefinition) {
+      metadata.employerAssessmentDefinitionVersion =
+        metadata.employerAssessmentDefinitionVersion ??
+        CURRENT_DEFINITION_VERSION;
+      metadata.employerAssessmentDefinition = defaultDefinition(
+        "EA",
+        metadata.employerAssessmentDefinitionVersion,
+      );
     }
     return metadata;
   }
@@ -2225,21 +2292,23 @@ export class HistoricalImportService {
           issues.push({ level: "error", message });
       }
       if (draft.surveyDefinition && draft.surveyDefinitionChanged) {
-        const questions = await this.definitionQuestions(
-          draft.programId,
-          draft.surveyDefinition,
-        );
+        const questions = await this.definitionQuestions(draft.programId);
+        for (const question of questions)
+          if (
+            !draft.surveyDefinition.some(
+              ({ dataLabel }) => dataLabel === question.dataLabel,
+            )
+          )
+            issues.push({
+              level: "error",
+              message: `EFS definition is missing ${question.dataLabel}. Upload the complete definition.`,
+            });
         for (const configured of draft.surveyDefinition) {
           const matching = questions.filter(
             ({ dataLabel }) => dataLabel === configured.dataLabel,
           );
           for (const question of matching)
             applySurveyDefinition(question, draft.surveyDefinition);
-          if (!matching.length)
-            issues.push({
-              level: "error",
-              message: `Survey definition question not found in this program's EFS: ${configured.dataLabel}. Re-upload EFS to add a previously excluded column.`,
-            });
           if (configured.options) {
             const unknown = new Set(
               matching.flatMap(({ responses }) =>
@@ -2343,10 +2412,9 @@ export class HistoricalImportService {
     }
   }
 
-  private definitionQuestions(programId: string, definition: SurveyDefinition) {
+  private definitionQuestions(programId: string) {
     return this.prisma.question.findMany({
       where: {
-        dataLabel: { in: definition.map(({ dataLabel }) => dataLabel) },
         survey: {
           programId,
           OR: [
@@ -2361,111 +2429,26 @@ export class HistoricalImportService {
     });
   }
 
-  private async questionTemplates(
-    prisma: PrismaClient | Prisma.TransactionClient,
+  private questionTemplates(
     draft: HistoricalImportDraft,
-    programId: string | undefined,
     questions: XlsxQuestionDefinition[],
-  ): Promise<Map<string, HistoricalQuestionTemplate>> {
-    const questionByKey = new Map(
-      questions.map((question) => [question.dataLabel, question]),
-    );
+  ): Map<string, HistoricalQuestionTemplate> {
     const templates = new Map<string, HistoricalQuestionTemplate>();
-    const storedTemplates = await prisma.question.findMany({
-      where: {
-        dataLabel: { in: questions.map(({ dataLabel }) => dataLabel) },
-        OR: [
-          { externalId: null },
-          { externalId: { not: { startsWith: "historical-import:" } } },
-          ...(programId ? [{ survey: { programId } }] : []),
-        ],
-      },
-      select: {
-        dataLabel: true,
-        caption: true,
-        type: true,
-        metadata: true,
-        survey: {
-          select: {
-            programId: true,
-            program: { select: { year: true } },
-          },
-        },
-      },
-      orderBy: { survey: { createdAt: "desc" } },
-    });
-    for (const template of storedTemplates) {
-      const sameProgram = template.survey.programId === programId;
-      if (
-        !sameProgram &&
-        (template.survey.program.year !== draft.programYear ||
-          objectBody(template.metadata).surveyDefinition)
-      ) {
-        continue;
-      }
-      if (templates.has(template.dataLabel)) continue;
-      const metadata = jsonMetadata(template.metadata);
-      const sanitizedMetadata = { ...metadata };
-      if (!metadata.surveyDefinitionAnswers) {
-        delete sanitizedMetadata.QuestionResponses;
-        delete sanitizedMetadata.questionResponses;
-        delete sanitizedMetadata.responseOptions;
-        delete sanitizedMetadata.options;
-      }
-      templates.set(template.dataLabel, {
-        ...template,
-        metadata: sanitizedMetadata,
-      });
-    }
-    for (const definition of await loadDefaultSurveyDefinition()) {
-      const source = questionByKey.get(definition.dataLabel);
-      if (!source) continue;
-      const existing = templates.get(definition.dataLabel);
-      templates.set(definition.dataLabel, {
-        dataLabel: definition.dataLabel,
-        caption: definition.caption || source.caption,
-        type: definition.type ?? source.type,
-        metadata: {
-          ...jsonMetadata(existing?.metadata),
-          ...(definition.categoryLabel
-            ? { categoryLabel: definition.categoryLabel }
-            : {}),
-        },
-      });
-    }
-    const bundled = await loadBundledWorkforceQuestionTemplates(
-      draft.programYear,
-      questions,
-    );
-    for (const [dataLabel, template] of bundled) {
-      const existing = templates.get(dataLabel);
-      templates.set(
-        dataLabel,
-        existing
-          ? {
-              ...existing,
-              metadata: {
-                ...jsonMetadata(template.metadata),
-                ...jsonMetadata(existing.metadata),
-              },
-            }
-          : template,
+    // Definitions are complete selections: never consult questions from any program.
+    const definition =
+      draft.surveyDefinition ??
+      defaultDefinition(
+        "EFS",
+        draft.surveyDefinitionVersion ?? CURRENT_DEFINITION_VERSION,
       );
-    }
-    for (const configured of draft.surveyDefinition ?? []) {
+    for (const configured of definition) {
       const source = questions.find(
         ({ dataLabel }) => dataLabel === configured.dataLabel,
       );
       if (!source) continue;
-      const existing = templates.get(configured.dataLabel);
       const mapped = applySurveyDefinition(
-        {
-          ...source,
-          metadata: existing?.metadata ?? {},
-          caption: existing?.caption ?? source.caption,
-          type: existing?.type ?? source.type,
-        },
-        draft.surveyDefinition,
+        { ...source, metadata: {} },
+        definition,
       );
       templates.set(configured.dataLabel, {
         dataLabel: mapped.dataLabel,
@@ -2651,12 +2634,7 @@ export class HistoricalImportService {
         draft.surveyDefinition?.map(({ dataLabel }) => dataLabel) ?? [],
       questionId: (dataLabel) => dataLabel,
     });
-    const templates = await this.questionTemplates(
-      this.prisma,
-      draft,
-      draft.programId,
-      definition.questions,
-    );
+    const templates = this.questionTemplates(draft, definition.questions);
     definition.questions = definition.questions.map((question) =>
       applySurveyDefinition(
         mergeHistoricalQuestionTemplate(
@@ -2753,6 +2731,14 @@ export class HistoricalImportService {
     draft: HistoricalImportDraft,
     validation: HistoricalImportValidationSummary,
   ): Promise<HistoricalImportStatus> {
+    draft.surveyDefinition ??= defaultDefinition(
+      "EFS",
+      draft.surveyDefinitionVersion ?? CURRENT_DEFINITION_VERSION,
+    );
+    draft.employerAssessmentDefinition ??= defaultDefinition(
+      "EA",
+      draft.employerAssessmentDefinitionVersion ?? CURRENT_DEFINITION_VERSION,
+    );
     const importId = draft.importId;
     const editing = Boolean(draft.programId);
     const eaFile = draft.eaFile;
@@ -2814,25 +2800,25 @@ export class HistoricalImportService {
         endsAt: new Date(`${draft.efsDeadline}T23:59:59.999Z`),
         metadata: {
           historicalImportId: importId,
-          ...(draft.surveyDefinition
-            ? {
-                surveyDefinition: JSON.parse(
-                  JSON.stringify(draft.surveyDefinition),
-                ) as Prisma.InputJsonValue,
-                surveyDefinitionFile: draft.surveyDefinitionFile ?? null,
-              }
-            : {}),
-          ...(draft.employerAssessmentDefinition
-            ? {
-                ...(JSON.parse(
-                  JSON.stringify(
-                    eaDefinitionMetadata(draft.employerAssessmentDefinition),
-                  ),
-                ) as Prisma.JsonObject),
-                employerAssessmentDefinitionFile:
-                  draft.employerAssessmentDefinitionFile ?? null,
-              }
-            : {}),
+          surveyDefinition: JSON.parse(
+            JSON.stringify(draft.surveyDefinition),
+          ) as Prisma.InputJsonValue,
+          surveyDefinitionFile: draft.surveyDefinitionFile ?? null,
+          surveyDefinitionVersion: draft.surveyDefinitionFile
+            ? null
+            : (draft.surveyDefinitionVersion ?? CURRENT_DEFINITION_VERSION),
+          ...(JSON.parse(
+            JSON.stringify(
+              eaDefinitionMetadata(draft.employerAssessmentDefinition),
+            ),
+          ) as Prisma.JsonObject),
+          employerAssessmentDefinitionFile:
+            draft.employerAssessmentDefinitionFile ?? null,
+          employerAssessmentDefinitionVersion:
+            draft.employerAssessmentDefinitionFile
+              ? null
+              : (draft.employerAssessmentDefinitionVersion ??
+                CURRENT_DEFINITION_VERSION),
           efsLaunchDate: draft.efsLaunchDate,
           efsDeadline: draft.efsDeadline,
           ...(eaFile
@@ -2880,18 +2866,6 @@ export class HistoricalImportService {
           throw new BadRequestException(
             "Program does not belong to the selected project",
           );
-        const previousDefinition = objectBody(
-          existing.metadata,
-        ).surveyDefinition;
-        if (Array.isArray(previousDefinition)) {
-          draft.surveyDefinition = mergeSurveyDefinitions(
-            previousDefinition as SurveyDefinition,
-            draft.surveyDefinition ?? [],
-          );
-          Object.assign(programData.metadata, {
-            surveyDefinition: draft.surveyDefinition,
-          });
-        }
         await this.prisma.program.update({
           where: { id: programId },
           data: {
@@ -2972,11 +2946,8 @@ export class HistoricalImportService {
             await this.removeReplacedSurveys(programId, "EFS", surveyId);
         }
       }
-      if (draft.surveyDefinition && draft.surveyDefinitionChanged && !efsFile) {
-        const questions = await this.definitionQuestions(
-          programId,
-          draft.surveyDefinition,
-        );
+      if (draft.surveyDefinitionChanged && !efsFile) {
+        const questions = await this.definitionQuestions(programId);
         for (const question of questions) {
           const mapped = applySurveyDefinition(
             question,
@@ -3870,12 +3841,7 @@ export class HistoricalImportService {
     });
     const templatesByDataLabel =
       kind === "EFS"
-        ? await this.questionTemplates(
-            prisma,
-            draft,
-            programId,
-            definition.questions,
-          )
+        ? this.questionTemplates(draft, definition.questions)
         : new Map<string, HistoricalQuestionTemplate>();
     const missingTemplates = missingQuestionTemplateLabels(
       definition.questions,

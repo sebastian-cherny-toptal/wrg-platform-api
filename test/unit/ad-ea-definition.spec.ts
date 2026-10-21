@@ -42,7 +42,7 @@ const fixture = () =>
 
 test("the original AD workbook uploads, downloads, and calculates without mapping columns", async () => {
   const buffer = await fixture();
-  const parsed = await parseSurveyDefinition(buffer);
+  const parsed = await parseSurveyDefinition(buffer, "EA");
   assert.equal(parsed.length, 20);
   assert.ok(parsed.every((q) => q.ea === undefined));
 
@@ -113,6 +113,7 @@ test("the original AD workbook uploads, downloads, and calculates without mappin
   assert.deepEqual(
     await parseSurveyDefinition(
       await service.downloadEmployerAssessment(principal, "ad-2026"),
+      "EA",
     ),
     definition.map(({ options, ...question }) =>
       options?.length ? { ...question, options } : question,

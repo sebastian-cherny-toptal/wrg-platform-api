@@ -241,17 +241,23 @@ describe("Benefits & Best Practices generation from EA", () => {
       await loadBenefitsBestPracticesTemplate(),
     );
     const uploaded = await parseSurveyDefinition(
-      await surveyDefinitionWorkbook([
-        {
-          dataLabel: "q_OrganizationalBenefits_NumberPaidHolidays",
-          caption: "How many employer-paid holidays are provided?",
-          options: Array.from({ length: 25 }, (_, index) => ({
-            Id: String(index + 1),
-            Caption: String(index + 1),
-            Position: index + 1,
-          })),
-        },
-      ]),
+      await surveyDefinitionWorkbook(
+        [
+          {
+            dataLabel: "q_OrganizationalBenefits_NumberPaidHolidays",
+            caption: "How many employer-paid holidays are provided?",
+            categoryLabel: "Benefits",
+            position: 1,
+            options: Array.from({ length: 25 }, (_, index) => ({
+              Id: String(index + 1),
+              Caption: String(index + 1),
+              Position: index + 1,
+            })),
+          },
+        ],
+        "EA",
+      ),
+      "EA",
     );
     assert.doesNotThrow(() => {
       validateBenefitsBestPracticesDefinition(uploaded, defaults);
@@ -262,6 +268,8 @@ describe("Benefits & Best Practices generation from EA", () => {
           {
             dataLabel: "q_OrganizationalBenefits_NumberPaidHolidays",
             caption: "How many employer-paid holidays are provided?",
+            categoryLabel: "Benefits",
+            position: 1,
             options: [{ Id: "26", Caption: "26", Position: 26 }],
           },
         ],

@@ -1,3 +1,4 @@
+import { parseLegacyEaFixture } from "../helpers/legacy-ea-fixture.js";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import ExcelJS from "exceljs";
@@ -114,7 +115,10 @@ test("custom EA calculates new holidays, raw matrix codes, and numeric means ind
 });
 test("custom definitions round-trip source mappings without turning raw codes into positions", async () => {
   assert.deepEqual(
-    await parseSurveyDefinition(await surveyDefinitionWorkbook(definition)),
+    await parseSurveyDefinition(
+      await surveyDefinitionWorkbook(definition),
+      "EA",
+    ),
     definition
       .map((q) => ({
         ...q,
@@ -290,7 +294,7 @@ test("custom reports retain the existing five-assessment confidentiality minimum
   assert.equal(generate(["a", "b", "c", "d", "e"]), 50);
 });
 test("the Campaign fixture upgrades regional holidays and matrices without editing the supplied sheet", async () => {
-  const parsed = await parseSurveyDefinition(
+  const parsed = await parseLegacyEaFixture(
     await readFile(
       new URL("../fixtures/campaign-2026-ea-qa-upload.xlsx", import.meta.url),
     ),
@@ -348,6 +352,7 @@ test("custom definition replacement removes deleted rows and download preserves 
   assert.deepEqual(
     await parseSurveyDefinition(
       await service.downloadEmployerAssessment(principal, "program"),
+      "EA",
     ),
     [required(definition[2])],
   );

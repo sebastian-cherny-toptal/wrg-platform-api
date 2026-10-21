@@ -9,7 +9,7 @@ const principal = {
   permissions: [],
   organizationId: null,
 };
-const label = "q_CoreEmployeeExperience_Test";
+const label = "q_CoreEmployeeExperience_1";
 
 async function fixture(dataLabel = label, configured = false) {
   const label = dataLabel;
@@ -228,14 +228,13 @@ for (const organizationId of ["99", "178"]) {
   });
 }
 
-test("preview uses stored question types when no survey definition overrides them", async () => {
+test("preview rejects a question absent from the pinned definition instead of using its stored type", async () => {
   const { service, file } = await fixture("q_SupplementaryQuestions_1");
   const review = await service.reuploadProgramEfs(principal, "program", file);
-  assert.equal(
-    review.validation.organizations.find(
-      ({ displayName }) => displayName === "Unchanged",
-    )?.responseChanges?.changed,
-    false,
+  assert.ok(review.validation.blockingErrorCount > 0);
+  assert.match(
+    review.validation.issues.map(({ message }) => message).join(" "),
+    /q_SupplementaryQuestions_1/u,
   );
 });
 

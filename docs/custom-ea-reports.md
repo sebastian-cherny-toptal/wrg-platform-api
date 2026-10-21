@@ -1,10 +1,15 @@
 # Custom Benefits & Best Practices reports
 
-Programs without a custom EA definition keep the standard report and existing
-label override behavior. Custom definitions select the report's quantitative
-questions, answer rows, ordering, and calculations. They are stored as
+Every program has an uploaded EA Definition or a pinned default template version,
+starting at v1. New programs without an upload use the full v1 catalog. The chosen
+content is saved with the program and future releases do not alter it. Uploaded
+definitions replace the complete previous selection. See
+[survey-definitions.md](survey-definitions.md) for source storage and deployment.
+
+Calculation definitions select the quantitative questions, answer rows, ordering,
+and calculations. They are stored as
 `program.metadata.employerAssessmentReportDefinition = { version: 2, questions }`.
-No database migration or automatic program conversion is required.
+This `2` is the report data format, separate from template version `v1`.
 
 ## Workbook contract
 
@@ -13,7 +18,7 @@ Use the existing EA definition upload endpoints and multipart field
 EA uploads require `category` and `display_order` on every Questions row and
 `display_order` on every Answers row, including standard label templates. Missing
 columns and blank or whitespace-only cells are rejected; no category or order is
-inferred. Orders must be positive whole numbers. EFS requirements are unchanged.
+inferred. Orders must be positive whole numbers. EFS requires an explicit `question_type` for every question.
 
 For custom reports, every Questions row includes:
 
@@ -86,8 +91,8 @@ display `x`, as do cohorts with fewer than five available employer assessments.
 
 The default downloadable EA template combines the 38 legacy report questions
 with the nine additional AD questions and the AD answer variants. It includes
-all calculation and source mapping columns. It does not change the default
-report layout for programs that have not uploaded a custom definition.
+all calculation and source mapping columns. New programs without an upload use this pinned catalog. Existing saved
+definitions retain their content.
 EA downloads omit `question_type` and `score`; EA report behavior is controlled
 by `calculation`. Older uploads containing these columns remain accepted.
 EFS templates retain both columns because EFS processing uses them.

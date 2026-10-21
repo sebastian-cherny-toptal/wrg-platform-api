@@ -10,6 +10,7 @@ import {
 
 const definition: SurveyDefinition = [
   {
+    position: 1,
     dataLabel: "q_Optional",
     caption: "Optional section question",
     categoryLabel: "Absent section",
@@ -22,6 +23,7 @@ const definition: SurveyDefinition = [
     options: [{ Id: "1", Caption: "Yes", Position: 1 }],
   },
   {
+    position: 2,
     dataLabel: "q_Policies",
     caption: "Policies",
     categoryLabel: "Present section",
@@ -81,7 +83,10 @@ test("optional EA sources omit absent questions, sections and answer columns wit
 
 test("optional EA mappings round-trip but never hide ambiguous sources", async () => {
   assert.deepEqual(
-    await parseSurveyDefinition(await surveyDefinitionWorkbook(definition)),
+    await parseSurveyDefinition(
+      await surveyDefinitionWorkbook(definition),
+      "EA",
+    ),
     definition,
   );
   const issues = validateCustomEaSources(definition, [

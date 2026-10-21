@@ -1,8 +1,6 @@
 import {
-  customEaDefinitionFromMetadata,
   eaDefinitionMetadata,
   isCustomEaDefinition,
-  mergeEaDefinitions,
   normalizeEmployerAssessmentDefinition,
   validateCustomEaSources,
 } from "../reports/custom-ea-report.js";
@@ -15,10 +13,6 @@ import {
 } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
 import ExcelJS from "exceljs";
-import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
-import { basename } from "node:path";
 import { PrismaService } from "../../database/prisma.service.js";
 import type { Principal } from "../auth/auth.module.js";
 import {
@@ -31,14 +25,17 @@ import {
 import {
   applySurveyDefinition,
   definitionAnswer,
-  mergeSurveyDefinitions,
   parseSurveyDefinition,
   rawSurveyAnswer,
   type SurveyDefinition,
   type SurveyDefinitionQuestion,
 } from "./survey-definition.js";
 import { isExcludedSurveyQuestion } from "./xlsx-survey-importer.js";
-import { loadDefaultEaTemplateDefinition } from "./ea-template-definition.js";
+import {
+  defaultDefinition,
+  programDefinition,
+  definitionFile,
+} from "./definition-templates.js";
 import {
   loadDefaultBenefitsBestPracticesDefinition,
   validateBenefitsBestPracticesDefinition,
@@ -53,17 +50,8 @@ const employeeSurvey: Prisma.SurveyWhereInput = {
   ],
 };
 
-const defaultSurveyDefinitionFile = "Default_Questions_and_Answers.xlsx";
-let defaultSurveyDefinitionPromise: Promise<SurveyDefinition> | undefined;
-
-/** Defaults live in the bundled workbook, not in inherited question metadata. */
 export function loadDefaultSurveyDefinition(): Promise<SurveyDefinition> {
-  defaultSurveyDefinitionPromise ??= readFile(
-    fileURLToPath(
-      new URL(`../../../${defaultSurveyDefinitionFile}`, import.meta.url),
-    ),
-  ).then((buffer) => parseSurveyDefinition(buffer));
-  return defaultSurveyDefinitionPromise;
+  return Promise.resolve(defaultDefinition("EFS"));
 }
 
 function object(value: Prisma.JsonValue | undefined): Prisma.JsonObject {
@@ -249,8 +237,11 @@ export function effectiveSurveyDefinition(
 export async function surveyDefinitionWorkbook(
   definition: SurveyDefinition,
   kind: "EA" | "EFS" = definition.some((q) => q.ea) ? "EA" : "EFS",
+  version?: string,
 ): Promise<Buffer> {
   const workbook = new ExcelJS.Workbook();
+  workbook.subject = `${kind} Definition${version ? ` template ${version}` : ""}`;
+  if (version) workbook.keywords = `definition-template:${version}`;
   const questions = workbook.addWorksheet("Questions");
   questions.addRow([
     "question_key",
@@ -369,6 +360,42 @@ export async function surveyDefinitionWorkbook(
   return Buffer.from(await workbook.xlsx.writeBuffer());
 }
 
+/** Upgrade legacy associations once, retaining a downloadable snapshot for custom definitions. */
+export async function pinProgramDefinitions(
+  metadata: Prisma.JsonObject,
+): Promise<Prisma.JsonObject> {
+  const pinned = { ...metadata };
+  for (const kind of ["EFS", "EA"] as const) {
+    const prefix =
+      kind === "EFS" ? "surveyDefinition" : "employerAssessmentDefinition";
+    const saved =
+      kind === "EFS"
+        ? Array.isArray(metadata.surveyDefinition)
+        : Array.isArray(metadata.employerAssessmentDefinition) ||
+          Boolean(metadata.employerAssessmentReportDefinition);
+    const file = object(metadata[`${prefix}File`]);
+    const definition = programDefinition(metadata, kind);
+    if (saved && !metadata[`${prefix}Version`] && !file.contentBase64) {
+      pinned[`${prefix}File`] = {
+        ...definitionFile(
+          `${kind}_Definition_Snapshot.xlsx`,
+          await surveyDefinitionWorkbook(definition, kind),
+        ),
+      };
+      pinned[`${prefix}Version`] = null;
+    } else if (!file.contentBase64) {
+      pinned[`${prefix}Version`] = metadata[`${prefix}Version`] ?? "v1";
+      pinned[`${prefix}File`] = null;
+    }
+    if (kind === "EA") Object.assign(pinned, eaDefinitionMetadata(definition));
+    else
+      pinned.surveyDefinition = JSON.parse(
+        JSON.stringify(definition),
+      ) as Prisma.JsonValue;
+  }
+  return JSON.parse(JSON.stringify(pinned)) as Prisma.JsonObject;
+}
+
 @Injectable()
 export class ProgramSurveyDefinitionService {
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
@@ -405,6 +432,14 @@ export class ProgramSurveyDefinitionService {
       select: { id: true, year: true, metadata: true },
     });
     if (!program) throw new NotFoundException("Program not found");
+    const pinned = await pinProgramDefinitions(object(program.metadata));
+    if (JSON.stringify(pinned) !== JSON.stringify(program.metadata)) {
+      await db.program.update({
+        where: { id: program.id },
+        data: { metadata: pinned },
+      });
+      program.metadata = pinned;
+    }
     return program;
   }
 
@@ -427,27 +462,49 @@ export class ProgramSurveyDefinitionService {
       : Promise.resolve([]);
   }
 
+  async downloadCurrent(
+    principal: Principal,
+    reference: string,
+    kind: "EFS" | "EA",
+  ) {
+    this.assertAccess(principal);
+    const program = await this.program(this.prisma, reference);
+    const metadata = object(program.metadata);
+    const prefix =
+      kind === "EFS" ? "surveyDefinition" : "employerAssessmentDefinition";
+    const file = object(metadata[`${prefix}File`]);
+    if (
+      typeof file.contentBase64 === "string" &&
+      typeof file.fileName === "string"
+    )
+      return {
+        bytes: Buffer.from(file.contentBase64, "base64"),
+        fileName: file.fileName,
+      };
+    const version =
+      typeof metadata[`${prefix}Version`] === "string"
+        ? String(metadata[`${prefix}Version`])
+        : undefined;
+    return {
+      bytes: await surveyDefinitionWorkbook(
+        programDefinition(metadata, kind),
+        kind,
+        version,
+      ),
+      fileName: `${kind}_Definition${version ? `_${version}` : ""}.xlsx`,
+    };
+  }
+
   async download(principal: Principal, reference: string): Promise<Buffer> {
     this.assertAccess(principal);
     const program = await this.program(this.prisma, reference);
-    const survey = await this.prisma.survey.findFirst({
-      where: { programId: program.id, ...employeeSurvey },
-      orderBy: [{ endsAt: "desc" }, { createdAt: "desc" }],
-      include: {
-        questions: { orderBy: [{ position: "asc" }, { dataLabel: "asc" }] },
-      },
-    });
-    if (!survey?.questions.length)
-      throw new BadRequestException(
-        "This program has no imported EFS questions. Import EFS first.",
-      );
-    const definition = effectiveSurveyDefinition(
-      survey.questions,
-      program.year,
-      await this.responses(this.prisma, survey.questions),
-      await loadDefaultSurveyDefinition(),
+    return surveyDefinitionWorkbook(
+      programDefinition(object(program.metadata), "EFS"),
+      "EFS",
+      typeof object(program.metadata).surveyDefinitionVersion === "string"
+        ? String(object(program.metadata).surveyDefinitionVersion)
+        : undefined,
     );
-    return surveyDefinitionWorkbook(definition);
   }
 
   async upload(
@@ -475,23 +532,21 @@ export class ProgramSurveyDefinitionService {
           orderBy: [{ position: "asc" }, { dataLabel: "asc" }],
         });
         const issues: string[] = [];
-        for (const configured of uploaded) {
+        const definition = uploaded;
+        const allQuestions = await db.question.findMany({
+          where: { survey: { programId: program.id, ...employeeSurvey } },
+          orderBy: [{ position: "asc" }, { dataLabel: "asc" }],
+        });
+        for (const question of allQuestions) {
           if (
-            !questions.some(
-              ({ dataLabel }) => dataLabel === configured.dataLabel,
+            !definition.some(
+              ({ dataLabel }) => dataLabel === question.dataLabel,
             )
           )
             issues.push(
-              `Question not found in this program's EFS: ${configured.dataLabel}. Import EFS first to add previously excluded columns.`,
+              `EFS definition is missing ${question.dataLabel}. Upload the complete definition.`,
             );
         }
-        const previous = object(program.metadata).surveyDefinition;
-        const definition = mergeSurveyDefinitions(
-          Array.isArray(previous)
-            ? (previous as unknown as SurveyDefinition)
-            : undefined,
-          uploaded,
-        );
         const mapped = questions.map((question) =>
           applySurveyDefinition(question, definition),
         );
@@ -503,7 +558,8 @@ export class ProgramSurveyDefinitionService {
             question &&
             raw !== null &&
             String(raw).trim() !== "" &&
-            object(question.metadata).surveyDefinitionAnswers &&
+            definition.find(({ dataLabel }) => dataLabel === question.dataLabel)
+              ?.options?.length &&
             !definitionAnswer(response.value, question.metadata)
           )
             issues.push(
@@ -512,14 +568,6 @@ export class ProgramSurveyDefinitionService {
         }
         if (issues.length)
           throw new BadRequestException(issues.slice(0, 100).join("\n"));
-        const current = effectiveSurveyDefinition(
-          questions,
-          program.year,
-          responses,
-          await loadDefaultSurveyDefinition(),
-        );
-        if (JSON.stringify(current) === JSON.stringify(uploaded))
-          return { updatedQuestions: 0, unchanged: true };
         for (const question of mapped)
           await db.question.update({
             where: { id: question.id },
@@ -538,11 +586,8 @@ export class ProgramSurveyDefinitionService {
               surveyDefinition: JSON.parse(
                 JSON.stringify(definition),
               ) as Prisma.InputJsonValue,
-              surveyDefinitionFile: {
-                fileName: basename(filename),
-                sha256: createHash("sha256").update(buffer).digest("hex"),
-                uploadedAt: new Date().toISOString(),
-              },
+              surveyDefinitionVersion: null,
+              surveyDefinitionFile: definitionFile(filename, buffer),
             },
           },
         });
@@ -558,16 +603,13 @@ export class ProgramSurveyDefinitionService {
   ): Promise<Buffer> {
     this.assertAccess(principal);
     const program = await this.program(this.prisma, reference);
-    const custom = customEaDefinitionFromMetadata(object(program.metadata));
-    if (custom) return surveyDefinitionWorkbook(custom, "EA");
-    const configured = object(program.metadata).employerAssessmentDefinition;
     return surveyDefinitionWorkbook(
-      await loadDefaultEaTemplateDefinition(
-        Array.isArray(configured)
-          ? (configured as unknown as SurveyDefinition)
-          : [],
-      ),
+      programDefinition(object(program.metadata), "EA"),
       "EA",
+      typeof object(program.metadata).employerAssessmentDefinitionVersion ===
+        "string"
+        ? String(object(program.metadata).employerAssessmentDefinitionVersion)
+        : undefined,
     );
   }
 
@@ -602,12 +644,8 @@ export class ProgramSurveyDefinitionService {
     return this.prisma.$transaction(async (db) => {
       const program = await this.program(db, reference);
       const metadata = object(program.metadata);
-      const previous =
-        customEaDefinitionFromMetadata(metadata) ??
-        (Array.isArray(metadata.employerAssessmentDefinition)
-          ? (metadata.employerAssessmentDefinition as unknown as SurveyDefinition)
-          : undefined);
-      const definition = mergeEaDefinitions(previous, uploaded);
+      const previous = programDefinition(metadata, "EA");
+      const definition = uploaded;
       if (isCustomEaDefinition(definition)) {
         const questions = await db.question.findMany({
           where: {
@@ -632,26 +670,20 @@ export class ProgramSurveyDefinitionService {
         );
         if (issues.length) throw new BadRequestException(issues.join("; "));
       }
-      const unchanged =
-        JSON.stringify(previous ?? []) === JSON.stringify(definition);
-      if (!unchanged) {
-        await db.program.update({
-          where: { id: program.id },
-          data: {
-            metadata: {
-              ...metadata,
-              ...(JSON.parse(
-                JSON.stringify(eaDefinitionMetadata(definition)),
-              ) as Prisma.JsonObject),
-              employerAssessmentDefinitionFile: {
-                fileName: basename(filename),
-                sha256: createHash("sha256").update(buffer).digest("hex"),
-                uploadedAt: new Date().toISOString(),
-              },
-            },
+      const unchanged = JSON.stringify(previous) === JSON.stringify(definition);
+      await db.program.update({
+        where: { id: program.id },
+        data: {
+          metadata: {
+            ...metadata,
+            ...(JSON.parse(
+              JSON.stringify(eaDefinitionMetadata(definition)),
+            ) as Prisma.JsonObject),
+            employerAssessmentDefinitionVersion: null,
+            employerAssessmentDefinitionFile: definitionFile(filename, buffer),
           },
-        });
-      }
+        },
+      });
       return { updatedLabels: uploaded.length, unchanged };
     });
   }

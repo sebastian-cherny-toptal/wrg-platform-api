@@ -181,7 +181,9 @@ function questionsForHeaders(
     if (
       !original ||
       isExcludedSurveyQuestion(original) ||
-      /^(?:organization_ID|organization_name)$/iu.test(original) ||
+      /^(?:organization[ _](?:ID2?|name)|Respondent|Language|Date responded|Reached end)$/iu.test(
+        original,
+      ) ||
       (/_ORGID(?:_|$)/iu.test(original) &&
         !includedQuestionLabels.includes(original))
     ) {

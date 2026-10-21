@@ -1,3 +1,4 @@
+import { parseLegacyEaFixture } from "../helpers/legacy-ea-fixture.js";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { test } from "node:test";
@@ -17,6 +18,7 @@ test("default EA definition template exposes the built-in Benefits & Best Practi
   const defaults = await loadDefaultBenefitsBestPracticesDefinition();
   const parsed = await parseSurveyDefinition(
     await surveyDefinitionWorkbook(defaults),
+    "EA",
   );
 
   assert.equal(parsed.length, 38);
@@ -50,7 +52,7 @@ test("default EA definition template exposes the built-in Benefits & Best Practi
 });
 
 test("Campaign 2026 EA Questions and Answers parses but is rejected when attached", async () => {
-  const uploaded = await parseSurveyDefinition(
+  const uploaded = await parseLegacyEaFixture(
     await readFile(
       new URL("../fixtures/campaign-2026-ea-qa-upload.xlsx", import.meta.url),
     ),
@@ -174,6 +176,7 @@ test("EA exports omit question_type and score while EFS retains both and old tem
   );
   const parsed = await parseSurveyDefinition(
     Buffer.from(await workbook.xlsx.writeBuffer()),
+    "EA",
   );
   const question = parsed[0];
   assert.ok(question);
@@ -266,8 +269,9 @@ for (const [sheetName, field] of [
         "question_label",
         "category",
         "display_order",
+        "question_type",
       ]);
-      questions.addRow(["q_Test", "Test", "Benefits", 2]);
+      questions.addRow(["q_Test", "Test", "Benefits", 2, "choice"]);
       const answers = workbook.addWorksheet("Answers");
       answers.addRow([
         "question_key",

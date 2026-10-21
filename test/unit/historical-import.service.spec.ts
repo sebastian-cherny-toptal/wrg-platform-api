@@ -25,7 +25,7 @@ async function writeWorkbook(
     "Language",
     "Date responded",
     "Reached end",
-    "q_CoreEmployeeExperience_Test",
+    "q_CoreEmployeeExperience_1",
   ]);
   worksheet.addRow([
     null,
@@ -40,7 +40,7 @@ async function writeWorkbook(
 }
 
 describe("historical import service", () => {
-  it("downloads the no-upload definition from the selected EFS and matching year defaults", async () => {
+  it("downloads the selected EFS from v1 without inheriting another program’s wording", async () => {
     const root = mkdtempSync(join(tmpdir(), "historical-definition-"));
     const previousCwd = process.cwd();
     process.chdir(root);
@@ -55,7 +55,7 @@ describe("historical import service", () => {
         "Date responded",
         "Reached end",
         "Score %",
-        "q_CoreEmployeeExperience_Test",
+        "q_CoreEmployeeExperience_1",
       ]);
       survey.addRow(["Acme Corp", 1, "en", "2026-01-01", "Yes", null, 4]);
       await source.xlsx.writeFile(efsPath);
@@ -68,7 +68,7 @@ describe("historical import service", () => {
           findMany: () =>
             Promise.resolve([
               {
-                dataLabel: "q_CoreEmployeeExperience_Test",
+                dataLabel: "q_CoreEmployeeExperience_1",
                 caption: "I feel supported at work.",
                 type: "likert",
                 metadata: {},
@@ -101,7 +101,7 @@ describe("historical import service", () => {
       );
       assert.equal(
         workbook.getWorksheet("Questions")?.getCell("B2").value,
-        "I feel supported at work.",
+        "This organization's culture allows me to do my best work",
       );
       assert.equal(
         workbook.getWorksheet("Answers")?.getCell("C5").value,
@@ -244,6 +244,7 @@ describe("historical import service", () => {
         }),
       },
       program: {
+        update: () => Promise.resolve(),
         findFirst: () => ({
           id: "11111111-1111-4111-8111-111111111111",
           projectId: "22222222-2222-4222-8222-222222222222",
@@ -253,7 +254,7 @@ describe("historical import service", () => {
       question: {
         findMany: () => [
           {
-            dataLabel: "q_CoreEmployeeExperience_Test",
+            dataLabel: "q_CoreEmployeeExperience_1",
             caption: "I feel supported at work.",
             type: "likert",
             metadata: {},
@@ -285,7 +286,7 @@ describe("historical import service", () => {
               {
                 value: 2,
                 score: 2,
-                question: { dataLabel: "q_CoreEmployeeExperience_Test" },
+                question: { dataLabel: "q_CoreEmployeeExperience_1" },
               },
             ],
           },
@@ -346,6 +347,7 @@ describe("historical import service", () => {
         }),
       },
       program: {
+        update: () => Promise.resolve(),
         findFirst: () => ({
           id: "11111111-1111-4111-8111-111111111111",
           projectId: "22222222-2222-4222-8222-222222222222",
@@ -439,12 +441,19 @@ describe("historical import service", () => {
     process.chdir(root);
     const efsPath = join(root, "efs.xlsx");
     await writeWorkbook(efsPath, "Acme Corp", 1);
+    const unknown = new ExcelJS.Workbook();
+    await unknown.xlsx.readFile(efsPath);
+    const unknownSheet = unknown.worksheets[0];
+    assert.ok(unknownSheet);
+    unknownSheet.getRow(1).getCell(7).value =
+      "q_CoreEmployeeExperience_Unknown";
+    await unknown.xlsx.writeFile(efsPath);
     const workbook = readFileSync(efsPath);
     const prisma = {
       question: {
         findMany: () => [
           {
-            dataLabel: "q_CoreEmployeeExperience_Test",
+            dataLabel: "q_CoreEmployeeExperience_Unknown",
             caption: "A newer program's wording",
             type: "likert",
             metadata: {},
@@ -475,17 +484,17 @@ describe("historical import service", () => {
       assert.equal(missing.validation.blockingErrorCount, 1);
       assert.match(
         missing.validation.issues[0]?.message ?? "",
-        /q_CoreEmployeeExperience_Test/u,
+        /q_CoreEmployeeExperience_Unknown/u,
       );
 
       const definition = new ExcelJS.Workbook();
       definition.addWorksheet("Questions").addRows([
         ["question_key", "question_label", "question_type"],
-        ["q_CoreEmployeeExperience_Test", "Approved 2022 wording", "likert"],
+        ["q_CoreEmployeeExperience_Unknown", "Approved 2022 wording", "likert"],
       ]);
       definition.addWorksheet("Answers").addRows([
         ["question_key", "raw_answer", "answer_label", "score"],
-        ["q_CoreEmployeeExperience_Test", 4, "Agree", 4],
+        ["q_CoreEmployeeExperience_Unknown", 4, "Agree", 4],
       ]);
       const defined = await service.prepare(principal, metadata, {
         efsFile: { filename: "efs.xlsx", buffer: workbook },
@@ -516,7 +525,7 @@ describe("historical import service", () => {
       question: {
         findMany: () => [
           {
-            dataLabel: "q_CoreEmployeeExperience_Test",
+            dataLabel: "q_CoreEmployeeExperience_1",
             caption: "Approved 2026 wording",
             type: "likert",
             metadata: {},
@@ -639,7 +648,7 @@ describe("historical import service", () => {
       question: {
         findMany: () => [
           {
-            dataLabel: "q_CoreEmployeeExperience_Test",
+            dataLabel: "q_CoreEmployeeExperience_1",
             caption: "Approved 2026 wording",
             type: "likert",
             metadata: {},
@@ -714,6 +723,13 @@ describe("historical import service", () => {
     const efsPath = join(root, "efs.xlsx");
     await writeWorkbook(eaPath, "Acme Corp", 1);
     await writeWorkbook(efsPath, "Acme Corp", 1);
+    const invalid = new ExcelJS.Workbook();
+    await invalid.xlsx.readFile(efsPath);
+    const invalidSheet = invalid.worksheets[0];
+    assert.ok(invalidSheet);
+    invalidSheet.getRow(1).getCell(7).value =
+      "q_CoreEmployeeExperience_Unknown";
+    await invalid.xlsx.writeFile(efsPath);
     let stagedFilePath: string | undefined;
     let createCalls = 0;
     const service = new HistoricalImportService({
@@ -759,7 +775,7 @@ describe("historical import service", () => {
             efsFile: { filename: "efs.xlsx", buffer: readFileSync(efsPath) },
           },
         ),
-        /q_CoreEmployeeExperience_Test/u,
+        /q_CoreEmployeeExperience_Unknown/u,
       );
       assert.equal(createCalls, 0);
       assert.ok(stagedFilePath);
@@ -779,7 +795,7 @@ describe("historical import service", () => {
       question: {
         findMany: () => [
           {
-            dataLabel: "q_CoreEmployeeExperience_Test",
+            dataLabel: "q_CoreEmployeeExperience_1",
             caption: "Approved 2026 wording",
             type: "likert",
             metadata: {},
@@ -1157,6 +1173,7 @@ describe("historical import service", () => {
         create: ({ data }: { data: unknown }) => data,
       },
       program: {
+        update: () => Promise.resolve(),
         create: ({ data }: { data: { metadata: unknown } }) => {
           programMetadata = data.metadata;
           return data;

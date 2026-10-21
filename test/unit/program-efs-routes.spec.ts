@@ -34,7 +34,22 @@ const job = { jobId: "job-id", status: "RUNNING", saved: false };
   imports: [PassportModule, JwtModule.register({ secret })],
   controllers: [ProgramSurveyDefinitionController],
   providers: [
-    { provide: ProgramSurveyDefinitionService, useValue: {} },
+    {
+      provide: ProgramSurveyDefinitionService,
+      useValue: {
+        downloadCurrent: (
+          _principal: unknown,
+          programId: string,
+          kind: string,
+        ) => {
+          assert.equal(programId, "program-id");
+          return {
+            bytes: Buffer.from(`${kind} original file`),
+            fileName: `${kind} current file.xlsx`,
+          };
+        },
+      },
+    },
     { provide: HistoricalImportService, useValue: {} },
     {
       provide: ProgramEfsJobs,
@@ -65,14 +80,12 @@ test("EFS job polling and latest-job discovery use the native admin URL with pro
   app.setGlobalPrefix("api", { exclude: nativeCompatibilityRoutes });
   app.enableVersioning({ type: VersioningType.URI, defaultVersion: "1" });
   await app.init();
-  const token = app
-    .get(JwtService)
-    .sign({
-      sub: "admin",
-      roles: ["admin"],
-      permissions: [],
-      organizationId: null,
-    });
+  const token = app.get(JwtService).sign({
+    sub: "admin",
+    roles: ["admin"],
+    permissions: [],
+    organizationId: null,
+  });
   try {
     for (const suffix of ["job-id", "latest"]) {
       const response = await app.inject({
@@ -83,6 +96,31 @@ test("EFS job polling and latest-job discovery use the native admin URL with pro
       assert.equal(response.statusCode, 200, response.body);
       assert.deepEqual(response.json(), { success: true, data: job });
     }
+    for (const kind of ["EFS", "EA"]) {
+      const response = await app.inject({
+        method: "GET",
+        headers: { authorization: `Bearer ${token}` },
+        url: `/admin/programs/program-id/definitions/${kind}/current.xlsx`,
+      });
+      assert.equal(response.statusCode, 200, response.body);
+      assert.equal(response.body, `${kind} original file`);
+      assert.equal(
+        response.headers["content-disposition"],
+        `attachment; filename*=UTF-8''${kind}%20current%20file.xlsx`,
+      );
+      assert.equal(response.headers["cache-control"], "no-store");
+    }
+    const invalid = await app.inject({
+      method: "GET",
+      headers: { authorization: `Bearer ${token}` },
+      url: "/admin/programs/program-id/definitions/unknown/current.xlsx",
+    });
+    assert.equal(invalid.statusCode, 400);
+    const unauthenticated = await app.inject({
+      method: "GET",
+      url: "/admin/programs/program-id/definitions/EFS/current.xlsx",
+    });
+    assert.equal(unauthenticated.statusCode, 401);
   } finally {
     await app.close();
   }

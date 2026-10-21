@@ -84,7 +84,7 @@ model Program {
   year                Int?
   currency            String                @default("USD")
   fees                Json                  @default("{}")
-  metadata            Json                  @default("{}")
+  metadata            Json                  @default("{\"surveyDefinitionVersion\":\"v1\",\"employerAssessmentDefinitionVersion\":\"v1\"}")
   startsAt            DateTime?
   endsAt              DateTime?
   latestZohoSync      DateTime              @default(now()) @map("latest_zoho_sync")

@@ -115,6 +115,34 @@ export class ProgramSurveyDefinitionController {
     return { file, revision };
   }
 
+  @Get("definitions/:kind/current.xlsx")
+  async downloadCurrent(
+    @CurrentUser() principal: Principal,
+    @Param("programId") programId: string,
+    @Param("kind") kind: string,
+    @Res() reply: FastifyReply,
+  ) {
+    if (kind !== "EFS" && kind !== "EA")
+      throw new BadRequestException("Definition kind must be EFS or EA");
+    const { bytes, fileName } = await this.definitions.downloadCurrent(
+      principal,
+      programId,
+      kind,
+    );
+    reply
+      .header(
+        "content-type",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      )
+      .header(
+        "content-disposition",
+        `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}`,
+      )
+      .header("access-control-expose-headers", "content-disposition")
+      .header("cache-control", "no-store")
+      .send(bytes);
+  }
+
   @Get("survey-definition.xlsx")
   async download(
     @CurrentUser() principal: Principal,

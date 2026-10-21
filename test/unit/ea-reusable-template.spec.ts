@@ -46,8 +46,8 @@ test("UK Campaign endpoint exports EA columns and enforces admin access", async 
     (answers.getRow(1).values as ExcelJS.CellValue[]).includes("score"),
     false,
   );
-  const definition = await parseSurveyDefinition(bytes);
-  const original = await parseSurveyDefinition(source);
+  const definition = await parseSurveyDefinition(bytes, "EA");
+  const original = await parseSurveyDefinition(source, "EA");
   for (const question of original) {
     delete question.type;
     for (const option of question.options ?? []) delete option.Score;
@@ -83,10 +83,10 @@ test("UK Campaign endpoint exports EA columns and enforces admin access", async 
   );
   assert.ok(Buffer.isBuffer(sent));
   // Separate XLSX exports can have different ZIP timestamps.
-  assert.deepEqual(await parseSurveyDefinition(sent), definition);
+  assert.deepEqual(await parseSurveyDefinition(sent, "EA"), definition);
   assert.equal(
     headers.get("content-disposition"),
-    'attachment; filename="UK_EA_Questions_and_Answers.xlsx"',
+    'attachment; filename="UK_EA_Definition_v1.xlsx"',
   );
   assert.equal(headers.get("cache-control"), "no-store");
   await assert.rejects(
@@ -103,12 +103,13 @@ test("the default EA download combines all legacy and AD questions with every ma
   const service = new HistoricalImportService({} as PrismaService);
   const buffer =
     await service.downloadDefaultEmployerAssessmentDefinition(principal);
-  const definition = await parseSurveyDefinition(buffer);
+  const definition = await parseSurveyDefinition(buffer, "EA");
   const defaults = await loadDefaultBenefitsBestPracticesDefinition();
   const ad = await parseSurveyDefinition(
     await readFile(
       new URL("../fixtures/ad-2026-ea-qa-upload.xlsx", import.meta.url),
     ),
+    "EA",
   );
   assert.equal(definition.length, 47);
   for (const question of [...defaults, ...ad]) {
@@ -198,6 +199,7 @@ test("the same default template uploads to AD and older programs and omits absen
     assert.deepEqual(
       await parseSurveyDefinition(
         await service.downloadEmployerAssessment(principal, programId),
+        "EA",
       ),
       saved,
     );
@@ -234,6 +236,8 @@ test("an invalid missing_source policy cannot silently turn a required mapping i
     {
       dataLabel: "q_Test",
       caption: "Test",
+      categoryLabel: "Test",
+      position: 1,
       ea: {
         calculation: "mean",
         sourceColumn: "q_Test",
@@ -250,5 +254,8 @@ test("an invalid missing_source policy cannot silently turn a required mapping i
   assert.ok(sheet);
   sheet.getCell("L2").value = "ignore-typo";
   const buffer = Buffer.from(await workbook.xlsx.writeBuffer());
-  await assert.rejects(() => parseSurveyDefinition(buffer), /missing_source/u);
+  await assert.rejects(
+    () => parseSurveyDefinition(buffer, "EA"),
+    /missing_source/u,
+  );
 });

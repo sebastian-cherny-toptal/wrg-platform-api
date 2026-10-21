@@ -121,7 +121,7 @@ export async function parseSurveyDefinition(
   for (const row of rows("Questions", [
     "question_key",
     "question_label",
-    ...(kind === "EA" ? ["category", "display_order"] : []),
+    ...(kind === "EA" ? ["category", "display_order"] : ["question_type"]),
   ])) {
     const dataLabel = row.text("question_key");
     const caption = row.text("question_label");
@@ -132,6 +132,10 @@ export async function parseSurveyDefinition(
     if (questions.has(dataLabel))
       throw new BadRequestException(`Duplicate question_key: ${dataLabel}`);
     const type = row.text("question_type").toLowerCase();
+    if (kind === "EFS" && !type)
+      throw new BadRequestException(
+        `Questions row ${row.row}: question_type is required`,
+      );
     if (
       type &&
       !["likert", "demographic", "choice", "open-text", "text"].includes(type)
@@ -299,7 +303,23 @@ export function applySurveyDefinition<
     !Array.isArray(question.metadata)
       ? question.metadata
       : {};
-  const rawType = (configured.type ?? question.type).trim().toLowerCase();
+  if (!configured.ea && !configured.type)
+    throw new BadRequestException(
+      `${question.dataLabel}: question_type is required`,
+    );
+  const removedMetadataKeys = new Set([
+    "QuestionResponses",
+    "questionResponses",
+    "responseOptions",
+    "options",
+    "categoryLabel",
+    "filterLabel",
+    "surveyDefinitionAnswers",
+  ]);
+  const cleanMetadata = Object.fromEntries(
+    Object.entries(metadata).filter(([key]) => !removedMetadataKeys.has(key)),
+  );
+  const rawType = (configured.type ?? "choice").trim().toLowerCase();
   const type = ["5", "scale", "rating", "agreement"].includes(rawType)
     ? "likert"
     : ["2", "3"].includes(rawType)
@@ -330,11 +350,9 @@ export function applySurveyDefinition<
     caption: configured.caption,
     type,
     ...(type === "demographic" ? { filterLabel: configured.caption } : {}),
-    ...(configured.position !== undefined
-      ? { position: configured.position }
-      : {}),
+    position: configured.position ?? (definition?.indexOf(configured) ?? 0) + 1,
     metadata: {
-      ...metadata,
+      ...cleanMetadata,
       surveyDefinition: true,
       QuestionTypeId:
         type === "likert"
@@ -356,12 +374,8 @@ export function applySurveyDefinition<
       ...(configured.categoryLabel
         ? { categoryLabel: configured.categoryLabel }
         : {}),
-      ...(configured.options
-        ? {
-            QuestionResponses: configured.options,
-            surveyDefinitionAnswers: true,
-          }
-        : {}),
+      QuestionResponses: configured.options ?? [],
+      surveyDefinitionAnswers: !type.includes("text"),
     },
   };
 }

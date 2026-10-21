@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Controller,
+  Get,
   HttpCode,
   Inject,
   Post,
@@ -67,6 +68,26 @@ export class HistoricalImportController {
     private readonly imports: HistoricalImportService,
   ) {}
 
+  @Get("default-survey-definition.xlsx")
+  async downloadSurveyDefinitionTemplate(
+    @CurrentUser() principal: Principal,
+    @Res() reply: FastifyReply,
+  ) {
+    const bytes =
+      await this.imports.downloadSurveyDefinitionTemplate(principal);
+    reply
+      .header(
+        "content-type",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      )
+      .header(
+        "content-disposition",
+        'attachment; filename="EFS_Definition_Default_v1.xlsx"',
+      )
+      .header("cache-control", "no-store")
+      .send(bytes);
+  }
+
   @Post("default-survey-definition.xlsx")
   @HttpCode(200)
   @ApiConsumes("multipart/form-data")
@@ -90,7 +111,7 @@ export class HistoricalImportController {
       )
       .header(
         "content-disposition",
-        'attachment; filename="Survey_Definition_Default_Template.xlsx"',
+        'attachment; filename="EFS_Definition_Default_v1.xlsx"',
       )
       .header("access-control-expose-headers", "*")
       .header("cache-control", "no-store")
@@ -112,7 +133,7 @@ export class HistoricalImportController {
       )
       .header(
         "content-disposition",
-        'attachment; filename="EA_Definition_Default_Template.xlsx"',
+        'attachment; filename="EA_Definition_Default_v1.xlsx"',
       )
       .header("access-control-expose-headers", "*")
       .header("cache-control", "no-store")
@@ -136,7 +157,7 @@ export class HistoricalImportController {
       )
       .header(
         "content-disposition",
-        'attachment; filename="UK_EA_Questions_and_Answers.xlsx"',
+        'attachment; filename="UK_EA_Definition_v1.xlsx"',
       )
       .header("access-control-expose-headers", "*")
       .header("cache-control", "no-store")
